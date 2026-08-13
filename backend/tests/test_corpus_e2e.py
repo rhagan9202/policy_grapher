@@ -1,7 +1,5 @@
 """STORY-012: the sample DoD corpus loads and renders end to end."""
 
-from pathlib import Path
-
 import pytest
 
 pytestmark = pytest.mark.integration

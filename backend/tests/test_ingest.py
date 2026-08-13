@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 from neo4j import RoutingControl
 
-from policy_grapher.csv_source import parse_corpus, resolve_csv_path
+from policy_grapher.csv_source import parse_corpus
 from policy_grapher.ingest import ingest_file, ingest_parsed
-from policy_grapher.slugs import assign_slugs, hash_suffix
+from policy_grapher.slugs import hash_suffix
 
 pytestmark = pytest.mark.integration
 

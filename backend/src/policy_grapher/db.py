@@ -5,10 +5,14 @@ from neo4j import Driver, GraphDatabase, RoutingControl
 from policy_grapher.config import Settings
 
 CONSTRAINTS: tuple[str, ...] = (
-    "CREATE CONSTRAINT document_slug_unique IF NOT EXISTS "
-    "FOR (d:Document) REQUIRE d.slug IS UNIQUE",
-    "CREATE CONSTRAINT document_name_unique IF NOT EXISTS "
-    "FOR (d:Document) REQUIRE d.name IS UNIQUE",
+    (
+        "CREATE CONSTRAINT document_slug_unique IF NOT EXISTS "
+        "FOR (d:Document) REQUIRE d.slug IS UNIQUE"
+    ),
+    (
+        "CREATE CONSTRAINT document_name_unique IF NOT EXISTS "
+        "FOR (d:Document) REQUIRE d.name IS UNIQUE"
+    ),
 )
 
 
