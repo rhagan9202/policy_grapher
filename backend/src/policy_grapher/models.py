@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -6,10 +8,27 @@ class IngestRequest(BaseModel):
 
 
 class IngestResult(BaseModel):
+    source: Literal["manifest"] = "manifest"
     nodes_created: int
     relationships_created: int
     self_references_skipped: int
     suspected_duplicates: list[list[str]] = Field(default_factory=list)
+
+
+class DocumentRef(BaseModel):
+    slug: str
+    name: str
+
+
+class DocumentIngestResult(BaseModel):
+    source: Literal["document"] = "document"
+    format: str
+    document: DocumentRef
+    nodes_created: int
+    relationships_created: int
+    references_attributed: int
+    references_unattributed: list[str] = Field(default_factory=list)
+    self_references_skipped: int
 
 
 class ResetResult(BaseModel):

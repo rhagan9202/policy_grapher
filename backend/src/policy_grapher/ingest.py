@@ -5,8 +5,9 @@ from pathlib import Path
 from neo4j import Driver, ManagedTransaction
 
 from policy_grapher.documents import allocate_slugs
-from policy_grapher.models import IngestResult
+from policy_grapher.models import DocumentIngestResult, DocumentRef, IngestResult
 from policy_grapher.slugs import assign_slugs
+from policy_grapher.sources import is_document_source, pdf
 from policy_grapher.sources.document import ExtractedDocument
 from policy_grapher.sources.manifest import ParsedCorpus, parse_corpus, resolve_csv_path
 
@@ -100,9 +101,22 @@ def ingest_parsed(
 
 def ingest_file(
     driver: Driver, database: str, filename: str, data_dir: Path
-) -> IngestResult:
+) -> IngestResult | DocumentIngestResult:
     path = resolve_csv_path(filename, data_dir)
-    return ingest_parsed(driver, database, parse_corpus(path))
+    if not is_document_source(path):
+        return ingest_parsed(driver, database, parse_corpus(path))
+
+    extracted = pdf.extract_document(path)
+    slug, nodes_created, relationships_created = ingest_document(driver, database, extracted)
+    return DocumentIngestResult(
+        format=extracted.report.format,
+        document=DocumentRef(slug=slug, name=extracted.name),
+        nodes_created=nodes_created,
+        relationships_created=relationships_created,
+        references_attributed=len(extracted.report.attributed),
+        references_unattributed=list(extracted.report.unattributed),
+        self_references_skipped=extracted.self_references_skipped,
+    )
 
 
 MERGE_DOCUMENT = """

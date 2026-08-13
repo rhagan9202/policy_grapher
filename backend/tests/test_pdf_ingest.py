@@ -99,3 +99,42 @@ def test_two_cited_names_contesting_a_base_slug_stay_distinct(clean_graph, datab
     suffixed = slugs - {"military-standard-882e"}
     assert len(suffixed) == 1
     assert next(iter(suffixed)).startswith("military-standard-882e-")
+
+
+def test_posting_a_pdf_filename_ingests_it(client_with_graph):
+    response = client_with_graph.post("/ingest", json={"filename": "500001p.pdf"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "document"
+    assert body["format"] == "modern"
+    assert body["document"]["slug"] == "dodd-5000-01"
+    assert body["references_attributed"] > 0
+    assert isinstance(body["references_unattributed"], list)
+
+
+def test_the_csv_response_still_says_manifest(client_with_graph):
+    response = client_with_graph.post(
+        "/ingest", json={"filename": "dod_policy_references_08122026.csv"}
+    )
+
+    body = response.json()
+    assert body["source"] == "manifest"
+    assert body["nodes_created"] == 438
+    assert body["relationships_created"] == 672
+
+
+def test_an_unreadable_pdf_is_a_400(client_with_graph, tmp_path, monkeypatch):
+    """A PDF with no issuance header is a client error, not a 500."""
+    from policy_grapher import ingest as ingest_module
+    from policy_grapher.sources.document import DocumentSourceError
+
+    def refuse(path):
+        raise DocumentSourceError("no recognisable issuance header")
+
+    monkeypatch.setattr(ingest_module.pdf, "extract_document", refuse)
+
+    response = client_with_graph.post("/ingest", json={"filename": "500001p.pdf"})
+
+    assert response.status_code == 400
+    assert "header" in response.json()["detail"]
