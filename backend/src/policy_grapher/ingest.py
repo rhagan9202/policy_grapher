@@ -4,9 +4,8 @@ from pathlib import Path
 
 from neo4j import Driver, ManagedTransaction
 
-from policy_grapher.documents import allocate_slugs
+from policy_grapher.documents import allocate_slugs, reconcile_slugs
 from policy_grapher.models import DocumentIngestResult, DocumentRef, IngestResult
-from policy_grapher.slugs import assign_slugs
 from policy_grapher.sources import is_document_source, pdf
 from policy_grapher.sources.document import ExtractedDocument
 from policy_grapher.sources.manifest import ParsedCorpus, parse_corpus, resolve_csv_path
@@ -65,7 +64,12 @@ def _write_ingest(
 def ingest_parsed(
     driver: Driver, database: str, parsed: ParsedCorpus
 ) -> IngestResult:
-    slugs = assign_slugs(parsed.all_names)
+    # Slugs are resolved before the write transaction opens (`reconcile_slugs`
+    # reads via `driver.execute_query`, which cannot run inside a
+    # `session.execute_write` callback). Names already stored — by an earlier
+    # manifest or by a PDF ingested first — keep the slug they hold; only new
+    # names are assigned over the name set. See `documents.reconcile_slugs`.
+    slugs = reconcile_slugs(driver, database, parsed.all_names)
 
     corpus_docs = [
         {"slug": slugs[name], "name": name}

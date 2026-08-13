@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from neo4j import Driver, RoutingControl
 
 from policy_grapher.models import DocumentOut
-from policy_grapher.slugs import base_slug, hash_suffix
+from policy_grapher.slugs import assign_slugs, base_slug, hash_suffix
 
 DOCUMENT_FIELDS = """
 OPTIONAL MATCH (d)-[:REFERENCES]->(out:Document)
@@ -27,6 +27,13 @@ GET_DOCUMENT = f"MATCH (d:Document {{slug: $slug}}) {DOCUMENT_FIELDS}"
 SLUG_TAKEN = "MATCH (d:Document {slug: $slug}) RETURN count(d) AS total"
 NAME_TAKEN = "MATCH (d:Document {name: $name}) RETURN count(d) AS total"
 SLUG_FOR_NAME = "MATCH (d:Document {name: $name}) RETURN d.slug AS slug"
+
+SLUGS_FOR_NAMES = """
+UNWIND $names AS name
+MATCH (d:Document {name: name})
+RETURN name AS name, d.slug AS slug
+"""
+ALL_SLUGS = "MATCH (d:Document) RETURN d.slug AS slug"
 
 CREATE_DOCUMENT = """
 CREATE (d:Document {slug: $slug, name: $name})
@@ -166,6 +173,53 @@ def allocate_slugs(driver: Driver, database: str, names: Iterable[str]) -> dict[
         else:
             assigned[name] = base
             claimed_bases.add(base)
+    return assigned
+
+
+def reconcile_slugs(driver: Driver, database: str, names: Iterable[str]) -> dict[str, str]:
+    """Allocate slugs for a whole manifest, reconciled against what is already stored.
+
+    The manifest path assigns slugs over the *set* of names (ADR-005 decision 1:
+    every contender for a contested base is suffixed, so no document's URL
+    depends on row order), which `slugs.assign_slugs` does as a pure function of
+    the names alone. On an empty graph — the normal path, since compose
+    auto-ingests into an empty database — that is the whole answer and this
+    function returns exactly what `assign_slugs` does.
+
+    A graph that already holds documents needs the same reconciliation
+    `allocate_slugs` performs on the document path, for the same reason:
+
+    1. **A name that is already stored is the incumbent, not a new contender.**
+       It keeps whatever slug it holds. Re-deriving one from the name set would
+       move a document that a PDF ingest had already placed — and because
+       `d.name` is unique, "moving" it means merging a *second* node under an
+       already-taken name, which fails `document_name_unique` and rolls the
+       whole ingest back. That failure is permanent until `POST /reset`, since
+       every retry re-derives the same slug.
+    2. **A genuinely new name cannot take a slug someone else holds.** Its base
+       may be free within this name set yet already belong to a stored document
+       (the incumbent's contender only shows up now). Suffixing the newcomer and
+       leaving the incumbent alone is ADR-005 decision 2, exactly as
+       `allocate_slug` resolves it for `POST /documents`.
+
+    Reusing a stored slug increases URL stability rather than reducing it;
+    ADR-005 already accepts that a reset-and-reingest may produce different slugs
+    than incremental arrival did.
+    """
+    wanted = set(names)
+    stored = {
+        record["name"]: record["slug"]
+        for record in _read(driver, database, SLUGS_FOR_NAMES, {"names": sorted(wanted)})
+    }
+    taken = {record["slug"] for record in _read(driver, database, ALL_SLUGS)}
+
+    assigned = dict(stored)
+    for name, slug in assign_slugs(wanted - stored.keys()).items():
+        # `assign_slugs` only sees this name set, so a bare slug it hands out may
+        # already belong to a stored document. Suffixed slugs carry the hash of
+        # their own name and so can only clash with themselves; recomputing one
+        # here yields the same string.
+        assigned[name] = f"{base_slug(name)}-{hash_suffix(name)}" if slug in taken else slug
     return assigned
 
 

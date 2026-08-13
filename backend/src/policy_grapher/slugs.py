@@ -5,6 +5,10 @@ arrive in. When two names normalise to the same base slug, every contender gets 
 hash suffix — so no document's URL depends on which row was ingested first.
 See ADR-003 as amended by ADR-005; `documents.allocate_slug` covers the other path,
 where a document is created one at a time and there is no name set to resolve over.
+
+This module stays pure and knows nothing of what is already stored. Ingest calls it
+through `documents.reconcile_slugs`, which first lets any name the graph already holds
+keep the slug it holds, and only then assigns over the names that remain.
 """
 
 import hashlib

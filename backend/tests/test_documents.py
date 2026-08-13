@@ -1,8 +1,15 @@
 import pytest
 
+from policy_grapher.documents import allocate_slugs, create_document, reconcile_slugs
+from policy_grapher.slugs import assign_slugs, hash_suffix
+
 pytestmark = pytest.mark.integration
 
 SAMPLE = "dod_policy_references_08122026.csv"
+
+MIL_A = "Military Standard 882E"
+MIL_B = "Military-Standard 882E"
+MIL_BASE = "military-standard-882e"
 
 
 @pytest.fixture
@@ -127,6 +134,96 @@ def test_delete_removes_the_document_and_its_edges(loaded):
 
 def test_delete_an_unknown_slug_is_404(loaded):
     assert loaded.delete("/documents/no-such-document").status_code == 404
+
+
+class TestAllocateSlugs:
+    """The document path's batch allocation, exercised directly rather than
+    through `ingest_document`'s PDF extraction and graph writes."""
+
+    def test_an_already_stored_name_keeps_the_slug_it_holds(self, clean_graph, database):
+        create_document(clean_graph, database, MIL_A)
+
+        assert allocate_slugs(clean_graph, database, [MIL_A]) == {MIL_A: MIL_BASE}
+
+    def test_a_stored_name_keeps_a_slug_that_is_already_suffixed(
+        self, clean_graph, database
+    ):
+        create_document(clean_graph, database, MIL_A)
+        create_document(clean_graph, database, MIL_B)
+        suffixed = f"{MIL_BASE}-{hash_suffix(MIL_B)}"
+
+        assert allocate_slugs(clean_graph, database, [MIL_B]) == {MIL_B: suffixed}
+
+    def test_two_new_names_contesting_one_base_resolve_distinctly(
+        self, clean_graph, database
+    ):
+        """Neither exists yet, so the database cannot separate them: the first in
+        the batch keeps the base, the second takes the suffix."""
+        assigned = allocate_slugs(clean_graph, database, [MIL_A, MIL_B])
+
+        assert assigned == {MIL_A: MIL_BASE, MIL_B: f"{MIL_BASE}-{hash_suffix(MIL_B)}"}
+        assert len(set(assigned.values())) == 2
+
+    def test_batch_order_decides_which_of_two_new_names_stays_bare(
+        self, clean_graph, database
+    ):
+        assigned = allocate_slugs(clean_graph, database, [MIL_B, MIL_A])
+
+        assert assigned == {MIL_B: MIL_BASE, MIL_A: f"{MIL_BASE}-{hash_suffix(MIL_A)}"}
+
+    def test_a_new_name_contesting_a_stored_one_takes_the_suffix(
+        self, clean_graph, database
+    ):
+        """ADR-005 decision 2: the incumbent's bare slug never moves."""
+        create_document(clean_graph, database, MIL_A)
+
+        assigned = allocate_slugs(clean_graph, database, [MIL_B])
+
+        assert assigned == {MIL_B: f"{MIL_BASE}-{hash_suffix(MIL_B)}"}
+        stored = clean_graph.execute_query(
+            "MATCH (d:Document {name: $name}) RETURN d.slug AS slug",
+            {"name": MIL_A},
+            database_=database,
+        ).records
+        assert stored[0]["slug"] == MIL_BASE
+
+    def test_a_name_repeated_in_the_batch_is_resolved_once(self, clean_graph, database):
+        assert allocate_slugs(clean_graph, database, [MIL_A, MIL_A]) == {MIL_A: MIL_BASE}
+
+    def test_an_empty_batch_allocates_nothing(self, clean_graph, database):
+        assert allocate_slugs(clean_graph, database, []) == {}
+
+
+class TestReconcileSlugs:
+    """The manifest path's allocation, reconciled against what is already stored."""
+
+    def test_on_an_empty_graph_it_is_exactly_assign_slugs(self, clean_graph, database):
+        names = [MIL_A, MIL_B, "DoDD 5000.01"]
+
+        assert reconcile_slugs(clean_graph, database, names) == assign_slugs(names)
+
+    def test_a_stored_name_keeps_its_slug_and_its_contender_is_suffixed(
+        self, clean_graph, database
+    ):
+        """Without this, both contenders would be re-slugged over the name set and
+        the stored one would be merged in at a slug it does not hold."""
+        create_document(clean_graph, database, MIL_B)
+
+        assigned = reconcile_slugs(clean_graph, database, [MIL_A, MIL_B])
+
+        assert assigned[MIL_B] == MIL_BASE
+        assert assigned[MIL_A] == f"{MIL_BASE}-{hash_suffix(MIL_A)}"
+
+    def test_a_new_name_never_takes_a_slug_a_stored_document_holds(
+        self, clean_graph, database
+    ):
+        """The stored document is not in the manifest at all, so the name set alone
+        would hand its base slug straight to the newcomer."""
+        create_document(clean_graph, database, MIL_A)
+
+        assigned = reconcile_slugs(clean_graph, database, [MIL_B])
+
+        assert assigned == {MIL_B: f"{MIL_BASE}-{hash_suffix(MIL_B)}"}
 
 
 def test_documents_no_longer_carry_a_reference_role(loaded):

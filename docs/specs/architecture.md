@@ -78,10 +78,15 @@ That guarantee holds only within a single ingest: `assign_slugs` resolves collis
 the names it is given and knows nothing of slugs a prior ingest committed. Two consequences,
 both deliberate:
 
-- **A later ingest that newly contests an existing bare slug fails rather than re-slugging.**
-  It attempts a second node with an already-taken `name`, hits `document_name_unique`, and
-  the whole ingest rolls back — all three statements run in one write transaction — so it
-  cannot succeed until a reset lets the entire name set be re-slugged.
+- **A slug already stored is never reassigned.** `reconcile_slugs` reads the graph before a
+  manifest ingest writes: a name that already exists keeps the slug it holds, and only
+  genuinely new names go through `assign_slugs` — with any whose base slug a stored document
+  already holds taking the hash suffix instead. Without that, a corpus name a PDF ingest had
+  placed at a bare slug would be re-slugged over the whole name set, attempting a second node
+  under an already-taken `name`, hitting `document_name_unique`, and rolling the whole ingest
+  back — all three statements run in one write transaction — permanently, until a reset. On an
+  empty graph, the ordinary path, reconciliation is a no-op and slugs are `assign_slugs`'s
+  alone.
 - **`POST /documents` favours the incumbent.** `allocate_slug` gives the newcomer the hash
   suffix and leaves the existing document's bare slug untouched, so live URLs never move.
   Ingest-time and creation-time assignment can therefore disagree, and a reset-and-reingest
