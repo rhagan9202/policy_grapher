@@ -5,9 +5,26 @@ import type { GraphOut } from '../api/types'
 
 const graphProps: Record<string, unknown>[] = []
 
+/** Stands in for the imperative handle react-force-graph exposes on its ref,
+ *  through which d3 forces are configured. */
+const { forceGraph, chargeForce, linkForce } = vi.hoisted(() => {
+  const chargeForce = { strength: vi.fn() }
+  const linkForce = { distance: vi.fn() }
+  return {
+    chargeForce,
+    linkForce,
+    forceGraph: {
+      d3Force: vi.fn((name: string) => (name === 'charge' ? chargeForce : linkForce)),
+      d3ReheatSimulation: vi.fn(),
+    },
+  }
+})
+
 vi.mock('react-force-graph-2d', () => ({
   default: (props: Record<string, unknown>) => {
     graphProps.push(props)
+    const ref = props.ref as { current: unknown } | undefined
+    if (ref) ref.current = forceGraph
     const data = props.graphData as { nodes: { id: string; label: string }[] }
     return (
       <div data-testid="force-graph">
@@ -74,9 +91,13 @@ const reciprocalView: GraphOut = {
 function fakeCanvasContext() {
   return {
     fillText: vi.fn(),
+    strokeText: vi.fn(),
     measureText: vi.fn(() => ({ width: 40 })),
     font: '',
     fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 0,
+    lineJoin: '',
     textAlign: '',
     textBaseline: '',
   }
@@ -91,6 +112,10 @@ function lastProps() {
 afterEach(() => {
   graphProps.length = 0
   getGraph.mockReset()
+  chargeForce.strength.mockClear()
+  linkForce.distance.mockClear()
+  forceGraph.d3Force.mockClear()
+  forceGraph.d3ReheatSimulation.mockClear()
 })
 
 describe('GraphExplorer', () => {
@@ -246,6 +271,39 @@ describe('GraphExplorer', () => {
     expect(curvature({ source: 'a', target: 'b' })).not.toBe(0)
     expect(curvature({ source: 'b', target: 'a' })).not.toBe(0)
     expect(curvature({ source: 'a', target: 'c' })).toBe(0)
+  })
+
+  it('strokes a halo behind the label so it stays legible over edges', async () => {
+    getGraph.mockResolvedValue(corpusView)
+    render(<GraphExplorer />)
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const paint = lastProps().nodeCanvasObject as Painter
+    const ctx = fakeCanvasContext()
+
+    paint({ ...corpusView.nodes[0], x: 0, y: 0 }, ctx, 1)
+
+    expect(ctx.strokeText).toHaveBeenCalledWith(
+      'DoDD 5000.01',
+      expect.any(Number),
+      expect.any(Number),
+    )
+  })
+
+  it('spreads the layout wider than the d3 force defaults', async () => {
+    getGraph.mockResolvedValue(corpusView)
+    render(<GraphExplorer />)
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    await waitFor(() => expect(chargeForce.strength).toHaveBeenCalled())
+
+    // d3-force defaults: charge strength -30, link distance 30. Anything at or
+    // inside those leaves the 72-edge corpus view as cramped as it was.
+    const [strength] = chargeForce.strength.mock.calls[0] as [number]
+    const [distance] = linkForce.distance.mock.calls[0] as [number]
+
+    expect(strength).toBeLessThan(-30)
+    expect(distance).toBeGreaterThan(30)
   })
 
   it('still identifies reciprocal pairs after the simulation swaps ids for node objects', async () => {
