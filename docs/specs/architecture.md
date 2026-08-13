@@ -109,12 +109,17 @@ command someone has to remember.
 
 | Side | Command | Runs |
 | --- | --- | --- |
-| Backend | `uv run pytest` | Ruff (as `test_lint.py`), then the suite. `-m "not integration"` runs the Docker-free subset, lint included |
-| Frontend | `npm test` | `eslint .`, then `tsc -b`, then vitest — in that order, each gating the next |
+| Backend | `uv run pytest` | The suite, with ruff among it as `test_lint.py`. pytest collects alphabetically, so lint lands mid-run — after the first integration test has already started the Neo4j container. For a fast lint-only answer use `-m "not integration"`, which runs the Docker-free subset, lint included |
+| Frontend | `npm test` | `eslint . --max-warnings=0`, then `tsc -b`, then vitest — in that order, each gating the next |
 
 Ruff takes its default rule set with one exemption: `Depends()` and `Query()` in a parameter
 default are FastAPI's idiom, not the mutable-default bug B008 catches. ESLint runs
-typescript-eslint's recommended set plus `react-hooks` and `react-refresh`.
+typescript-eslint's recommended set plus `react-hooks` and `react-refresh`, over `.js` as
+well as `.ts`/`.tsx` so the lint config lints itself.
+
+`--max-warnings=0` is load-bearing: four rules in the resolved ESLint config are
+warn-level — `exhaustive-deps` among them — and ESLint exits 0 on warnings, so without it
+the rule most likely to catch a stale closure could never fail the build.
 
 Lint is enforced as a test rather than offered as a command because a check behind its own
 command stops being run — the lesson STORY-032 recorded when a type error reached a commit.
