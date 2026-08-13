@@ -52,20 +52,33 @@ for the reasoning behind each stage.
 | --- | --- | --- |
 | `Document` | `slug: str`, `name: str` | `slug` unique, `name` unique |
 | `Document:External` | `slug: str`, `name: str` | same, plus the `:External` label |
+| `Source` | `id: str`, `kind: str`, `filename: str` | `id` unique |
 
 | Type | Direction | Meaning |
 | --- | --- | --- |
 | `REFERENCES` | `(:Document)-[:REFERENCES]->(:Document)` | Document cites another document |
+| `DESCRIBES` | `(:Source)-[:DESCRIBES]->(:Document)` | An ingest recorded this document first-hand |
 
 Nodes and relationships are created with `MERGE`, making ingestion idempotent — re-running
 `/ingest` on the same file creates nothing new. Self-loops are never created.
 
-**The corpus is mostly external.** Ingesting the 23-row sample CSV produces **438 nodes**:
-415 of them are documents cited by the corpus but absent from it — public laws, MIL-STDs,
-CFR titles, DHS and Joint Chiefs memoranda. These carry an extra `:External` label, so
-`MATCH (d:Document) WHERE NOT d:External` is the corpus-only query.
-`GET /graph` returns the corpus view by default; see
+**The corpus is mostly external.** Ingesting the 23-row sample CSV produces **438 `Document`
+nodes**: 415 of them are documents cited by the corpus but absent from it — public laws,
+MIL-STDs, CFR titles, DHS and Joint Chiefs memoranda.
+`MATCH (d:Document) WHERE NOT d:External` is the corpus-only query. `GET /graph` returns the
+corpus view by default; see
 [ADR-002](adr/ADR-002-external-references-and-corpus-first-graph.md).
+
+**A document is `:External` when no `Source` describes it.** Every ingest — a CSV manifest, a
+PDF issuance, or a document created through the API — records itself as a `Source` node and a
+`DESCRIBES` edge to each document it describes first-hand; a name that is only cited, never
+described, gets no edge. `:External` is a materialised view of that one rule, recomputed by
+every write path for the documents it touched rather than set according to each path's own
+opinion. See [ADR-007](adr/ADR-007-sources-describe-documents.md).
+
+**Ingest is uniformly additive.** A document dropped from a later manifest keeps the
+`DESCRIBES` edge an earlier ingest gave it and stays non-external — no ingest can un-describe
+a document. `POST /reset` is the explicit way to make the graph match a changed file.
 
 **Documents are addressed by `slug`, not name**, because names contain slashes and commas
 that break URL paths. At ingest a slug is a deterministic function of the full set of names

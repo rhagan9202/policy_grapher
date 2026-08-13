@@ -78,8 +78,11 @@ storage limit. Both are handled below.
   `National Security Presidential Directive-47/...`. Since `name` is the unique key these
   become separate nodes. Ingest reports suspected duplicates; it does not resolve them.
   Entity resolution is out of DI-1 scope.
-- **Ingest is additive.** `MERGE` creates and updates but never deletes. To make the graph
-  match a changed file, reset first — see `POST /reset`.
+- **Ingest is additive, without exception.** `MERGE` creates and updates but never deletes,
+  and no ingest path demotes a document that another source has already described: a
+  document dropped from a later manifest keeps the provenance an earlier ingest gave it and
+  stays non-external. To make the graph match a changed file, reset first — see
+  `POST /reset`. See [ADR-007](adr/ADR-007-sources-describe-documents.md).
 
 ---
 
@@ -91,6 +94,7 @@ storage limit. Both are handled below.
 |---|---|---|
 | `Document` | `slug: str`, `name: str` | `slug` unique, `name` unique |
 | `Document:External` | `slug: str`, `name: str` | same, plus the `:External` label |
+| `Source` | `id: str`, `kind: str`, `filename: str` | `id` unique |
 
 **(gap review)** Two changes from the original schema:
 
@@ -102,7 +106,12 @@ storage limit. Both are handled below.
   edges became editable. "Root" and "shared" are now queries over in-degree.
 - **Documents referenced but not in the corpus carry an additional `:External` label.**
   `MATCH (d:Document)` still returns everything;
-  `MATCH (d:Document) WHERE NOT d:External` returns the 23 corpus documents.
+  `MATCH (d:Document) WHERE NOT d:External` returns the 23 corpus documents. The label is a
+  materialised view: a document is `:External` when no `Source` has a `DESCRIBES` edge to it,
+  and every ingest path recomputes it from that one rule for the documents it touched. A CSV
+  manifest, a PDF issuance, and a document created through the API each record themselves as a
+  `Source` and describe what they add. See
+  [ADR-007](adr/ADR-007-sources-describe-documents.md).
 
 ### Slug generation **(gap review)**
 
@@ -128,8 +137,10 @@ suffix is appended after truncation, so a slug can reach **89 characters**, not 
 | Type | Direction | Meaning |
 |---|---|---|
 | `REFERENCES` | `(:Document)-[:REFERENCES]->(:Document)` | Document cites another document |
+| `DESCRIBES` | `(:Source)-[:DESCRIBES]->(:Document)` | An ingest recorded this document first-hand |
 
-- `MERGE` on `slug` for nodes and on the pair for relationships, so ingestion is idempotent.
+- `MERGE` on `slug` for `Document` nodes, on `id` for `Source` nodes, and on the pair for
+  relationships, so ingestion is idempotent.
 - Self-loops are never created.
 
 ---

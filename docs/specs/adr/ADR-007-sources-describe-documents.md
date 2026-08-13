@@ -1,6 +1,6 @@
 # ADR-007: Sources describe documents, and `:External` is a view of that
 
-**Status:** Proposed · **Date:** 2026-08-13 · **Deciders:** Project owner
+**Status:** Accepted · **Date:** 2026-08-13 · **Deciders:** Project owner
 
 *Frozen once accepted. To change this decision, write a new ADR and mark this one superseded.*
 
@@ -114,6 +114,13 @@ path, so no migration script is written — but the next ingest after upgrading 
 drift if a future write path forgets to recompute it. That risk is smaller than today's — one
 rule, applied in one place — but it is not zero. The check that it has not drifted is a single
 query, and belongs in the test suite rather than in a reviewer's memory.
+
+**An `:External` document can still carry an outgoing edge.**
+`POST /documents/{slug}/references/{target_slug}` gives any document a `REFERENCES` edge and
+never touches its label — that endpoint asserts a relationship, not a description. A document
+with no incoming `DESCRIBES` but an outgoing `REFERENCES` is therefore a legitimate state
+under Decision 3, not a contradiction of it: the label answers only "did any source describe
+this document," and a user asserting an edge from it is not a source describing it.
 
 **What this makes easy:** attributing any document to what described it, and adding a second
 kind of source (DOCX, XLSX) without touching the label logic. **What it makes harder:** nothing

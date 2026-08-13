@@ -32,7 +32,6 @@ Understood well enough to discuss, not yet ready to start.
 | STORY-014 | A user can search for a document by name or ID from anywhere in the UI | — | MVP DoD item; broader than STORY-010's table filter. "ID" is the slug from STORY-025 |
 | STORY-031 | Near-duplicate document names are reconciled | — | Ingest flags them (STORY-003); nothing merges them. Real entity resolution — deliberately out of DI-1 |
 | STORY-035 | Ingestion accepts a DOCX issuance | — | Same `extract_document` protocol as STORY-016, own extraction rules. Blocked: no DOCX sample exists to design against. Likely easier than PDF — `python-docx` exposes heading styles, so locating the references section stops being the risky stage |
-| STORY-037 | A CSV re-ingest stops demoting a PDF-ingested document to `:External` | — | Found by the STORY-016 final review. If the corpus CSV lists a PDF-ingested document's name as an external reference, the next CSV ingest adds `:External` to it and it vanishes from the default `/graph` view. The obvious fix contradicts `test_a_document_transitions_correctly_in_either_direction`, which deliberately asserts corpus → cited-only transition; telling "was a CSV row" from "was ingested as a document" needs node provenance the schema lacks. Needs an ADR |
 | STORY-036 | Ingestion accepts an XLSX manifest | — | The *manifest* path alongside CSV, not document extraction — a sibling of `sources/manifest.py`, far smaller than either extraction story |
 | STORY-017 | A user can review the extracted text and metadata of any ingested document | — | The "corpus management" MVP item; needs a decision on storing document text |
 
@@ -55,6 +54,7 @@ sprint reviews.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-037 | A CSV re-ingest stops demoting a PDF-ingested document to `:External` | 3 |
 | STORY-016 | Ingestion accepts a PDF issuance and extracts its references | 3 |
 | STORY-034 | Relational facts move off `Document` and onto typed edges | 3 |
 | STORY-033 | Linting runs over both backend and frontend | 3 |
