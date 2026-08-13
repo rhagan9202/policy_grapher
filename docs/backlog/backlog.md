@@ -31,7 +31,9 @@ Understood well enough to discuss, not yet ready to start.
 | ~~STORY-013~~ | ~~Referenced documents that aren't in the corpus are distinguishable~~ | — | **Superseded by STORY-026.** Resolved by [ADR-002](../specs/adr/ADR-002-external-references-and-corpus-first-graph.md); ID retained per [CONVENTIONS](../CONVENTIONS.md) |
 | STORY-014 | A user can search for a document by name or ID from anywhere in the UI | — | MVP DoD item; broader than STORY-010's table filter. "ID" is the slug from STORY-025 |
 | STORY-031 | Near-duplicate document names are reconciled | — | Ingest flags them (STORY-003); nothing merges them. Real entity resolution — deliberately out of DI-1 |
-| STORY-016 | Ingestion accepts PDF, DOCX, and XLSX | — | MVP DoD item and the largest scope jump past DI-1 — extraction, not parsing. Likely an epic of its own. STORY-034 cleared its blocker: documents no longer carry a role, so nothing about a PDF needs to supply one |
+| STORY-016 | Ingestion accepts a PDF issuance and extracts its references | — | Rescoped from "PDF, DOCX, XLSX": those are three different problems. Designed in [the PDF extraction spec](../superpowers/specs/2026-08-13-story-016-pdf-extraction-design.md), measured against five committed fixtures with the corpus CSV as an oracle. Deterministic parsing — no model in the extraction path |
+| STORY-035 | Ingestion accepts a DOCX issuance | — | Same `extract_document` protocol as STORY-016, own extraction rules. Blocked: no DOCX sample exists to design against. Likely easier than PDF — `python-docx` exposes heading styles, so locating the references section stops being the risky stage |
+| STORY-036 | Ingestion accepts an XLSX manifest | — | The *manifest* path alongside CSV, not document extraction — a sibling of `sources/manifest.py`, far smaller than either extraction story |
 | STORY-017 | A user can review the extracted text and metadata of any ingested document | — | The "corpus management" MVP item; needs a decision on storing document text |
 
 ## Ideas
