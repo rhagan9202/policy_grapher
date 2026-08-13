@@ -70,6 +70,9 @@ storage limit. Both are handled below.
   `Root Reference (Shared)`, `Sub-Reference`, `Sub-Reference (Shared)` — describe a
   document's role in the reference graph, not what kind of document it is. Stored verbatim
   and uninterpreted; DI-1 does not parse the `(Shared)` suffix or derive role from structure.
+  **Superseded by [ADR-006](adr/ADR-006-relational-facts-live-on-typed-edges.md)**, which
+  removes the property outright — deriving it turns out to be impossible, not merely
+  unimplemented. This section describes DI-1 as built; STORY-034 changes it.
 - **Documents referenced but not in the corpus carry an additional `:External` label** and
   have no `reference_role`. `MATCH (d:Document)` still returns everything;
   `MATCH (d:Document) WHERE NOT d:External` returns the 23 corpus documents.

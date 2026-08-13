@@ -87,6 +87,12 @@ after truncation and nothing enforces a ceiling.
 document's position in the reference graph (`Root Reference`, `Sub-Reference`, and their
 `(Shared)` variants), not what kind of document it is.
 
+> **Decided, not yet done.** [ADR-006](adr/ADR-006-relational-facts-live-on-typed-edges.md)
+> removes `reference_role`: a document's position relative to others is a fact about edges,
+> and the stored label is both underivable and already stale — edge editing shipped in
+> sprint 2 and updates no role. STORY-034 carries it out. Until then the field is still
+> here, still written by ingest, and still required by `POST /documents`.
+
 ## External dependencies
 
 - **Neo4j** — pinned to `2025.10` (STORY-018), so the database version no longer depends on

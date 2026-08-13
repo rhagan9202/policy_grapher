@@ -29,9 +29,10 @@ Understood well enough to discuss, not yet ready to start.
 | ID | Item | Epic | Notes |
 | --- | --- | --- | --- |
 | ~~STORY-013~~ | ~~Referenced documents that aren't in the corpus are distinguishable~~ | — | **Superseded by STORY-026.** Resolved by [ADR-002](../specs/adr/ADR-002-external-references-and-corpus-first-graph.md); ID retained per [CONVENTIONS](../CONVENTIONS.md) |
+| STORY-034 | Relational facts move off `Document` and onto typed edges | — | Removes `reference_role`; `Root`/`Shared` become queries over in-degree. Decided in [ADR-006](../specs/adr/ADR-006-relational-facts-live-on-typed-edges.md). Guts `PUT /documents/{slug}`, whose only mutable field it was — an API removal. Blocks STORY-016, since PDFs carry no role |
 | STORY-014 | A user can search for a document by name or ID from anywhere in the UI | — | MVP DoD item; broader than STORY-010's table filter. "ID" is the slug from STORY-025 |
 | STORY-031 | Near-duplicate document names are reconciled | — | Ingest flags them (STORY-003); nothing merges them. Real entity resolution — deliberately out of DI-1 |
-| STORY-016 | Ingestion accepts PDF, DOCX, and XLSX | — | MVP DoD item and the largest scope jump past DI-1 — extraction, not parsing. Likely an epic of its own |
+| STORY-016 | Ingestion accepts PDF, DOCX, and XLSX | — | MVP DoD item and the largest scope jump past DI-1 — extraction, not parsing. Likely an epic of its own. Depends on STORY-034: source documents carry no `reference_role`, and today the field is required |
 | STORY-017 | A user can review the extracted text and metadata of any ingested document | — | The "corpus management" MVP item; needs a decision on storing document text |
 
 ## Ideas
