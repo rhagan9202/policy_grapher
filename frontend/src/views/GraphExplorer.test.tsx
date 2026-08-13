@@ -94,6 +94,32 @@ describe('GraphExplorer', () => {
     expect(await screen.findByText('Public Law 116-92')).toBeInTheDocument()
   })
 
+  it('renders external nodes in a visually distinct colour from corpus nodes', async () => {
+    getGraph.mockResolvedValue(expandedView)
+    render(<GraphExplorer />)
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const props = graphProps[graphProps.length - 1]
+    const nodeColor = props.nodeColor as (node: { is_external: boolean }) => string
+
+    const corpusColour = nodeColor({ is_external: false })
+    const externalColour = nodeColor({ is_external: true })
+
+    expect(corpusColour).not.toEqual(externalColour)
+  })
+
+  it('shows the external reference fallback instead of "null" for a node with no reference role', async () => {
+    getGraph.mockResolvedValue(expandedView)
+    render(<GraphExplorer />)
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Public Law 116-92' }))
+
+    const panel = await screen.findByTestId('node-detail')
+    expect(panel).toHaveTextContent('Public Law 116-92')
+    expect(panel.textContent).not.toMatch(/null/i)
+  })
+
   it('reports truncation instead of presenting a partial graph as whole', async () => {
     getGraph.mockResolvedValue({ ...corpusView, total_nodes: 438, returned_nodes: 300, truncated: true })
     render(<GraphExplorer />)

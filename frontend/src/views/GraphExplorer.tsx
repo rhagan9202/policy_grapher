@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
 import { getGraph } from '../api/client'
 import type { GraphNode, GraphOut } from '../api/types'
@@ -36,18 +36,25 @@ export default function GraphExplorer() {
     if (!node.is_external) setExpanded(node.id)
   }, [])
 
+  // react-force-graph mutates the objects it is given (position, velocity,
+  // simulation state) and treats a new `graphData` reference as new data.
+  // Memoise on `graph` so clicks that don't change the dataset (e.g.
+  // selecting an external node) don't hand the library fresh unpositioned
+  // copies and reset the force layout.
+  const graphData = useMemo(
+    () => ({
+      nodes: graph ? graph.nodes.map((node) => ({ ...node })) : [],
+      links: graph ? graph.edges.map((edge) => ({ ...edge })) : [],
+    }),
+    [graph],
+  )
+
   if (error) {
     return <div role="alert">Could not load the graph: {error}</div>
   }
 
   if (!graph) {
     return <p>Loading the graph…</p>
-  }
-
-  // react-force-graph mutates the objects it is given; hand it copies.
-  const graphData = {
-    nodes: graph.nodes.map((node) => ({ ...node })),
-    links: graph.edges.map((edge) => ({ ...edge })),
   }
 
   return (
