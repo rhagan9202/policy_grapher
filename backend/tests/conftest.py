@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import pytest
+from fastapi.testclient import TestClient
 from neo4j import Driver
 from testcontainers.community.neo4j import Neo4jContainer
 
@@ -49,3 +52,22 @@ def clean_graph(driver, database) -> Driver:
     """Every integration test starts from an empty graph."""
     clear_graph(driver, database)
     return driver
+
+
+@pytest.fixture
+def client_with_graph(clean_graph, settings_for_container, database, monkeypatch):
+    """A TestClient wired to the container, with auto-ingest off and /data pointed
+    at the repository's real data directory."""
+    from policy_grapher import main
+    from policy_grapher.config import get_settings
+
+    repo_data = Path(__file__).resolve().parents[2] / "data"
+    settings = settings_for_container.model_copy(update={"data_dir": repo_data})
+
+    get_settings.cache_clear()
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+
+    with TestClient(main.app) as client:
+        yield client
+
+    get_settings.cache_clear()
