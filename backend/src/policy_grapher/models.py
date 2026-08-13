@@ -35,3 +35,12 @@ class GraphOut(BaseModel):
     total_nodes: int
     returned_nodes: int
     truncated: bool
+
+
+class DocumentOut(BaseModel):
+    slug: str
+    name: str
+    reference_role: str | None
+    is_external: bool
+    references: list[str] = Field(default_factory=list)
+    referenced_by: list[str] = Field(default_factory=list)
