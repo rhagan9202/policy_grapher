@@ -48,9 +48,14 @@ services:
     environment:
       BACKEND_URL: http://backend:8000
     volumes:
-      # :Z relabels the host directory for exclusive container access under SELinux
-      # (enforcing on Fedora/RHEL hosts); harmless no-op where SELinux is disabled.
-      - ./frontend/src:/app/src:ro,Z
+      # Lowercase :z (shared label), not :Z (private label), on purpose: this path has
+      # two consumers, the long-running compose service and any ad-hoc tooling
+      # container (`docker compose run`/`build`, a one-off `docker run`) used to
+      # install deps or run tests. A private label lets whichever container mounts it
+      # second steal exclusive access and break the other's reads until restarted —
+      # observed twice during development. `./data` has only one consumer (backend),
+      # so it keeps :Z. Do not "fix" this back to :Z for consistency.
+      - ./frontend/src:/app/src:ro,z
     depends_on:
       - backend
 

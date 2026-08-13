@@ -9,8 +9,21 @@ it through a query API and a lightweight visual explorer.
 
 ## Status
 
-Specification and sample data only — no implementation yet. The current increment is
-**DI-1**: one CSV in, Neo4j in the middle, a CRUD API and a force-directed React UI out.
+DI-1 spine complete: `docker compose up` ingests the sample corpus and serves it as a
+navigable graph at http://localhost:5173.
+
+## Quickstart
+
+```bash
+docker compose up --build
+```
+
+Then open http://localhost:5173. The API is at http://localhost:8000, the Neo4j browser at
+http://localhost:7474.
+
+**This stack is local-only and unauthenticated by design** — the Neo4j password is committed
+in `.env`, CORS is open, and DI-1 has no auth. Do not expose it on a shared network.
+See [ADR-004](docs/specs/adr/ADR-004-unrestricted-cypher-in-di-1.md).
 
 ## Stack
 
@@ -34,6 +47,8 @@ lives in [`docs/`](docs/README.md).
 ## Repository layout
 
 ```
-data/    sample corpus (DoD directives and their references)
-docs/    planning, backlog, specs, sprints, artifacts
+backend/   FastAPI service: CSV ingest into Neo4j, GET /graph
+data/      sample corpus (DoD directives and their references)
+docs/      planning, backlog, specs, sprints, artifacts
+frontend/  React + Vite force-directed graph explorer
 ```

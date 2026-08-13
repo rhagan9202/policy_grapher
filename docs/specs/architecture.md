@@ -1,6 +1,6 @@
 # Architecture
 
-*Living document — edit in place. Last reviewed: 2026-08-12*
+*Living document — edit in place. Last reviewed: 2026-08-13*
 
 Describes the system as it is today, not as it's planned to be. Planned changes belong in
 the [roadmap](../planning/roadmap.md); the reasoning behind past choices belongs in
@@ -8,19 +8,10 @@ the [roadmap](../planning/roadmap.md); the reasoning behind past choices belongs
 
 ## Overview
 
-**Nothing is implemented yet.** As of 2026-08-12 the repository contains a README, this
-docs tree, and one sample corpus file — no application code, no `docker-compose.yml`, no
-package manifests.
-
-What follows is the *target* shape, taken from
-[SPEC-001](SPEC-001-di-1-policy-grapher.md). Treat every statement below as a design
-intent that has not yet met an implementation. Rewrite this document to describe what
-actually exists as soon as it exists, and move anything that turns out to be aspirational
-back into the roadmap.
-
-The intended shape is a three-service pipeline: a CSV of documents and their references is
-read by a FastAPI backend, merged into a Neo4j graph, and served to a React force-directed
-UI.
+**DI-1 is built and running.** A CSV of documents and their references is read by a
+FastAPI backend, merged into a Neo4j graph, and served to a React force-directed UI. The
+full stack comes up with `docker compose up` and self-loads the sample corpus on first
+run — see the [README](../../README.md) for the quickstart.
 
 ```
 CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (React/Vite)
@@ -29,19 +20,16 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 
 ## Components
 
-*Target — not yet built.*
-
 | Component | Responsibility |
 | --- | --- |
-| **Backend** (FastAPI, port 8000) | Parses the CSV, merges nodes and edges into Neo4j, exposes document CRUD, a `/graph` view for the UI, and a raw Cypher passthrough at `/query`. Mounts `./data` at `/data`. |
-| **Neo4j** (`neo4j:latest`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables. |
-| **Frontend** (React + Vite, port 5173) | Two routes: `/` renders the force-directed graph from `GET /graph`; `/documents` renders a searchable table from `GET /documents`. Proxies `/api` to the backend. |
+| **Backend** (FastAPI, port 8000) | Parses the CSV, merges nodes and edges into Neo4j via `POST /ingest`, and serves the render-capped corpus view via `GET /graph`. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. Document CRUD, reference editing, `POST /reset`, and `POST /query` are specified in [SPEC-001](SPEC-001-di-1-policy-grapher.md) but not built in DI-1 — see the [backlog](../backlog/backlog.md). |
+| **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the committed `.env`. Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
+| **Frontend** (React + Vite, port 5173) | One route: `/` renders the force-directed graph from `GET /graph` via `react-force-graph`. Clicking a node shows its name and reference role; clicking an external node fetches its neighbours via `?expand={slug}`. Vite dev server proxies `/api` to the backend. The `/documents` table route from SPEC-001 is not built. |
 
-Typed fetch wrappers covering every endpoint are to live in `src/api/client.ts`.
+Typed fetch wrappers covering the two implemented endpoints (`/health`, `/graph`, `/ingest`)
+live in `src/api/client.ts`.
 
 ## Data model
-
-*Target — not yet built.*
 
 | Label | Properties | Constraints |
 | --- | --- | --- |
@@ -63,9 +51,13 @@ CFR titles, DHS and Joint Chiefs memoranda. These carry an extra `:External` lab
 [ADR-002](adr/ADR-002-external-references-and-corpus-first-graph.md).
 
 **Documents are addressed by `slug`, not name**, because names contain slashes and commas
-that break URL paths. Slugs are a deterministic function of the name — including the
-collision suffix — so they survive a reset-and-reingest cycle unchanged. See
-[ADR-003](adr/ADR-003-slug-identifiers.md).
+that break URL paths. A slug is a deterministic function of the full set of document names
+being ingested together — including the collision suffix, which is now applied to every
+contender for a contested base slug rather than only the second arrival — so slugs survive
+both a reset-and-reingest cycle and a change in row order unchanged. See
+[ADR-003](adr/ADR-003-slug-identifiers.md); an amending ADR is owed before STORY-006
+(document CRUD) lands, since a document created later through the API cannot retroactively
+re-slug one already assigned an uncontested base.
 
 `reference_role` is the CSV's `Type` column, renamed and stored verbatim: it describes a
 document's position in the reference graph (`Root Reference`, `Sub-Reference`, and their
@@ -73,17 +65,23 @@ document's position in the reference graph (`Root Reference`, `Sub-Reference`, a
 
 ## External dependencies
 
-- **Neo4j** — `latest` tag. Unpinned, so a container pull can change the database version
-  underneath the project without a code change.
+- **Neo4j** — pinned to `2025.10` (STORY-018), so the database version no longer depends on
+  when the image was last pulled.
 - **Python packages** — FastAPI, Pydantic v2, `neo4j` driver, pytest, httpx, managed by `uv`.
 - **npm packages** — React, Vite, TypeScript, vitest, `react-force-graph`, `react-router-dom`.
 - No external network services, APIs, or model providers. The system is self-contained.
 
 ## Deployment
 
-*Target — not yet built.* Docker Compose with three services: `neo4j`, `backend`,
-`frontend`. Configuration reaches the backend through `NEO4J_URI`, `NEO4J_USER`, and
-`NEO4J_PASSWORD`. CORS allows all origins; there is no authentication.
+Docker Compose with three services: `neo4j`, `backend`, `frontend`. Configuration reaches
+the backend through `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`,
+`GRAPH_RENDER_CAP`, `SAMPLE_CSV`, and `AUTO_INGEST`, all supplied by the committed `.env`.
+CORS allows all origins; there is no authentication. `backend` waits on Neo4j's HTTP
+healthcheck before starting. `./data` is bind-mounted into `backend` read-only with an
+SELinux private label (`:Z`) since only one container consumes it; `./frontend/src` is
+bind-mounted into `frontend` with the shared label (`:z`) instead, because tooling
+containers (`docker compose run`/`build`, ad-hoc `docker run`) also read that path and a
+private label lets one steal exclusive access from the other.
 
 > **Assumption:** Local developer machines are the only deployment target for DI-1. Nothing
 > in the source material mentions a hosted environment or CI. Confirm before anyone builds
@@ -119,4 +117,7 @@ turns a surprise outage into a planned piece of work.
 - **One node label, one relationship type.** The Policy Concierge capabilities in the
   [vision](../planning/vision.md) — policy points, applicable entities, enforcement
   ownership — don't fit this schema. Expect a migration, not an extension.
-- **`neo4j:latest` is unpinned.** Reproducibility depends on whenever the image was last pulled.
+- **Auto-ingest only runs at startup.** It checks once, in `lifespan`, whether the graph is
+  empty. A graph emptied at runtime — the only mechanism specified for that is the
+  not-yet-built `POST /reset` — stays empty until the backend process restarts; nothing
+  re-triggers the check.
