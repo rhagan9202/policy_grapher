@@ -60,10 +60,10 @@ ingest: `assign_slugs` resolves collisions over the names it's given and has no 
 of slugs a prior ingest already committed. Today, a later ingest whose name set newly
 contests an existing bare slug does not re-suffix anything — it tries to create a second
 node with an already-taken `name`, hits the `document_name_unique` constraint, and the
-ingest fails partway through (the external pass may already have committed), leaving the
-graph needing a reset and re-ingest to recover. Whether the incumbent should keep its bare
-slug or be displaced is undecided; that rule is the amending ADR's job before STORY-006
-(document CRUD) lands.
+ingest rolls back atomically — all three statements run in one write transaction — and
+cannot succeed until a reset lets the whole name set be re-slugged. Whether the incumbent
+should keep its bare slug or be displaced is undecided; that rule is the amending ADR's job
+before STORY-006 (document CRUD) lands.
 
 `reference_role` is the CSV's `Type` column, renamed and stored verbatim: it describes a
 document's position in the reference graph (`Root Reference`, `Sub-Reference`, and their
