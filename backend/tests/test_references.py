@@ -1,4 +1,5 @@
 import pytest
+from neo4j import RoutingControl
 
 pytestmark = pytest.mark.integration
 
@@ -11,6 +12,19 @@ def loaded(client_with_graph):
     return client_with_graph
 
 
+def relationship_count(driver, database, source: str, target: str) -> int:
+    """Count REFERENCES edges directly in the graph, bypassing the API's
+    DISTINCT read path, which would hide duplicate relationships."""
+    records, _, _ = driver.execute_query(
+        "MATCH (:Document {slug: $source})-[r:REFERENCES]->(:Document {slug: $target}) "
+        "RETURN count(r) AS total",
+        {"source": source, "target": target},
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    return records[0]["total"]
+
+
 def test_adding_an_edge_shows_up_in_both_directions(loaded):
     response = loaded.post("/documents/dodd-5000-01/references/dodi-3115-14")
 
@@ -19,12 +33,13 @@ def test_adding_an_edge_shows_up_in_both_directions(loaded):
     assert "dodd-5000-01" in loaded.get("/documents/dodi-3115-14").json()["referenced_by"]
 
 
-def test_adding_the_same_edge_twice_is_idempotent(loaded):
+def test_adding_the_same_edge_twice_is_idempotent(loaded, driver, database):
     loaded.post("/documents/dodd-5000-01/references/dodi-3115-14")
     loaded.post("/documents/dodd-5000-01/references/dodi-3115-14")
 
     references = loaded.get("/documents/dodd-5000-01").json()["references"]
     assert references.count("dodi-3115-14") == 1
+    assert relationship_count(driver, database, "dodd-5000-01", "dodi-3115-14") == 1
 
 
 def test_a_self_reference_is_400(loaded):
