@@ -177,6 +177,13 @@ and `eslint.config.js` are baked in rather than bind-mounted.
 Where the current design will strain, and roughly when. Writing these down early is what
 turns a surprise outage into a planned piece of work.
 
+- **`POST /documents` is not atomic, and its failure mode is silent.** Both ingest paths
+  commit their writes in one `session.execute_write`; `create_document` runs four separate
+  auto-commit statements instead. A crash between the first and the last leaves a document
+  with no provenance and no `:External` label — a state nothing re-refreshes — and the next
+  manifest citing that name demotes it, so it vanishes from the default graph view with no
+  error anywhere. STORY-038.
+
 - **`POST /query` executes arbitrary Cypher** with no authentication, no read-only
   enforcement, no timeout, no row cap, and open CORS — any page in any browser that can
   reach the backend can drop the database. That is a deliberate, bounded risk acceptance:
