@@ -51,6 +51,8 @@ Unrefined. No commitment implied.
 | STORY-021 | Capture applicable entities and enforcement ownership as graph relationships | Same — new labels and relationship types |
 | STORY-023 | A user can ask a question in natural language and get graph results | LLM constructs the Cypher and calls `POST /query`. Gated on the schema settling and on STORY-019 (auth) — see [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md) |
 | STORY-024 | `POST /query` constrains what a generated query may do | Read-only enforcement, timeouts, result caps. A human at a demo is a benign caller; a generator isn't |
+| STORY-032 | A TypeScript error fails the frontend test command | `npm test` runs vitest, which transpiles without type-checking; `tsc -b` runs only under `npm run build`, which no gate invokes. A type error can pass the suite and reach a commit — one did during the graph-explorer work and was caught only by running the build by hand |
+| STORY-033 | Linting runs over both backend and frontend | Neither is configured (no `[tool.ruff]`, no eslint), so unused imports and dead code accumulate unflagged. Several were left deliberately unfixed in sprint 1 on the grounds that a batch pass would be cheaper than hand-picking |
 
 ## Done
 
