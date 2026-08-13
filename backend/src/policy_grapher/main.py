@@ -5,11 +5,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from policy_grapher.config import Settings, get_settings
-from policy_grapher.csv_source import CsvSourceError
 from policy_grapher.db import apply_constraints, create_driver, is_graph_empty
 from policy_grapher.ingest import ingest_file
 from policy_grapher.models import IngestResult
 from policy_grapher.routers import admin, documents, graph
+from policy_grapher.sources.manifest import CsvSourceError
 
 logger = logging.getLogger(__name__)
 

@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from policy_grapher.csv_source import parse_corpus
 from policy_grapher.graph import UnknownDocumentError, build_graph
 from policy_grapher.ingest import ingest_file, ingest_parsed
+from policy_grapher.sources.manifest import parse_corpus
 
 pytestmark = pytest.mark.integration
 

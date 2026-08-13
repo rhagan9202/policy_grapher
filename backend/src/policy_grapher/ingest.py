@@ -4,9 +4,9 @@ from pathlib import Path
 
 from neo4j import Driver, ManagedTransaction
 
-from policy_grapher.csv_source import ParsedCorpus, parse_corpus, resolve_csv_path
 from policy_grapher.models import IngestResult
 from policy_grapher.slugs import assign_slugs
+from policy_grapher.sources.manifest import ParsedCorpus, parse_corpus, resolve_csv_path
 
 MERGE_CORPUS = """
 UNWIND $docs AS doc

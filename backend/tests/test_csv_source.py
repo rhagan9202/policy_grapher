@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from policy_grapher.csv_source import (
+from policy_grapher.sources.manifest import (
     CsvSourceError,
     canonical_name,
     parse_corpus,

@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from neo4j import Driver
 
 from policy_grapher.config import Settings
-from policy_grapher.csv_source import CsvSourceError
 from policy_grapher.db import clear_graph
 from policy_grapher.dependencies import get_app_settings, get_driver
 from policy_grapher.ingest import ingest_file
 from policy_grapher.models import IngestRequest, IngestResult, ResetResult
+from policy_grapher.sources.manifest import CsvSourceError
 
 router = APIRouter(tags=["admin"])
 
