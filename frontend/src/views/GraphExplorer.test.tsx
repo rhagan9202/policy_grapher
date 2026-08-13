@@ -117,6 +117,7 @@ describe('GraphExplorer', () => {
 
     const panel = await screen.findByTestId('node-detail')
     expect(panel).toHaveTextContent('Public Law 116-92')
+    expect(panel).toHaveTextContent('External reference')
     expect(panel.textContent).not.toMatch(/null/i)
   })
 
