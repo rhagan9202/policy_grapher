@@ -2,6 +2,10 @@
 
 **Status:** Accepted · **Date:** 2026-08-12 · **Deciders:** Project owner
 
+> **Amended by [ADR-005](ADR-005-slug-assignment-over-the-name-set.md)** (2026-08-13): slug
+> assignment is a function of the whole name set, and incremental creation resolves
+> contested slugs in favour of the incumbent.
+
 *Frozen once accepted. To change this decision, write a new ADR and mark this one superseded.*
 
 ## Context
