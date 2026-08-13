@@ -32,6 +32,41 @@ _MODERN_MARKER = re.compile(
 )
 
 
+# Modern sections have no per-entry marker, so entries are cut where a new citation
+# begins. A citation always starts at the beginning of a source line — continuation
+# lines wrap without repeating an opener — so the boundary is anchored to line starts
+# and matched against the *un-flattened* section text. Matching after flattening (as
+# a first draft of this did) lets an opener phrase that merely appears mid-entry (e.g.
+# "Under Secretary" inside a DoD Directive's own title, or "Secretary of" inside that)
+# trigger a spurious split, shredding the entry. This list is deliberately broader than
+# _MODERN_MARKER above: that one only needs one confident hit to identify the format,
+# so it stays narrow to avoid false-positiving on a body paragraph; this one has to
+# recognise every entry's opener or the split silently swallows it into its neighbour.
+# Widening _MODERN_MARKER to match would trade its precision for this one's recall, so
+# the two are kept separate rather than merged.
+_MODERN_BOUNDARY = re.compile(
+    r"^(?=(?:DoD |Public Law |Military[ -]Standard |Executive Order |United States Code|"
+    r"Title \d|Section \d|Chairman |Under Secretary |Deputy Secretary |Secretary of |"
+    r"Assistant Secretary |Director |Federal |National |Department of |Joint |"
+    r"Office of |Committee |Code of Federal|Administrative |Directive-[Tt]ype |"
+    r"Intelligence |International |Defense ))",
+    re.MULTILINE,
+)
+
+
+def split_entries(fmt: str, section: str) -> list[str]:
+    """One string per citation, with the source's line wrapping undone."""
+    if fmt == "legacy":
+        flat = re.sub(r"\s*\n\s*", " ", section).strip()
+        parts = _LETTERED.split(flat)
+        # split() yields [before-first-marker, entry, entry, ...]
+        return [part.strip() for part in parts[1:] if part.strip()]
+    # Split on the raw section first so the boundary can key on line starts, then
+    # flatten each entry's own internal wrapping.
+    raw_parts = [part for part in _MODERN_BOUNDARY.split(section) if part.strip()]
+    return [re.sub(r"\s*\n\s*", " ", part).strip() for part in raw_parts]
+
+
 def locate_references(full: str) -> tuple[str, str | None]:
     """Find the references section and say which format it is.
 

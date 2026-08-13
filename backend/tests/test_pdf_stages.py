@@ -50,3 +50,35 @@ def test_a_document_with_no_references_section_reports_not_found():
 
     assert fmt == "unknown"
     assert section is None
+
+
+def test_legacy_entries_split_on_their_letter_markers():
+    fmt, section = pdf.locate_references(pdf.text_of(LEGACY))
+
+    entries = pdf.split_entries(fmt, section)
+
+    assert len(entries) > 100  # DoDI 8500.01 cites 114
+    assert entries[0].startswith("DoD Directive 8500.01")
+    assert not any(entry.startswith("(") for entry in entries)
+
+
+def test_modern_entries_split_at_identifier_boundaries():
+    fmt, section = pdf.locate_references(pdf.text_of(MODERN))
+
+    entries = pdf.split_entries(fmt, section)
+
+    assert any(entry.startswith("DoD Directive 1322.18") for entry in entries)
+    assert any(entry.startswith("Military-Standard 882E") for entry in entries)
+
+
+def test_wrapped_lines_are_rejoined_into_one_entry():
+    """Entries wrap mid-citation in the source PDF; a split on newlines would
+    cut titles in half."""
+    fmt, section = pdf.locate_references(pdf.text_of(MODERN))
+
+    entries = pdf.split_entries(fmt, section)
+
+    wrapped = [e for e in entries if e.startswith("DoD Directive 5124.02")]
+    assert wrapped, "expected the entry that wraps across two lines"
+    assert "USD(P&R)" in wrapped[0]
+    assert "\n" not in wrapped[0]
