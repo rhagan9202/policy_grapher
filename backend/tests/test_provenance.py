@@ -5,8 +5,6 @@ from neo4j import RoutingControl
 
 from policy_grapher.sources import provenance
 
-pytestmark = pytest.mark.integration
-
 
 def labels_of(driver, database, slug: str) -> set[str]:
     records, _, _ = driver.execute_query(
@@ -27,11 +25,16 @@ def make_document(driver, database, slug: str) -> None:
     )
 
 
+# --- source_id, no database ---------------------------------------------
+
 def test_source_id_is_kind_and_filename():
     assert provenance.source_id(provenance.MANIFEST, "corpus.csv") == "manifest:corpus.csv"
     assert provenance.source_id(provenance.DOCUMENT, "500001p.pdf") == "document:500001p.pdf"
 
 
+# --- against the real driver -------------------------------------------
+
+@pytest.mark.integration
 def test_a_described_document_loses_external_and_an_undescribed_one_gains_it(
     clean_graph, database
 ):
@@ -61,6 +64,7 @@ def test_a_described_document_loses_external_and_an_undescribed_one_gains_it(
     assert labels_of(clean_graph, database, "cited-only") == {"Document", "External"}
 
 
+@pytest.mark.integration
 def test_refreshing_is_idempotent(clean_graph, database):
     make_document(clean_graph, database, "cited-only")
 
@@ -75,6 +79,7 @@ def test_refreshing_is_idempotent(clean_graph, database):
     assert labels_of(clean_graph, database, "cited-only") == {"Document", "External"}
 
 
+@pytest.mark.integration
 def test_recording_the_same_source_twice_creates_one_node(clean_graph, database):
     for _ in range(2):
         clean_graph.execute_query(
