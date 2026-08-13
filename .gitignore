@@ -4,6 +4,10 @@
 *.iml
 *.swp
 
+# Agent scratch (subagent-driven-development ledger, briefs, review packages)
+.superpowers/
+.claude/worktrees/
+
 # OS
 .DS_Store
 Thumbs.db
