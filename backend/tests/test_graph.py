@@ -76,6 +76,22 @@ def test_highest_degree_external_is_kept(loaded):
     assert "Deputy Secretary of Defense Memorandum" in names
 
 
+def test_tie_break_keeps_the_lexicographically_smaller_slug_at_the_boundary(loaded):
+    # With a 300-node cap and 23 corpus documents, the external budget is 277.
+    # Measured against the real corpus, index 276 (the last kept slot) and index
+    # 277 (the first dropped slot) are both degree-1 externals, so only the
+    # slug ASC tie-break decides which one survives. Reversing that ORDER BY
+    # clause to slug DESC keeps every other test in this file green, because
+    # every other test asserts counts or degrees far from this boundary. This
+    # test pins the two concrete slugs straddling that boundary directly.
+    driver, database = loaded
+    result = build_graph(driver, database, include_external=True, limit=300)
+
+    ids = {node.id for node in result.nodes}
+    assert "executive-order-12580" in ids
+    assert "executive-order-12626" not in ids
+
+
 def test_a_zero_limit_disables_the_cap(loaded):
     driver, database = loaded
     result = build_graph(driver, database, include_external=True, limit=0)
