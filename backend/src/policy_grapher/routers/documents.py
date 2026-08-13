@@ -8,10 +8,13 @@ from policy_grapher.documents import (
     ExternalDocumentError,
     NameConflictError,
     NameMismatchError,
+    SelfReferenceError,
+    add_reference,
     create_document,
     delete_document,
     get_document,
     list_documents,
+    remove_reference,
     update_document,
 )
 from policy_grapher.models import DocumentIn, DocumentOut
@@ -94,4 +97,36 @@ def delete(
         delete_document(driver, settings.neo4j_database, slug)
     except DocumentNotFoundError as exc:
         raise _not_found(slug) from exc
+    return Response(status_code=204)
+
+
+@router.post("/{slug}/references/{target_slug}", status_code=204)
+def add_ref(
+    slug: str,
+    target_slug: str,
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+) -> Response:
+    try:
+        add_reference(driver, settings.neo4j_database, slug, target_slug)
+    except SelfReferenceError as exc:
+        raise HTTPException(
+            status_code=400, detail="A document may not reference itself."
+        ) from exc
+    except DocumentNotFoundError as exc:
+        raise _not_found(exc.args[0]) from exc
+    return Response(status_code=204)
+
+
+@router.delete("/{slug}/references/{target_slug}", status_code=204)
+def remove_ref(
+    slug: str,
+    target_slug: str,
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+) -> Response:
+    try:
+        remove_reference(driver, settings.neo4j_database, slug, target_slug)
+    except DocumentNotFoundError as exc:
+        raise _not_found(exc.args[0]) from exc
     return Response(status_code=204)

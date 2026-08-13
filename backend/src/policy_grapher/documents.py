@@ -36,6 +36,17 @@ SET d.reference_role = $reference_role
 
 DELETE_DOCUMENT = "MATCH (d:Document {slug: $slug}) DETACH DELETE d"
 
+ADD_REFERENCE = """
+MATCH (source:Document {slug: $source})
+MATCH (target:Document {slug: $target})
+MERGE (source)-[:REFERENCES]->(target)
+"""
+
+REMOVE_REFERENCE = """
+MATCH (source:Document {slug: $source})-[r:REFERENCES]->(target:Document {slug: $target})
+DELETE r
+"""
+
 
 class DocumentNotFoundError(LookupError):
     """No document with the requested slug exists."""
@@ -51,6 +62,10 @@ class NameMismatchError(ValueError):
 
 class ExternalDocumentError(ValueError):
     """The addressed document is external and has no reference_role."""
+
+
+class SelfReferenceError(ValueError):
+    """A document may not reference itself."""
 
 
 def _to_document(record) -> DocumentOut:
@@ -135,3 +150,23 @@ def delete_document(driver: Driver, database: str, slug: str) -> None:
     summary = _write(driver, database, DELETE_DOCUMENT, {"slug": slug})
     if summary.counters.nodes_deleted == 0:
         raise DocumentNotFoundError(slug)
+
+
+def _require_document(driver: Driver, database: str, slug: str) -> None:
+    if _count(driver, database, SLUG_TAKEN, {"slug": slug}) == 0:
+        raise DocumentNotFoundError(slug)
+
+
+def add_reference(driver: Driver, database: str, source: str, target: str) -> None:
+    if source == target:
+        raise SelfReferenceError(source)
+    _require_document(driver, database, source)
+    _require_document(driver, database, target)
+    _write(driver, database, ADD_REFERENCE, {"source": source, "target": target})
+
+
+def remove_reference(driver: Driver, database: str, source: str, target: str) -> None:
+    _require_document(driver, database, source)
+    _require_document(driver, database, target)
+    # No-op when the edge is absent: the contract is the end state, not the delta.
+    _write(driver, database, REMOVE_REFERENCE, {"source": source, "target": target})
