@@ -45,7 +45,6 @@ Unrefined. No commitment implied.
 | STORY-021 | Capture applicable entities and enforcement ownership as graph relationships | Same — new labels and relationship types |
 | STORY-023 | A user can ask a question in natural language and get graph results | LLM constructs the Cypher and calls `POST /query`. Gated on the schema settling and on STORY-019 (auth) — see [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md) |
 | STORY-024 | `POST /query` constrains what a generated query may do | Read-only enforcement, timeouts, result caps. A human at a demo is a benign caller; a generator isn't |
-| STORY-033 | Linting runs over both backend and frontend | Neither is configured (no `[tool.ruff]`, no eslint), so unused imports and dead code accumulate unflagged. Several were left deliberately unfixed in sprint 1 on the grounds that a batch pass would be cheaper than hand-picking |
 
 ## Done
 
@@ -54,6 +53,7 @@ sprint reviews.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-033 | Linting runs over both backend and frontend | 3 |
 | STORY-010 | A user can browse and filter the document table by name | 2 |
 | STORY-008 | An agent can run a raw Cypher query against the graph | 2 |
 | STORY-027 | A user can add and remove a reference between two documents | 2 |

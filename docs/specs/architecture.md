@@ -102,6 +102,26 @@ private label lets one steal exclusive access from the other.
 > in the source material mentions a hosted environment or CI. Confirm before anyone builds
 > a pipeline against it.
 
+## Checks
+
+There is no CI, so every check hangs off one command per side and nothing sits behind a
+command someone has to remember.
+
+| Side | Command | Runs |
+| --- | --- | --- |
+| Backend | `uv run pytest` | Ruff (as `test_lint.py`), then the suite. `-m "not integration"` runs the Docker-free subset, lint included |
+| Frontend | `npm test` | `eslint .`, then `tsc -b`, then vitest — in that order, each gating the next |
+
+Ruff takes its default rule set with one exemption: `Depends()` and `Query()` in a parameter
+default are FastAPI's idiom, not the mutable-default bug B008 catches. ESLint runs
+typescript-eslint's recommended set plus `react-hooks` and `react-refresh`.
+
+Lint is enforced as a test rather than offered as a command because a check behind its own
+command stops being run — the lesson STORY-032 recorded when a type error reached a commit.
+Both linters are dev-only: ruff never enters the backend image (`uv sync --no-dev`), and
+ESLint reaches the frontend container only through an image rebuild, since `package.json`
+and `eslint.config.js` are baked in rather than bind-mounted.
+
 ## Known weak points
 
 Where the current design will strain, and roughly when. Writing these down early is what
