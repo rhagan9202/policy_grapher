@@ -1,6 +1,6 @@
 # EPIC-001: DI-1 — end-to-end feasibility
 
-**Status:** In progress — sprint 1 delivered 12 of 18 stories · **Target:** DI-1
+**Status:** Done — 18 of 18 stories, closed 2026-08-13 · **Target:** DI-1
 
 ## Goal
 
@@ -41,14 +41,14 @@ Out of scope:
 | STORY-003 | Idempotent CSV ingestion | Done |
 | STORY-026 | External documents distinguishable | Done |
 | STORY-004 | Malformed CSV rejected cleanly | Done |
-| STORY-005 | List documents, read one with both directions | Ready |
-| STORY-006 | Create, update, delete documents | Ready |
-| STORY-027 | Add and remove references | Ready |
+| STORY-005 | List documents, read one with both directions | Done |
+| STORY-006 | Create, update, delete documents | Done |
+| STORY-027 | Add and remove references | Done |
 | STORY-007 | Corpus-first graph endpoint | Done |
-| STORY-028 | Reset the graph | Ready |
-| STORY-008 | Raw Cypher query endpoint | Ready |
+| STORY-028 | Reset the graph | Done |
+| STORY-008 | Raw Cypher query endpoint | Done |
 | STORY-009 | Graph explorer with expansion | Done |
-| STORY-010 | Searchable document table | Ready |
+| STORY-010 | Searchable document table | Done |
 | STORY-011 | Typed API client | Done |
 | STORY-029 | Auto-ingest on empty graph | Done |
 | STORY-030 | Integration tests on a disposable Neo4j | Done |
@@ -57,6 +57,10 @@ Out of scope:
 Six stories (025–030) came out of the 2026-08-12 gap review — they close holes the original
 spec left rather than adding scope. STORY-025 and STORY-026 are prerequisites for most of
 the endpoints above.
+
+Sprint 1 delivered ten of these and sprint 2 the remaining six (005, 006, 027, 028, 008,
+010) — plus STORY-004 and STORY-015, which sprint 1 had in fact finished but did not
+recognise until after its review was written. See [sprint 2](../../sprints/sprint-02/review.md).
 
 Detail lives in [backlog.md](../backlog.md) — none of these has needed its own file yet.
 

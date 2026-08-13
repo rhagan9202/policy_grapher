@@ -1,19 +1,22 @@
 # Roadmap
 
-*Living document — edit in place. Last reviewed: 2026-08-12*
+*Living document — edit in place. Last reviewed: 2026-08-13*
 
 Sequencing and intent, not commitments with dates. Individual work items live in the
 [backlog](../backlog/backlog.md); this is the altitude above that.
 
 ## Now
 
-**DI-1 — end-to-end feasibility.** One structured CSV in, Neo4j graph in the middle, CRUD
-API and a React force-directed UI out. Fully specified in
-[SPEC-001](../specs/SPEC-001-di-1-policy-grapher.md).
+**DI-1 is complete** — 18 of 18 stories, closed on 2026-08-13. One structured CSV in, Neo4j
+graph in the middle, CRUD API and a React UI out, exactly as
+[SPEC-001](../specs/SPEC-001-di-1-policy-grapher.md) specifies. `docker compose up` ingests
+`data/dod_policy_references_08122026.csv` and renders its 23 documents as a navigable graph
+at `/`, with the full 438-document corpus listed and searchable at `/documents`. Every
+endpoint the spec names is built and covered by tests.
 
-Nothing is built yet — the repo is specification and sample data only. The first
-milestone is a `docker compose up` that ingests
-`data/dod_policy_references_08122026.csv` and renders its 23 documents as a navigable graph.
+The feasibility question DI-1 existed to answer is answered: the pipeline holds end to end
+at sample-corpus scale. What it has not been asked to do is prose parsing or scale — both
+of which the next milestone puts to it.
 
 ## Next
 

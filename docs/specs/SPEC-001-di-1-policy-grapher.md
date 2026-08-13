@@ -123,9 +123,12 @@ startup only, never in response to a reset.
 
 ### API Endpoints
 
-#### Ingest
+#### Admin
+Served by `routers/admin.py`.
+
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/health` | Liveness probe. Returns `{ "status": "ok" }`. Touches no database — it answers whether the API process is up, not whether Neo4j is reachable |
 | `POST` | `/ingest` | Ingest a CSV. Body: `{ "filename": "dod_policy_references_08122026.csv" }`, resolved under `/data`. Returns `{ nodes_created, relationships_created, self_references_skipped, suspected_duplicates }` |
 | `POST` | `/reset` | **(gap review)** Delete every node and relationship. The explicit way to make the graph match a changed file, since ingest never removes |
 
@@ -163,6 +166,11 @@ immutable after ingest.
 - `GraphOut`: `nodes: list[GraphNode]`, `edges: list[GraphEdge]`, `total_nodes: int`, `returned_nodes: int`, `truncated: bool`
 
 `reference_role` is nullable because external documents don't have one.
+
+`references` and `referenced_by` carry **slugs, not names** — the same identifiers the
+reference endpoints and `GraphEdge` use, so a caller can follow one straight into
+`GET /documents/{slug}` without a lookup. Resolving a slug to a display name is the
+client's job, from the same payload.
 
 ### Render cap **(gap review)**
 

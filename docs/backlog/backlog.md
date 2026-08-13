@@ -13,18 +13,14 @@ the MVP definition of done in the [vision](../planning/vision.md).
 
 Refined, estimated, and pickable right now.
 
-**TODO:** No item carries an estimate — the team hasn't sized these, and the
-[Definition of Ready](README.md#definition-of-ready) requires it. Strictly these are
-specified but not yet Ready. Size them at the first planning session and fill the column in.
+Nothing. EPIC-001 closed on 2026-08-13 and took the last of the Ready items with it; the
+next milestone's work is still in [Refining](#refining) and [Ideas](#ideas). The estimate
+column stays unfilled — no item has ever carried one, so the
+[Definition of Ready](README.md#definition-of-ready) is not yet being met in practice. Size
+items at the next planning session before promoting any of them here.
 
 | ID | Item | Epic | Est. | Notes |
 | --- | --- | --- | --- | --- |
-| STORY-005 | A user can list all documents and read one with what it cites and what cites it | EPIC-001 | — | `GET /documents`, `GET /documents/{slug}` returning `references` and `referenced_by` |
-| STORY-006 | A user can create, update, and delete documents through the API | EPIC-001 | — | `POST` / `PUT` / `DELETE /documents/{slug}`; `PUT` updates `reference_role` only and 400s on a name mismatch |
-| STORY-027 | A user can add and remove a reference between two documents | EPIC-001 | — | `POST`/`DELETE /documents/{slug}/references/{target_slug}`. Closes the gap where edges were immutable after ingest |
-| STORY-028 | An operator can wipe the graph and start clean | EPIC-001 | — | `POST /reset`. Ingest is additive and never removes, so this is how the graph is made to match a changed file |
-| STORY-008 | An agent can run a raw Cypher query against the graph | EPIC-001 | — | `POST /query`, unrestricted in DI-1 by decision — [ADR-004](../specs/adr/ADR-004-unrestricted-cypher-in-di-1.md). Local-only |
-| STORY-010 | A user can browse and filter the document table by name | EPIC-001 | — | Route `/documents`; client-side filter; shows name, reference role, references |
 
 ## Refining
 
@@ -49,7 +45,6 @@ Unrefined. No commitment implied.
 | STORY-021 | Capture applicable entities and enforcement ownership as graph relationships | Same — new labels and relationship types |
 | STORY-023 | A user can ask a question in natural language and get graph results | LLM constructs the Cypher and calls `POST /query`. Gated on the schema settling and on STORY-019 (auth) — see [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md) |
 | STORY-024 | `POST /query` constrains what a generated query may do | Read-only enforcement, timeouts, result caps. A human at a demo is a benign caller; a generator isn't |
-| STORY-032 | A TypeScript error fails the frontend test command | `npm test` runs vitest, which transpiles without type-checking; `tsc -b` runs only under `npm run build`, which no gate invokes. A type error can pass the suite and reach a commit — one did during the graph-explorer work and was caught only by running the build by hand |
 | STORY-033 | Linting runs over both backend and frontend | Neither is configured (no `[tool.ruff]`, no eslint), so unused imports and dead code accumulate unflagged. Several were left deliberately unfixed in sprint 1 on the grounds that a batch pass would be cheaper than hand-picking |
 
 ## Done
@@ -59,6 +54,13 @@ sprint reviews.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-010 | A user can browse and filter the document table by name | 2 |
+| STORY-008 | An agent can run a raw Cypher query against the graph | 2 |
+| STORY-027 | A user can add and remove a reference between two documents | 2 |
+| STORY-006 | A user can create, update, and delete documents through the API | 2 |
+| STORY-005 | A user can list all documents and read one with what it cites and what cites it | 2 |
+| STORY-028 | An operator can wipe the graph and start clean | 2 |
+| STORY-032 | A TypeScript error fails the frontend test command | 2 |
 | STORY-015 | The rendered graph is bounded by a configurable cap, and says when it truncated | 1 |
 | STORY-004 | Ingest rejects a malformed CSV with a clear error instead of a stack trace | 1 |
 | STORY-012 | The sample DoD corpus loads and renders end to end | 1 |
