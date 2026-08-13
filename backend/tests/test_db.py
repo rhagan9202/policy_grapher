@@ -75,3 +75,35 @@ def test_is_graph_empty_reflects_content(clean_graph, database):
         routing_=RoutingControl.WRITE,
     )
     assert is_graph_empty(clean_graph, database) is False
+
+
+def test_a_graph_holding_only_an_orphan_source_is_empty(
+    client_with_graph, driver, database
+):
+    """Deleting the last document leaves the shared `api` :Source behind.
+
+    "Empty" means no documents: the sole caller is startup auto-ingest, which
+    must still load the sample corpus after a create-then-delete round trip.
+    Counting every node would let a provenance node the user cannot see block
+    the load, and the UI would come up empty until someone called POST /reset.
+    """
+    created = client_with_graph.post("/documents", json={"name": "Temporary"})
+    assert created.status_code == 201
+    slug = created.json()["slug"]
+    assert client_with_graph.delete(f"/documents/{slug}").status_code == 204
+
+    records, _, _ = driver.execute_query(
+        "MATCH (d:Document) RETURN count(d) AS documents",
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    assert records[0]["documents"] == 0
+
+    records, _, _ = driver.execute_query(
+        "MATCH (s:Source) RETURN count(s) AS sources",
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    assert records[0]["sources"] == 1, "the orphan :Source this test is about is gone"
+
+    assert is_graph_empty(driver, database) is True

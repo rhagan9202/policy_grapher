@@ -4,6 +4,12 @@ ADR-007: a document is external when no ingest has described it first-hand. The
 label is kept for query ergonomics — ADR-002 chose it and `WHERE NOT d:External`
 stays cheap — but it is recomputed from this one rule rather than set by each
 ingest path according to its own opinion.
+
+A source is identified by its file's *basename*, not its path: two files sharing
+a name in different directories would collapse into one :Source. That cannot
+happen today — `resolve_source_path` rejects paths and there is a single
+DATA_DIR — but a second source directory would make it reachable, and `source_id`
+would then need the path (or a directory key) to stay unique.
 """
 
 MANIFEST = "manifest"

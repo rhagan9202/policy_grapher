@@ -35,8 +35,16 @@ def apply_constraints(driver: Driver, database: str) -> None:
 
 
 def is_graph_empty(driver: Driver, database: str) -> bool:
+    """Whether the graph holds no documents.
+
+    Documents, not nodes: provenance (:Source) outlives what it described, so a
+    create-then-delete round trip leaves an orphan :Source behind. Counting
+    every node would make that invisible leftover read as content and stop
+    startup auto-ingest (`main.maybe_autoingest`, the sole caller) from loading
+    the sample corpus into what the user sees as an empty graph.
+    """
     records, _, _ = driver.execute_query(
-        "MATCH (n) RETURN count(n) AS total",
+        "MATCH (d:Document) RETURN count(d) AS total",
         database_=database,
         routing_=RoutingControl.READ,
     )
