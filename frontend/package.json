@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "test": "eslint . && tsc -b && vitest run"
+    "lint": "eslint . --max-warnings=0",
+    "test": "eslint . --max-warnings=0 && tsc -b && vitest run"
   },
   "dependencies": {
     "react": "^19.0.0",
