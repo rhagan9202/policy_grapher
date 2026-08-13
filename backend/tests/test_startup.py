@@ -1,8 +1,11 @@
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from neo4j import RoutingControl
 
+from policy_grapher import main
+from policy_grapher.config import get_settings
 from policy_grapher.db import clear_graph
 from policy_grapher.ingest import ingest_file
 from policy_grapher.main import maybe_autoingest
@@ -61,10 +64,34 @@ def test_a_missing_sample_file_does_not_prevent_startup(
     assert node_count(clean_graph, database) == 0
 
 
-def test_auto_ingest_does_not_rerun_after_the_graph_is_cleared(
-    clean_graph, database, autoingest_settings
+def test_a_graph_emptied_at_runtime_stays_empty_on_the_next_request(
+    clean_graph, settings_for_container, database, driver, monkeypatch
 ):
-    """Auto-ingest is a startup check, not a reaction to emptiness."""
-    maybe_autoingest(clean_graph, autoingest_settings)
-    clear_graph(clean_graph, database)
-    assert node_count(clean_graph, database) == 0
+    """STORY-029: auto-ingest is a startup check, not a reaction to
+    emptiness. A graph emptied at runtime (e.g. a future POST /reset)
+    must stay empty across subsequent requests, because lifespan's
+    auto-ingest call runs exactly once, at process boot, and no other
+    code path re-invokes it.
+    """
+    settings = settings_for_container.model_copy(
+        update={"data_dir": REPO_DATA, "auto_ingest": True, "sample_csv": SAMPLE}
+    )
+
+    get_settings.cache_clear()
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+
+    with TestClient(main.app) as client:
+        # Entering the client runs lifespan, which auto-ingests into the
+        # empty graph left by `clean_graph`.
+        assert node_count(driver, database) == 438
+
+        # Simulate a runtime reset, out of band -- not through the app.
+        clear_graph(driver, database)
+        assert node_count(driver, database) == 0
+
+        # A subsequent request must not re-trigger auto-ingest.
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert node_count(driver, database) == 0
+
+    get_settings.cache_clear()
