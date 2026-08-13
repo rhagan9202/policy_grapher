@@ -130,6 +130,40 @@ def identifier(entry: str) -> str | None:
     return name
 
 
+# Modern cover page: "DOD DIRECTIVE 5000.01" on one line.
+_MODERN_HEADER = re.compile(
+    r"DOD\s+(DIRECTIVE|INSTRUCTION|MANUAL)\s+([0-9][0-9.\-]*[A-Z]?)", re.IGNORECASE
+)
+# Legacy cover page: "DIRECTIVE" ... "NUMBER 5143.01", separated by blank lines.
+_LEGACY_HEADER = re.compile(
+    r"\b(DIRECTIVE|INSTRUCTION|MANUAL)\b\s*\n[\s\S]{0,200}?NUMBER\s+([0-9][0-9.\-]*[A-Z]?)",
+    re.IGNORECASE,
+)
+# Both header patterns are shaped just like a body citation to another issuance (a
+# references-section entry, or a "Reissues DoD Directive ..." mention), and searching
+# the whole document lets one of those win instead of the cover page — e.g. DoDI
+# 8500.01's own references section opens "(a) DoD Directive 8500.01, ...", a *cited*,
+# cancelled predecessor that the unbounded modern pattern matches before ever reaching
+# the true "Department of Defense / INSTRUCTION / NUMBER 8500.01" cover page, producing
+# the wrong type (DoDD instead of DoDI) for the right number. Every sample fixture's
+# real header match starts within the first 40 characters, and the earliest thing that
+# could be mistaken for one (a references heading or citation) starts at character
+# 10,529 — so bounding the search to a generous prefix keeps the cover page's match the
+# only one the patterns can find, without needing to locate the references section first.
+_COVER_PAGE_SPAN = 2000
+
+
+def document_name(full: str) -> str | None:
+    """The issuance's own name, in the corpus's vocabulary."""
+    cover = full[:_COVER_PAGE_SPAN]
+    for pattern in (_MODERN_HEADER, _LEGACY_HEADER):
+        match = pattern.search(cover)
+        if match:
+            kind = _ABBREVIATION[match.group(1).lower()]
+            return f"{kind} {match.group(2)}"
+    return None
+
+
 def normalise(name: str) -> str:
     """Map an identifier to the vocabulary the corpus CSV uses."""
     code = _US_CODE.match(name)

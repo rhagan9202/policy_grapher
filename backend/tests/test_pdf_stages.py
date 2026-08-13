@@ -131,3 +131,22 @@ def test_normalise_is_idempotent_on_the_already_reversed_us_code_order():
     "Title 10, United States Code" case above, which normalises *to* this order) —
     normalise() must not reverse it a second time."""
     assert pdf.normalise("United States Code, Title 10") == "United States Code, Title 10"
+
+
+def test_modern_header_names_the_document_on_one_line():
+    assert pdf.document_name(pdf.text_of(MODERN)) == "DoDD 5000.01"
+
+
+def test_legacy_header_splits_the_type_and_number_across_lines():
+    """A legacy cover page reads "Department of Defense / DIRECTIVE / NUMBER 5143.01"."""
+    legacy_directive = SAMPLES / "514301p.pdf"
+
+    assert pdf.document_name(pdf.text_of(legacy_directive)) == "DoDD 5143.01"
+
+
+def test_a_manual_is_named_DoDM():
+    assert pdf.document_name(pdf.text_of(SAMPLES / "818001m.pdf")) == "DoDM 8180.01"
+
+
+def test_text_with_no_recognisable_header_has_no_name():
+    assert pdf.document_name("Some other document entirely.") is None
