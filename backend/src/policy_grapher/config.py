@@ -3,11 +3,16 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# backend/src/policy_grapher/config.py -> parents[3] is the repository root.
+# In the container the layout differs and this path will not exist; pydantic-settings
+# ignores a missing env_file, and compose supplies the variables directly.
+REPO_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+
 
 class Settings(BaseSettings):
     """Backend configuration. Field names map to upper-case environment variables."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=REPO_ENV_FILE, extra="ignore")
 
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"

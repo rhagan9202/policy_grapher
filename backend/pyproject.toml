@@ -33,3 +33,9 @@ addopts = "-q"
 markers = [
     "integration: requires a live Neo4j container (Docker must be running)",
 ]
+filterwarnings = [
+    # starlette's TestClient warns until httpx2 lands; the dependency floors in this
+    # project pin us to httpx 1.x for now. Scoped to this message on purpose.
+    # Note: StarletteDeprecationWarning subclasses UserWarning, not DeprecationWarning.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
+]
