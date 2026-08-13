@@ -33,7 +33,7 @@ def test_small_corpus_creates_nodes_and_edges(clean_graph, database, tmp_path):
         'A,"[\'B\', \'C\']",Root Reference\n'
         'B,"[\'C\']",Sub-Reference\n',
     )
-    result = ingest_parsed(clean_graph, database, parse_corpus(path))
+    result = ingest_parsed(clean_graph, database, parse_corpus(path), path.name)
 
     assert result.nodes_created == 3
     assert result.relationships_created == 3
@@ -47,7 +47,7 @@ def test_external_documents_carry_the_label(
         tmp_path,
         'Document Name,References,Type\nA,"[\'B\']",Root Reference\n',
     )
-    ingest_parsed(clean_graph, database, parse_corpus(path))
+    ingest_parsed(clean_graph, database, parse_corpus(path), path.name)
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (d:Document {name: 'B'}) "
@@ -71,7 +71,7 @@ def test_self_references_create_no_loop(clean_graph, database, tmp_path):
         tmp_path,
         'Document Name,References,Type\nA,"[\'A\', \'B\']",Sub-Reference\n',
     )
-    result = ingest_parsed(clean_graph, database, parse_corpus(path))
+    result = ingest_parsed(clean_graph, database, parse_corpus(path), path.name)
 
     assert result.self_references_skipped == 1
     loops = count(
@@ -82,20 +82,22 @@ def test_self_references_create_no_loop(clean_graph, database, tmp_path):
     assert loops == 0
 
 
-def test_a_document_transitions_correctly_in_either_direction(
+def test_a_cited_only_document_becomes_described_but_is_never_undescribed(
     clean_graph, database, tmp_path
 ):
-    """A node's :External label must track its most recent role across ingests, in
-    both directions: cited-only -> corpus, and corpus -> cited-only.
+    """ADR-007: promotion still happens; demotion no longer does.
+
+    A document dropped from a later manifest keeps the DESCRIBES edge the earlier
+    one gave it, so it stays non-external. That is ingest being additive, which
+    SPEC-001 already claimed it was — the old demotion was the one place it wasn't.
     """
     first = tmp_path / "first.csv"
     first.write_text(
         'Document Name,References,Type\nA,"[\'B\']",Root Reference\n',
         encoding="utf-8",
     )
-    ingest_parsed(clean_graph, database, parse_corpus(first))
+    ingest_parsed(clean_graph, database, parse_corpus(first), first.name)
 
-    # Before the second ingest: A is corpus (has a role), B is external (no role).
     def fetch(name: str) -> dict:
         records, _, _ = clean_graph.execute_query(
             "MATCH (d:Document {name: $name}) RETURN d:External AS is_external",
@@ -108,18 +110,39 @@ def test_a_document_transitions_correctly_in_either_direction(
     assert fetch("A") == {"is_external": False}
     assert fetch("B") == {"is_external": True}
 
-    # Second file flips both: B becomes the corpus row (cited-only -> corpus), and A
-    # drops out of the corpus, remaining only as B's citation target (corpus ->
-    # cited-only).
     second = tmp_path / "second.csv"
     second.write_text(
         'Document Name,References,Type\nB,"[\'A\']",Sub-Reference\n',
         encoding="utf-8",
     )
-    ingest_parsed(clean_graph, database, parse_corpus(second))
+    ingest_parsed(clean_graph, database, parse_corpus(second), second.name)
 
+    # B is now described: promotion, unchanged from before ADR-007.
     assert fetch("B") == {"is_external": False}
-    assert fetch("A") == {"is_external": True}
+    # A is no longer a row in the current manifest, but first.csv still describes it.
+    assert fetch("A") == {"is_external": False}
+
+
+def test_a_manifest_records_itself_as_the_source_of_its_corpus_rows(
+    clean_graph, database, tmp_path
+):
+    path = tmp_path / "corpus.csv"
+    path.write_text(
+        'Document Name,References,Type\nA,"[\'B\']",Root Reference\n',
+        encoding="utf-8",
+    )
+
+    ingest_parsed(clean_graph, database, parse_corpus(path), path.name)
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (s:Source)-[:DESCRIBES]->(d:Document) "
+        "RETURN s.id AS id, s.kind AS kind, collect(d.name) AS described",
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    assert records[0]["id"] == "manifest:corpus.csv"
+    assert records[0]["kind"] == "manifest"
+    assert records[0]["described"] == ["A"]
 
 
 def test_reingesting_the_sample_corpus_creates_nothing(clean_graph, database):

@@ -9,18 +9,24 @@ from policy_grapher.models import DocumentIngestResult, DocumentRef, IngestResul
 from policy_grapher.sources import is_document_source, pdf, resolve_source_path
 from policy_grapher.sources.document import ExtractedDocument
 from policy_grapher.sources.manifest import ParsedCorpus, parse_corpus
+from policy_grapher.sources.provenance import (
+    DESCRIBES,
+    MANIFEST,
+    MERGE_SOURCE,
+    REFRESH_EXTERNAL,
+    source_id,
+)
 
 MERGE_CORPUS = """
 UNWIND $docs AS doc
 MERGE (d:Document {slug: doc.slug})
 SET d.name = doc.name
-REMOVE d:External
 """
 
 MERGE_EXTERNAL = """
 UNWIND $docs AS doc
 MERGE (d:Document {slug: doc.slug})
-SET d.name = doc.name, d:External
+SET d.name = doc.name
 """
 
 MERGE_EDGES = """
@@ -34,6 +40,7 @@ MERGE (source)-[:REFERENCES]->(target)
 def _write_ingest(
     tx: ManagedTransaction,
     *,
+    filename: str,
     external_docs: list[dict],
     corpus_docs: list[dict],
     edges: list[dict],
@@ -41,10 +48,8 @@ def _write_ingest(
     nodes_created = 0
     relationships_created = 0
 
-    # External first, then corpus, so a node can transition either direction across
-    # ingests: the corpus pass strips :External from a node first seen as a citation
-    # target, and the external pass adds it to a node that was a corpus row in an
-    # earlier ingest but is now only cited.
+    # The :External label is not set here — it is refreshed at the end, from
+    # provenance (see provenance.REFRESH_EXTERNAL).
     for statement, payload in (
         (MERGE_EXTERNAL, external_docs),
         (MERGE_CORPUS, corpus_docs),
@@ -58,11 +63,27 @@ def _write_ingest(
         summary = tx.run(MERGE_EDGES, {"edges": edges}).consume()
         relationships_created += summary.counters.relationships_created
 
+    # Provenance bookkeeping: consumed for its side effects, but not counted
+    # toward nodes_created/relationships_created — those report Document nodes
+    # and REFERENCES edges, which is what the caller asked about.
+    tx.run(
+        MERGE_SOURCE,
+        {"id": source_id(MANIFEST, filename), "kind": MANIFEST, "filename": filename},
+    ).consume()
+    tx.run(
+        DESCRIBES,
+        {"id": source_id(MANIFEST, filename), "slugs": [d["slug"] for d in corpus_docs]},
+    ).consume()
+    tx.run(
+        REFRESH_EXTERNAL,
+        {"slugs": [d["slug"] for d in corpus_docs + external_docs]},
+    ).consume()
+
     return nodes_created, relationships_created
 
 
 def ingest_parsed(
-    driver: Driver, database: str, parsed: ParsedCorpus
+    driver: Driver, database: str, parsed: ParsedCorpus, filename: str
 ) -> IngestResult:
     # Slugs are resolved before the write transaction opens (`reconcile_slugs`
     # reads via `driver.execute_query`, which cannot run inside a
@@ -90,6 +111,7 @@ def ingest_parsed(
     with driver.session(database=database) as session:
         nodes_created, relationships_created = session.execute_write(
             _write_ingest,
+            filename=filename,
             external_docs=external_docs,
             corpus_docs=corpus_docs,
             edges=edges,
@@ -108,7 +130,7 @@ def ingest_file(
 ) -> IngestResult | DocumentIngestResult:
     path = resolve_source_path(filename, data_dir)
     if not is_document_source(path):
-        return ingest_parsed(driver, database, parse_corpus(path))
+        return ingest_parsed(driver, database, parse_corpus(path), path.name)
 
     extracted = pdf.extract_document(path)
     slug, nodes_created, relationships_created = ingest_document(driver, database, extracted)

@@ -126,43 +126,36 @@ def test_expanding_a_document_adds_only_its_external_neighbours(loaded):
     )
 
 
-def test_expand_does_not_double_count_degree_for_a_bidirectionally_linked_neighbour(
+def test_expand_ranks_external_neighbours_by_true_degree(
     clean_graph, database, tmp_path
 ):
-    """Regression test for the degree-doubling bug in EXTERNAL_NEIGHBOURS.
+    """Regression coverage for the degree-doubling bug in EXTERNAL_NEIGHBOURS,
+    adapted for ADR-007.
 
-    D both cites and is cited by S (two REFERENCES relationships between the same
-    pair, one each direction) after transitioning corpus -> external across two
-    ingests, mirroring test_ingest.py's transition coverage. E is S's other
-    external neighbour, with no reverse edge to S but a genuinely higher degree
-    (3, vs D's 2) once F and G's citations of E are counted.
-
-    With the misplaced WITH DISTINCT, D's degree was computed as (relationships
-    between S and D) x deg(D) = 2 x 2 = 4, outranking E's correct degree of 3 and
-    getting kept under a one-slot external budget instead of E. Fixed, D's degree
-    is 2, E's is 3, and E is the one that survives the cap.
+    The bug needed an :External neighbour with a *reverse* edge back to the
+    expand node — the undirected match matched it twice, and without `WITH
+    DISTINCT d` ahead of the degree count, its degree was doubled. Under
+    ADR-007 that scenario can no longer arise through the manifest path: only a
+    corpus row can be the source of a REFERENCES edge, and any document that
+    has ever been a corpus row is described forever (see
+    provenance.REFRESH_EXTERNAL) — so a node with an outgoing edge can never be
+    :External. This test keeps the remaining, still-reachable coverage: D and E
+    are both cited-only in every manifest that touches them, so both stay
+    :External, and a one-slot external budget must keep the one with the
+    genuinely higher degree — E, cited by S, F and G (3), over D, cited by S
+    alone (1).
     """
     first = write_csv(
         tmp_path,
         "first.csv",
         'Document Name,References,Type\n'
         'S,"[\'D\', \'E\']",Root Reference\n'
-        'D,"[\'S\']",Sub-Reference\n'
         'F,"[\'E\']",Sub-Reference\n'
         'G,"[\'E\']",Sub-Reference\n',
     )
-    ingest_parsed(clean_graph, database, parse_corpus(first))
+    ingest_parsed(clean_graph, database, parse_corpus(first), first.name)
 
-    # D drops out of the corpus here, becoming :External again, but the
-    # REFERENCES relationships it accrued while it was a corpus row (both
-    # S -> D and D -> S) are never deleted — ingest is additive.
-    second = write_csv(
-        tmp_path,
-        "second.csv",
-        'Document Name,References,Type\nS,"[\'D\', \'E\']",Root Reference\n',
-    )
-    ingest_parsed(clean_graph, database, parse_corpus(second))
-
+    # Corpus is S, F, G (3 nodes); a budget of 4 leaves exactly one external slot.
     result = build_graph(clean_graph, database, expand="s", limit=4)
 
     external_ids = {node.id for node in result.nodes if node.is_external}
