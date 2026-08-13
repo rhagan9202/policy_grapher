@@ -19,6 +19,7 @@ MERGE_EXTERNAL = """
 UNWIND $docs AS doc
 MERGE (d:Document {slug: doc.slug})
 SET d.name = doc.name, d:External
+REMOVE d.reference_role
 """
 
 MERGE_EDGES = """
@@ -51,8 +52,11 @@ def ingest_parsed(
     nodes_created = 0
     relationships_created = 0
 
-    # External first, then corpus — the corpus pass strips :External from any node
-    # that was created as a citation target before it appeared as a corpus row.
+    # External first, then corpus, so a node can transition either direction across
+    # ingests: the corpus pass strips :External and sets reference_role for a node
+    # first seen as a citation target; the external pass adds :External and clears
+    # reference_role for a node that was a corpus row in an earlier ingest but is now
+    # only cited.
     for statement, payload in (
         (MERGE_EXTERNAL, external_docs),
         (MERGE_CORPUS, corpus_docs),

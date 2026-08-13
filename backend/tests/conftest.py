@@ -5,7 +5,8 @@ from fastapi.testclient import TestClient
 from neo4j import Driver
 from testcontainers.community.neo4j import Neo4jContainer
 
-from policy_grapher.config import Settings
+from policy_grapher import main
+from policy_grapher.config import Settings, get_settings
 from policy_grapher.db import apply_constraints, clear_graph, create_driver
 
 NEO4J_IMAGE = "neo4j:2025.10"
@@ -58,9 +59,6 @@ def clean_graph(driver, database) -> Driver:
 def client_with_graph(clean_graph, settings_for_container, database, monkeypatch):
     """A TestClient wired to the container, with auto-ingest off and /data pointed
     at the repository's real data directory."""
-    from policy_grapher import main
-    from policy_grapher.config import get_settings
-
     repo_data = Path(__file__).resolve().parents[2] / "data"
     settings = settings_for_container.model_copy(update={"data_dir": repo_data})
 

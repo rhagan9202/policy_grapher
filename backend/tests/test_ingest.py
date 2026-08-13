@@ -84,6 +84,47 @@ def test_self_references_create_no_loop(clean_graph, database, tmp_path):
     assert loops == 0
 
 
+def test_a_document_transitions_correctly_in_either_direction(
+    clean_graph, database, tmp_path
+):
+    """A node's :External label and reference_role must track its most recent role
+    across ingests, in both directions: cited-only -> corpus, and corpus -> cited-only.
+    """
+    first = tmp_path / "first.csv"
+    first.write_text(
+        'Document Name,References,Type\nA,"[\'B\']",Root Reference\n',
+        encoding="utf-8",
+    )
+    ingest_parsed(clean_graph, database, parse_corpus(first))
+
+    # Before the second ingest: A is corpus (has a role), B is external (no role).
+    def fetch(name: str) -> dict:
+        records, _, _ = clean_graph.execute_query(
+            "MATCH (d:Document {name: $name}) "
+            "RETURN d:External AS is_external, d.reference_role AS role",
+            {"name": name},
+            database_=database,
+            routing_=RoutingControl.READ,
+        )
+        return {"is_external": records[0]["is_external"], "role": records[0]["role"]}
+
+    assert fetch("A") == {"is_external": False, "role": "Root Reference"}
+    assert fetch("B") == {"is_external": True, "role": None}
+
+    # Second file flips both: B becomes the corpus row (cited-only -> corpus), and A
+    # drops out of the corpus, remaining only as B's citation target (corpus ->
+    # cited-only).
+    second = tmp_path / "second.csv"
+    second.write_text(
+        'Document Name,References,Type\nB,"[\'A\']",Sub-Reference\n',
+        encoding="utf-8",
+    )
+    ingest_parsed(clean_graph, database, parse_corpus(second))
+
+    assert fetch("B") == {"is_external": False, "role": "Sub-Reference"}
+    assert fetch("A") == {"is_external": True, "role": None}
+
+
 def test_reingesting_the_sample_corpus_creates_nothing(clean_graph, database):
     first = ingest_file(clean_graph, database, SAMPLE, REPO_DATA)
     assert first.nodes_created == 438
