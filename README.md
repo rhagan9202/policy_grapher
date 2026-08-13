@@ -1,35 +1,39 @@
-# This repo is for the development of the policy_grapher project initial demonstration of feasibility and MVP demo.
+# Policy Grapher
 
-# Overview
+Feasibility demo and MVP for **Policy Concierge**: a knowledge graph over policy documents
+and the references that connect them.
 
-- the overall end goal of the program is the development of a knowledge/policy management system - Policy Concierge
+Policy corpora are dense webs of cross-references, but that structure exists only in prose.
+Policy Grapher ingests the documents, builds a Neo4j graph of how they relate, and exposes
+it through a query API and a lightweight visual explorer.
 
-## Required Capabilities
+## Status
 
-- Ingest policy documents and guidelines, extract policy points, metadata such as what entities the policy applies to, who is responsible for enforcing the policy, references to associated/referenced policy, etc.
-- Construct a knowledge graph in Neo4j capturing the complex interactions and relationships between documents and policies
-- Expose an api endpoint for users/agents to query the graph using Cypher
-- Provides a lightweight UI that allows users to visualize and explore the graph similar to the functionality of Neo4j Bloom
-- UI allows users to search for documents/policies and are shown the object and its related documents/lineage/metadata
+Specification and sample data only — no implementation yet. The current increment is
+**DI-1**: one CSV in, Neo4j in the middle, a CRUD API and a force-directed React UI out.
 
-## MVP scope and definition of done
+## Stack
 
-- Can handle a Corpus of 20 documents
-- Ingests documents from file system
-- Processes PDF's, docx, xlsx and csv file types
-- Spins up and works on docker containers
-- Uses Neo4j latest container
-- Can visualize and explore graph up to 300 nodes
-- Corpus management through tables of ingested corpus documents allowing review of text and metadata.
-- API calls allow successful queries and return proper payload.
-- Users can search by document name or id
+Python ≥ 3.14 · FastAPI · Pydantic · Neo4j · uv · pytest — React · Vite · vitest — Docker
 
-## Out of initial scope
+## Documentation
 
-- RAG functionality or LLM calls
-- vector embeddings and vector stores
+Everything about this project — why it exists, what's being built, and in what order —
+lives in [`docs/`](docs/README.md).
 
-## Target stack
+| If you're asking... | Read |
+| --- | --- |
+| Why does this project exist? | [Vision](docs/planning/vision.md) |
+| What are we building, and in what order? | [Roadmap](docs/planning/roadmap.md) |
+| What work is queued up? | [Backlog](docs/backlog/backlog.md) |
+| How is the system put together? | [Architecture](docs/specs/architecture.md) |
+| What exactly does DI-1 require? | [SPEC-001](docs/specs/SPEC-001-di-1-policy-grapher.md) |
+| What are we doing right now? | [Sprint 1](docs/sprints/sprint-01/plan.md) |
+| Where does this new document go? | [Conventions](docs/CONVENTIONS.md) |
 
-- python >3.14, pytest, fastAPI, pydantic, neo4j, uv, docker
-- React, vite, vitest
+## Repository layout
+
+```
+data/    sample corpus (DoD directives and their references)
+docs/    planning, backlog, specs, sprints, artifacts
+```

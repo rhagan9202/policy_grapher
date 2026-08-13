@@ -1,0 +1,40 @@
+# IDE / editor project files
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+.vite/
+frontend/dist/
+*.log
+
+# Local environment overrides
+#
+# NOTE: `.env` itself is intentionally NOT ignored. DI-1 commits it with a development
+# default so a clean clone runs with `docker compose up` and no manual step, which makes
+# the Neo4j password public by construction. That is a deliberate, local-only decision —
+# see docs/specs/SPEC-001-di-1-policy-grapher.md (Environment Variables).
+# Adding `.env` here would break first-run setup; it must change before any shared
+# deployment, and that change belongs in an ADR, not in this file.
+.env.local
+.env.*.local
