@@ -24,7 +24,7 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 
 | Component | Responsibility |
 | --- | --- |
-| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` parses the CSV and merges nodes and edges into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes raw Cypher. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
+| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes raw Cypher. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
 | **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the committed `.env`. Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
 | **Frontend** (React + Vite, port 5173) | Two routes. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`; clicking a node shows its name and whether it is a corpus or external document, and clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. `/documents` renders every document from `GET /documents` as a table — name, how many documents cite it, and outgoing references with slugs resolved to names from the same payload — filtered client-side by name as the user types. Vite dev server proxies `/api` to the backend. |
 
@@ -37,6 +37,14 @@ app assembly, CORS, and lifespan only. Routers reach the driver and settings thr
 `dependencies.py`, which resolves both from `request.app.state`; the lifespan is what puts
 them there. Cypher lives beside the router that needs it: `graph.py`, `documents.py`, and
 `query.py` at the package root.
+
+Ingestion sources live in `sources/`: `__init__.py` dispatches on file extension,
+`manifest.py` reads a CSV into many documents, `document.py` holds the shared
+`ExtractedDocument`/`ExtractionReport` types, and `pdf.py` runs the five deterministic stages
+— format detection, section location, entry splitting, identifier extraction, and
+normalisation — that turn one PDF issuance into a document and its candidate references. See
+the [PDF extraction design](../superpowers/specs/2026-08-13-story-016-pdf-extraction-design.md)
+for the reasoning behind each stage.
 
 ## Data model
 
@@ -179,6 +187,13 @@ turns a surprise outage into a planned piece of work.
 - **One node label, one relationship type.** The Policy Concierge capabilities in the
   [vision](../planning/vision.md) — policy points, applicable entities, enforcement
   ownership — don't fit this schema. Expect a migration, not an extension.
+- **PDF extraction is partial by design.** The parser is deterministic and reports what it
+  cannot attribute rather than guessing or dropping it — `references_unattributed` in the
+  `POST /ingest` response is the record of what a document's references section contained
+  but the extractor could not resolve to an identifier. Per-fixture match rates against the
+  corpus CSV range from 75% to 100%; see
+  [SPEC-001's Testing section](SPEC-001-di-1-policy-grapher.md#testing-gap-review) for the
+  pinned floors.
 - **Auto-ingest only runs at startup.** It checks once, in `lifespan`, whether the graph is
   empty. A graph emptied at runtime by `POST /reset` stays empty until the backend process
   restarts; nothing re-triggers the check. That is intentional rather than incidental —

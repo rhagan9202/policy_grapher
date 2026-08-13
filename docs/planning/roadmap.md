@@ -22,9 +22,10 @@ of which the next milestone puts to it.
 
 Closing the gap between DI-1 and the MVP definition of done in the [vision](vision.md):
 
-- **Multi-format ingestion** — PDF, DOCX, and XLSX alongside CSV. This is the largest
-  single jump in scope: parsing prose documents is a different problem from reading a
-  column of pre-extracted references.
+- **Multi-format ingestion** — DOCX and XLSX alongside CSV and PDF (STORY-035, STORY-036).
+  PDF landed in STORY-016; DOCX and XLSX are their own problems, not an extension of it —
+  parsing prose documents differs from reading a column of pre-extracted references, and an
+  XLSX manifest is closer in shape to the CSV path than to either extraction story.
 - **Corpus management** — tables of ingested documents allowing review of extracted text
   and metadata, beyond DI-1's read-only document table.
 - **Scale to the MVP bar** — 20 documents, and a graph that stays explorable at the render

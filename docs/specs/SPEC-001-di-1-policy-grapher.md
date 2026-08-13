@@ -17,12 +17,25 @@ CSV input, Neo4j graph storage, a full CRUD API, and a React graph UI.
 
 ## Input
 
+`POST /ingest` accepts either a CSV manifest or a single PDF issuance, dispatched by file
+extension. A CSV yields many documents (the corpus below); a PDF yields exactly one document
+plus the references it cites. Both resolve their `filename` under `DATA_DIR` the same way.
+
 ### CSV Format
 - **Columns**: `Document Name`, `References`, `Type` (exactly these three, in this order)
 - **References field**: a Python-style stringified list, e.g. `"['Policy A', 'Policy B']"` — parsed via `ast.literal_eval`
 - **Source**: a bare **filename**, not a path. The backend joins it to `DATA_DIR`
   (`/data/samples`, mounted from `data/samples/`) and rejects
   anything that escapes that directory. **(gap review)**
+
+### PDF Format
+
+A DoD issuance PDF becomes one `Document` node and `REFERENCES` edges to the documents its
+references section cites. Extraction is deterministic — five stages over the `pypdf` text
+layer, no spaCy, no local or hosted model — because ingest idempotency is a tested invariant
+and a model would fail invisibly rather than reporting what it could not attribute. Design
+and rationale: [PDF extraction design](../superpowers/specs/2026-08-13-story-016-pdf-extraction-design.md).
+A local model over the unattributed residue is deferred to STORY-017's human-review layer.
 
 ### What the sample corpus actually contains **(gap review)**
 
@@ -146,7 +159,7 @@ Served by `routers/admin.py`.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Liveness probe. Returns `{ "status": "ok" }`. Touches no database — it answers whether the API process is up, not whether Neo4j is reachable |
-| `POST` | `/ingest` | Ingest a CSV. Body: `{ "filename": "dod_policy_references_08122026.csv" }`, resolved under `DATA_DIR`. Returns `{ nodes_created, relationships_created, self_references_skipped, suspected_duplicates }` |
+| `POST` | `/ingest` | Ingest a CSV manifest or a PDF issuance. Body: `{ "filename": "..." }`, resolved under `DATA_DIR`. Response is a discriminated union on `source`: a CSV returns `{ source: "manifest", nodes_created, relationships_created, self_references_skipped, suspected_duplicates }`; a PDF returns `{ source: "document", format, document: { slug, name }, nodes_created, relationships_created, references_attributed, references_unattributed, self_references_skipped }` |
 | `POST` | `/reset` | **(gap review)** Delete every node and relationship. The explicit way to make the graph match a changed file, since ingest never removes |
 
 #### Documents (CRUD)
@@ -234,6 +247,9 @@ Minimum coverage for the Definition of Done:
   `GRAPH_RENDER_CAP` nodes with `truncated=true` and `total_nodes=438`
 - Truncation is deterministic: the same request twice returns the same node set, and every
   corpus document survives it
+- PDF extraction is scored against the corpus CSV as an oracle, per document, with a pinned
+  floor each measured fixture must not regress below: DoDD 5000.01 at 1.00 (15/15), and
+  DoDI 5000.88, DoDD 5143.01, DoDM 8180.01, and DoDI 8500.01 each at 0.75
 
 ---
 
@@ -265,7 +281,7 @@ Minimum coverage for the Definition of Done:
 ---
 
 ## Out of DI-1 Scope
-- PDF, DOCX, XLSX ingestion
+- DOCX, XLSX ingestion (PDF has landed — see Input above)
 - Authentication or authorisation
 - RAG, LLM calls, vector embeddings
 - Production multi-stage Docker builds
