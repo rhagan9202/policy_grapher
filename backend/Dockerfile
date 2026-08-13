@@ -1,6 +1,9 @@
 FROM python:3.14-slim
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Pinned deliberately, mirroring the Neo4j image (STORY-018): `latest` would make
+# the build depend on when it was last pulled. 0.12.3 was the current uv release
+# as of this pin.
+COPY --from=ghcr.io/astral-sh/uv:0.12.3 /uv /usr/local/bin/uv
 
 WORKDIR /app
 

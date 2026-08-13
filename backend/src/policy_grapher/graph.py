@@ -25,9 +25,9 @@ ORDER BY degree DESC, d.slug ASC
 EXTERNAL_NEIGHBOURS = """
 MATCH (source:Document {slug: $slug})-[:REFERENCES]-(d:Document)
 WHERE d:External
+WITH DISTINCT d
 OPTIONAL MATCH (d)-[r:REFERENCES]-()
-WITH DISTINCT d, count(r) AS degree
-RETURN d.slug AS id, d.name AS label, degree
+RETURN d.slug AS id, d.name AS label, count(r) AS degree
 ORDER BY degree DESC, d.slug ASC
 """
 
@@ -70,12 +70,14 @@ def build_graph(
         for record in _read(driver, database, CORPUS_NODES)
     ]
 
-    if include_external:
-        external_records = _read(driver, database, EXTERNAL_NODES_BY_DEGREE)
-    elif expand:
+    if expand:
         exists = _read(driver, database, DOCUMENT_EXISTS, {"slug": expand})
         if exists[0]["total"] == 0:
             raise UnknownDocumentError(expand)
+
+    if include_external:
+        external_records = _read(driver, database, EXTERNAL_NODES_BY_DEGREE)
+    elif expand:
         external_records = _read(driver, database, EXTERNAL_NEIGHBOURS, {"slug": expand})
     else:
         external_records = []

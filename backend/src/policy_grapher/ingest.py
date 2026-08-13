@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from neo4j import Driver, RoutingControl
+from neo4j import Driver, ManagedTransaction
 
 from policy_grapher.csv_source import ParsedCorpus, parse_corpus, resolve_csv_path
 from policy_grapher.models import IngestResult
@@ -30,6 +30,37 @@ MERGE (source)-[:REFERENCES]->(target)
 """
 
 
+def _write_ingest(
+    tx: ManagedTransaction,
+    *,
+    external_docs: list[dict],
+    corpus_docs: list[dict],
+    edges: list[dict],
+) -> tuple[int, int]:
+    nodes_created = 0
+    relationships_created = 0
+
+    # External first, then corpus, so a node can transition either direction across
+    # ingests: the corpus pass strips :External and sets reference_role for a node
+    # first seen as a citation target; the external pass adds :External and clears
+    # reference_role for a node that was a corpus row in an earlier ingest but is now
+    # only cited.
+    for statement, payload in (
+        (MERGE_EXTERNAL, external_docs),
+        (MERGE_CORPUS, corpus_docs),
+    ):
+        if not payload:
+            continue
+        summary = tx.run(statement, {"docs": payload}).consume()
+        nodes_created += summary.counters.nodes_created
+
+    if edges:
+        summary = tx.run(MERGE_EDGES, {"edges": edges}).consume()
+        relationships_created += summary.counters.relationships_created
+
+    return nodes_created, relationships_created
+
+
 def ingest_parsed(
     driver: Driver, database: str, parsed: ParsedCorpus
 ) -> IngestResult:
@@ -49,36 +80,16 @@ def ingest_parsed(
         for source, target in parsed.edges
     ]
 
-    nodes_created = 0
-    relationships_created = 0
-
-    # External first, then corpus, so a node can transition either direction across
-    # ingests: the corpus pass strips :External and sets reference_role for a node
-    # first seen as a citation target; the external pass adds :External and clears
-    # reference_role for a node that was a corpus row in an earlier ingest but is now
-    # only cited.
-    for statement, payload in (
-        (MERGE_EXTERNAL, external_docs),
-        (MERGE_CORPUS, corpus_docs),
-    ):
-        if not payload:
-            continue
-        _, summary, _ = driver.execute_query(
-            statement,
-            {"docs": payload},
-            database_=database,
-            routing_=RoutingControl.WRITE,
+    # All three statements run inside one explicit write transaction, so a failure
+    # partway through (e.g. the edge statement after the node statements) rolls
+    # back everything instead of leaving a nodes-but-no-edges graph committed.
+    with driver.session(database=database) as session:
+        nodes_created, relationships_created = session.execute_write(
+            _write_ingest,
+            external_docs=external_docs,
+            corpus_docs=corpus_docs,
+            edges=edges,
         )
-        nodes_created += summary.counters.nodes_created
-
-    if edges:
-        _, summary, _ = driver.execute_query(
-            MERGE_EDGES,
-            {"edges": edges},
-            database_=database,
-            routing_=RoutingControl.WRITE,
-        )
-        relationships_created += summary.counters.relationships_created
 
     return IngestResult(
         nodes_created=nodes_created,

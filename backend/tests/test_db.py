@@ -2,7 +2,7 @@ import pytest
 from neo4j import RoutingControl
 from neo4j.exceptions import ConstraintError
 
-from policy_grapher.db import CONSTRAINTS, apply_constraints, is_graph_empty
+from policy_grapher.db import apply_constraints, is_graph_empty
 
 pytestmark = pytest.mark.integration
 
@@ -18,9 +18,21 @@ def test_both_uniqueness_constraints_exist(driver, database):
 
 
 def test_applying_constraints_twice_is_safe(driver, database):
+    def constraint_count() -> int:
+        records, _, _ = driver.execute_query(
+            "SHOW CONSTRAINTS YIELD name RETURN count(name) AS total",
+            database_=database,
+            routing_=RoutingControl.READ,
+        )
+        return records[0]["total"]
+
     apply_constraints(driver, database)
+    first_count = constraint_count()
+
     apply_constraints(driver, database)
-    assert len(CONSTRAINTS) == 2
+    second_count = constraint_count()
+
+    assert second_count == first_count
 
 
 def test_duplicate_slug_is_rejected(clean_graph, database):

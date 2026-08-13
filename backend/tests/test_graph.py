@@ -2,13 +2,20 @@ from pathlib import Path
 
 import pytest
 
+from policy_grapher.csv_source import parse_corpus
 from policy_grapher.graph import UnknownDocumentError, build_graph
-from policy_grapher.ingest import ingest_file
+from policy_grapher.ingest import ingest_file, ingest_parsed
 
 pytestmark = pytest.mark.integration
 
 REPO_DATA = Path(__file__).resolve().parents[2] / "data"
 SAMPLE = "dod_policy_references_08122026.csv"
+
+
+def write_csv(tmp_path: Path, name: str, body: str) -> Path:
+    path = tmp_path / name
+    path.write_text(body, encoding="utf-8")
+    return path
 
 
 @pytest.fixture
@@ -106,12 +113,61 @@ def test_expanding_a_document_adds_only_its_external_neighbours(loaded):
     default = build_graph(driver, database)
     expanded = build_graph(driver, database, expand="dodi-3115-14")
 
+    # Verified by hand against the live stack: GET /graph?expand=dodi-3115-14
+    # returns returned_nodes 29, total_nodes 29, truncated false.
+    assert expanded.returned_nodes == 29
+    assert expanded.total_nodes == 29
+    assert expanded.truncated is False
+
     assert expanded.returned_nodes > default.returned_nodes
     added = {n.id for n in expanded.nodes} - {n.id for n in default.nodes}
     assert added
     assert all(
         node.is_external for node in expanded.nodes if node.id in added
     )
+
+
+def test_expand_does_not_double_count_degree_for_a_bidirectionally_linked_neighbour(
+    clean_graph, database, tmp_path
+):
+    """Regression test for the degree-doubling bug in EXTERNAL_NEIGHBOURS.
+
+    D both cites and is cited by S (two REFERENCES relationships between the same
+    pair, one each direction) after transitioning corpus -> external across two
+    ingests, mirroring test_ingest.py's transition coverage. E is S's other
+    external neighbour, with no reverse edge to S but a genuinely higher degree
+    (3, vs D's 2) once F and G's citations of E are counted.
+
+    With the misplaced WITH DISTINCT, D's degree was computed as (relationships
+    between S and D) x deg(D) = 2 x 2 = 4, outranking E's correct degree of 3 and
+    getting kept under a one-slot external budget instead of E. Fixed, D's degree
+    is 2, E's is 3, and E is the one that survives the cap.
+    """
+    first = write_csv(
+        tmp_path,
+        "first.csv",
+        'Document Name,References,Type\n'
+        'S,"[\'D\', \'E\']",Root Reference\n'
+        'D,"[\'S\']",Sub-Reference\n'
+        'F,"[\'E\']",Sub-Reference\n'
+        'G,"[\'E\']",Sub-Reference\n',
+    )
+    ingest_parsed(clean_graph, database, parse_corpus(first))
+
+    # D drops out of the corpus here, becoming :External again, but the
+    # REFERENCES relationships it accrued while it was a corpus row (both
+    # S -> D and D -> S) are never deleted — ingest is additive.
+    second = write_csv(
+        tmp_path,
+        "second.csv",
+        'Document Name,References,Type\nS,"[\'D\', \'E\']",Root Reference\n',
+    )
+    ingest_parsed(clean_graph, database, parse_corpus(second))
+
+    result = build_graph(clean_graph, database, expand="s", limit=4)
+
+    external_ids = {node.id for node in result.nodes if node.is_external}
+    assert external_ids == {"e"}
 
 
 def test_expanding_an_unknown_slug_raises(loaded):
@@ -155,4 +211,28 @@ def test_graph_endpoint_honours_query_parameters(client_with_graph):
 def test_graph_endpoint_returns_404_for_an_unknown_expand_slug(client_with_graph):
     client_with_graph.post("/ingest", json={"filename": SAMPLE})
     response = client_with_graph.get("/graph", params={"expand": "no-such-document"})
+    assert response.status_code == 404
+
+
+def test_graph_endpoint_honours_a_valid_expand_slug(client_with_graph):
+    client_with_graph.post("/ingest", json={"filename": SAMPLE})
+    response = client_with_graph.get("/graph", params={"expand": "dodi-3115-14"})
+
+    assert response.status_code == 200
+    body = response.json()
+    # Verified by hand against the live stack: GET /graph?expand=dodi-3115-14
+    # returns returned_nodes 29, total_nodes 29, truncated false.
+    assert body["returned_nodes"] == 29
+    assert body["total_nodes"] == 29
+    assert body["truncated"] is False
+
+
+def test_graph_endpoint_404s_for_an_unknown_expand_slug_regardless_of_include_external(
+    client_with_graph,
+):
+    """B3 regression: include_external must not let an unknown expand slug validate."""
+    client_with_graph.post("/ingest", json={"filename": SAMPLE})
+    response = client_with_graph.get(
+        "/graph", params={"include_external": "true", "expand": "no-such-document"}
+    )
     assert response.status_code == 404

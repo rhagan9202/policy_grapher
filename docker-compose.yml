@@ -22,10 +22,15 @@ services:
 
   backend:
     build: ./backend
+    # The healthcheck above probes HTTP; backend connects over bolt (7687) in
+    # lifespan. If bolt isn't ready yet when neo4j reports HTTP-healthy,
+    # verify_connectivity() raises and the container exits — restart instead of
+    # staying dead, so "one command" isn't a coin flip on slower machines.
+    restart: on-failure
     ports:
       - "8000:8000"
     environment:
-      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_URI: ${NEO4J_URI}
       NEO4J_USER: ${NEO4J_USER}
       NEO4J_PASSWORD: ${NEO4J_PASSWORD}
       NEO4J_DATABASE: ${NEO4J_DATABASE}
