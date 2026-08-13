@@ -1,0 +1,45 @@
+services:
+  neo4j:
+    # Pinned deliberately: `latest` makes the database version depend on when the
+    # image was last pulled. See docs/sprints/sprint-01/plan.md (risks), STORY-018.
+    image: neo4j:2025.10
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH}
+    healthcheck:
+      # HTTP check rather than cypher-shell: cypher-shell would need NEO4J_USER /
+      # NEO4J_PASSWORD set inside this container, which nothing here provides, so it
+      # would fail closed and block `backend` forever on service_healthy.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:7474 || exit 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    volumes:
+      - neo4j-data:/data
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: ${NEO4J_USER}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      NEO4J_DATABASE: ${NEO4J_DATABASE}
+      GRAPH_RENDER_CAP: ${GRAPH_RENDER_CAP}
+      DATA_DIR: /data
+      SAMPLE_CSV: ${SAMPLE_CSV}
+      AUTO_INGEST: ${AUTO_INGEST}
+    volumes:
+      # :Z relabels the host directory for exclusive container access under SELinux
+      # (enforcing on Fedora/RHEL hosts); harmless no-op where SELinux is disabled.
+      - ./data:/data:ro,Z
+    depends_on:
+      neo4j:
+        condition: service_healthy
+
+volumes:
+  neo4j-data:

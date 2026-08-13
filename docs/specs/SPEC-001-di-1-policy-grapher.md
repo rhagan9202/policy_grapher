@@ -236,7 +236,7 @@ Minimum coverage for the Definition of Done:
 ### docker-compose Services
 | Service | Image | Ports | Notes |
 |---|---|---|---|
-| `neo4j` | `neo4j:latest` | 7474, 7687 | Auth enabled via env vars from the committed `.env` |
+| `neo4j` | `neo4j:2025.10` | 7474, 7687 | Auth enabled via env vars from the committed `.env`. Pinned rather than `latest` so the database version is reproducible (STORY-018). |
 | `backend` | Custom (uv-based) | 8000 | Mounts `./data:/data`; waits for Neo4j to be healthy before starting |
 | `frontend` | Custom (Node/Vite) | 5173 | Proxies `/api` to backend for DI-1 |
 
