@@ -26,7 +26,7 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 | **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the committed `.env`. Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
 | **Frontend** (React + Vite, port 5173) | One route: `/` renders the force-directed graph from `GET /graph` via `react-force-graph`. Clicking a node shows its name and reference role; clicking an external node fetches its neighbours via `?expand={slug}`. Vite dev server proxies `/api` to the backend. The `/documents` table route from SPEC-001 is not built. |
 
-Typed fetch wrappers covering the two implemented endpoints (`/health`, `/graph`, `/ingest`)
+Typed fetch wrappers covering the three implemented endpoints (`/health`, `/graph`, `/ingest`)
 live in `src/api/client.ts`.
 
 ## Data model
@@ -92,15 +92,17 @@ private label lets one steal exclusive access from the other.
 Where the current design will strain, and roughly when. Writing these down early is what
 turns a surprise outage into a planned piece of work.
 
-- **`POST /query` executes arbitrary Cypher with no authentication, no read-only
-  enforcement, no timeout, no row cap, and open CORS.** Any page in any browser that can
-  reach the backend can drop the database. This is a deliberate, bounded risk acceptance —
-  [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md) records the conditions that make it
-  defensible (local-only, disposable data, trusted audience) and it must not reach a shared
-  environment in this form. The endpoint is also the demo's entire query interface
-  ([ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md)) and the eventual target of
-  LLM-constructed queries, so its contract outlives the assumption that a trusted human is
-  typing into it.
+- **`POST /query` is specified in SPEC-001 (STORY-008) but not built in DI-1.** When it
+  lands it will execute arbitrary Cypher with no authentication, no read-only enforcement,
+  no timeout, no row cap, and open CORS — any page in any browser that can reach the
+  backend will then be able to drop the database. That's a deliberate, bounded risk
+  acceptance made ahead of the endpoint existing —
+  [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md) records the conditions that will
+  make it defensible (local-only, disposable data, trusted audience), and it must not reach
+  a shared environment in this form. The endpoint is also planned as the demo's entire query
+  interface ([ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md)) and the eventual
+  target of LLM-constructed queries, so its contract outlives the assumption that a trusted
+  human is typing into it.
 - **The committed `.env` makes the Neo4j password public by construction.** Accepted so a
   clean clone runs with one command. Same boundary as above: local-only.
 - **Graph size grows with citation breadth, not corpus size.** One 23-row CSV yields 438
@@ -110,10 +112,11 @@ turns a surprise outage into a planned piece of work.
 - **`ast.literal_eval` on the `References` column.** Safer than `eval`, but it still means
   the ingest path is coupled to a Python-repr-shaped CSV field. A file exported from a
   different tool won't parse.
-- **No pagination anywhere**, by design. `GET /graph` is bounded by the render cap instead,
-  and reports `truncated` so a partial view is never presented as the whole graph.
-  `GET /documents` and `POST /query` are unbounded — at DI-1's corpus size that's fine, and
-  it stops being fine well before the corpus reaches its MVP target.
+- **No pagination anywhere**, by design. `GET /graph` — the only read endpoint DI-1
+  builds — is bounded by the render cap instead, and reports `truncated` so a partial view
+  is never presented as the whole graph. `GET /documents` and `POST /query` are specified
+  but not built; both are planned unbounded when they arrive. At DI-1's corpus size that
+  would be fine, and it will stop being fine well before the corpus reaches its MVP target.
 - **One node label, one relationship type.** The Policy Concierge capabilities in the
   [vision](../planning/vision.md) — policy points, applicable entities, enforcement
   ownership — don't fit this schema. Expect a migration, not an extension.
