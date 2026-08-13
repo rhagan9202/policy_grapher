@@ -44,3 +44,8 @@ class DocumentOut(BaseModel):
     is_external: bool
     references: list[str] = Field(default_factory=list)
     referenced_by: list[str] = Field(default_factory=list)
+
+
+class DocumentIn(BaseModel):
+    name: str = Field(min_length=1)
+    reference_role: str = Field(min_length=1)
