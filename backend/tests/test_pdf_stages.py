@@ -96,6 +96,9 @@ def test_wrapped_lines_are_rejoined_into_one_entry():
             "DoD Directive 5143.01",
         ),
         ("Title 10, United States Code", "Title 10, United States Code"),
+        # Modern documents cite the US Code in the reversed order: "United States
+        # Code, Title N" rather than "Title N, United States Code".
+        ("United States Code, Title 10", "United States Code, Title 10"),
     ],
 )
 def test_identifier_is_the_text_before_the_quoted_title(entry, expected):
@@ -121,3 +124,10 @@ def test_an_entry_with_neither_identifier_nor_recognised_shape_is_unattributable
 )
 def test_normalise_maps_to_the_corpus_vocabulary(name, expected):
     assert pdf.normalise(name) == expected
+
+
+def test_normalise_is_idempotent_on_the_already_reversed_us_code_order():
+    """"United States Code, Title N" is already the corpus's vocabulary (see the
+    "Title 10, United States Code" case above, which normalises *to* this order) —
+    normalise() must not reverse it a second time."""
+    assert pdf.normalise("United States Code, Title 10") == "United States Code, Title 10"

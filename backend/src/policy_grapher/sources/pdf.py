@@ -94,9 +94,18 @@ def locate_references(full: str) -> tuple[str, str | None]:
 
 
 _QUOTED_TITLE = re.compile(r"(.+?),\s*[“\"]")
-# Entries that carry no quoted title at all, e.g. "Title 10, United States Code".
-_CODE_CITATION = re.compile(r"((?:Title|Section)\s+[\dA-Za-z().]+,\s*United States Code)")
+# Entries that carry no quoted title at all, e.g. "Title 10, United States Code" (the
+# order legacy documents use) or "United States Code, Title 10" (the order modern
+# documents use — and already the corpus's target vocabulary, see normalise() below).
+_CODE_CITATION = re.compile(
+    r"((?:Title|Section)\s+[\dA-Za-z().]+,\s*United States Code"
+    r"|United States Code,\s*Title\s+\d+)"
+)
 _ISSUANCE = re.compile(r"^DoD\s+(Directive|Instruction|Manual)\s+([0-9][0-9.\-]*[A-Z]?)$", re.IGNORECASE)
+# Only matches the legacy "Title N, United States Code" order. An identifier already
+# in the reversed "United States Code, Title N" order — the corpus's target vocabulary
+# — falls through unmatched, so normalise() leaves it as-is instead of reversing it
+# a second time.
 _US_CODE = re.compile(r"^Title\s+(\d+),\s*United States Code$", re.IGNORECASE)
 _ABBREVIATION = {"directive": "DoDD", "instruction": "DoDI", "manual": "DoDM"}
 
