@@ -1,7 +1,6 @@
 export interface GraphNode {
   id: string
   label: string
-  reference_role: string | null
   is_external: boolean
 }
 
@@ -27,13 +26,11 @@ export interface IngestResult {
 
 export interface DocumentIn {
   name: string
-  reference_role: string
 }
 
 export interface DocumentOut {
   slug: string
   name: string
-  reference_role: string | null
   is_external: boolean
   references: string[]
   referenced_by: string[]

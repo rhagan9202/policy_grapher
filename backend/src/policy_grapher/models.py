@@ -20,7 +20,6 @@ class ResetResult(BaseModel):
 class GraphNode(BaseModel):
     id: str
     label: str
-    reference_role: str | None = None
     is_external: bool
 
 
@@ -40,7 +39,6 @@ class GraphOut(BaseModel):
 class DocumentOut(BaseModel):
     slug: str
     name: str
-    reference_role: str | None
     is_external: bool
     references: list[str] = Field(default_factory=list)
     referenced_by: list[str] = Field(default_factory=list)
@@ -48,7 +46,6 @@ class DocumentOut(BaseModel):
 
 class DocumentIn(BaseModel):
     name: str = Field(min_length=1)
-    reference_role: str = Field(min_length=1)
 
 
 class QueryRequest(BaseModel):

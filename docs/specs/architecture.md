@@ -24,9 +24,9 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 
 | Component | Responsibility |
 | --- | --- |
-| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` parses the CSV and merges nodes and edges into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`PUT`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes raw Cypher. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
+| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` parses the CSV and merges nodes and edges into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes raw Cypher. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
 | **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the committed `.env`. Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
-| **Frontend** (React + Vite, port 5173) | Two routes. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`; clicking a node shows its name and reference role, and clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. `/documents` renders every document from `GET /documents` as a table — name, reference role, and outgoing references with slugs resolved to names from the same payload — filtered client-side by name as the user types. Vite dev server proxies `/api` to the backend. |
+| **Frontend** (React + Vite, port 5173) | Two routes. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`; clicking a node shows its name and whether it is a corpus or external document, and clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. `/documents` renders every document from `GET /documents` as a table — name, how many documents cite it, and outgoing references with slugs resolved to names from the same payload — filtered client-side by name as the user types. Vite dev server proxies `/api` to the backend. |
 
 Typed fetch wrappers covering every endpoint live in `src/api/client.ts`. `request()`
 returns `undefined` on a `204`, which the five body-less endpoints rely on.
@@ -42,8 +42,8 @@ them there. Cypher lives beside the router that needs it: `graph.py`, `documents
 
 | Label | Properties | Constraints |
 | --- | --- | --- |
-| `Document` | `slug: str`, `name: str`, `reference_role: str` | `slug` unique, `name` unique |
-| `Document:External` | `slug: str`, `name: str` | same; no `reference_role` |
+| `Document` | `slug: str`, `name: str` | `slug` unique, `name` unique |
+| `Document:External` | `slug: str`, `name: str` | same, plus the `:External` label |
 
 | Type | Direction | Meaning |
 | --- | --- | --- |
@@ -54,8 +54,8 @@ Nodes and relationships are created with `MERGE`, making ingestion idempotent �
 
 **The corpus is mostly external.** Ingesting the 23-row sample CSV produces **438 nodes**:
 415 of them are documents cited by the corpus but absent from it — public laws, MIL-STDs,
-CFR titles, DHS and Joint Chiefs memoranda. These carry an extra `:External` label and no
-`reference_role`, so `MATCH (d:Document) WHERE NOT d:External` is the corpus-only query.
+CFR titles, DHS and Joint Chiefs memoranda. These carry an extra `:External` label, so
+`MATCH (d:Document) WHERE NOT d:External` is the corpus-only query.
 `GET /graph` returns the corpus view by default; see
 [ADR-002](adr/ADR-002-external-references-and-corpus-first-graph.md).
 
@@ -83,15 +83,18 @@ both deliberate:
 A suffixed slug reaches **89 characters**, not the 80 ADR-003 states: the suffix is appended
 after truncation and nothing enforces a ceiling.
 
-`reference_role` is the CSV's `Type` column, renamed and stored verbatim: it describes a
-document's position in the reference graph (`Root Reference`, `Sub-Reference`, and their
-`(Shared)` variants), not what kind of document it is.
+A `Document` carries no property describing its standing among other documents. The CSV's
+`Type` column is read at parse time and discarded:
+[ADR-006](adr/ADR-006-relational-facts-live-on-typed-edges.md) established that a position
+relative to other documents is a fact about edges, that no derivation reproduced the CSV's
+four values, and that the stored label was already stale — edge editing shipped before it
+did. "Root" and "shared" are queries over in-degree, computed where a caller needs them.
 
-> **Decided, not yet done.** [ADR-006](adr/ADR-006-relational-facts-live-on-typed-edges.md)
-> removes `reference_role`: a document's position relative to others is a fact about edges,
-> and the stored label is both underivable and already stale — edge editing shipped in
-> sprint 2 and updates no role. STORY-034 carries it out. Until then the field is still
-> here, still written by ingest, and still required by `POST /documents`.
+`REFERENCES` is therefore the first member of a relationship vocabulary rather than the whole
+of it. Types are directed verb phrases in `SCREAMING_SNAKE_CASE`, read source → target.
+
+Because a `Document` now has no mutable field — renaming is delete-and-recreate under
+[ADR-003](adr/ADR-003-slug-identifiers.md) — there is no `PUT /documents/{slug}`.
 
 ## External dependencies
 

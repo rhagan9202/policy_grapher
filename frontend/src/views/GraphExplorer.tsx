@@ -203,7 +203,7 @@ export default function GraphExplorer() {
         {selected ? (
           <div data-testid="node-detail">
             <h2>{selected.label}</h2>
-            <p>{selected.reference_role ?? 'External reference'}</p>
+            <p>{selected.is_external ? 'External reference' : 'Corpus document'}</p>
           </div>
         ) : (
           <p>Click a document to see its details and pull in its external references.</p>

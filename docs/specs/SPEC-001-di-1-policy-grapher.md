@@ -61,20 +61,19 @@ storage limit. Both are handled below.
 
 | Label | Properties | Constraints |
 |---|---|---|
-| `Document` | `slug: str`, `name: str`, `reference_role: str` | `slug` unique, `name` unique |
-| `Document:External` | `slug: str`, `name: str` | same; **no** `reference_role` |
+| `Document` | `slug: str`, `name: str` | `slug` unique, `name` unique |
+| `Document:External` | `slug: str`, `name: str` | same, plus the `:External` label |
 
 **(gap review)** Two changes from the original schema:
 
-- **`type` is renamed `reference_role`.** The CSV's four values — `Root Reference`,
+- **The CSV's `type` column is read but not stored.** Its four values — `Root Reference`,
   `Root Reference (Shared)`, `Sub-Reference`, `Sub-Reference (Shared)` — describe a
-  document's role in the reference graph, not what kind of document it is. Stored verbatim
-  and uninterpreted; DI-1 does not parse the `(Shared)` suffix or derive role from structure.
-  **Superseded by [ADR-006](adr/ADR-006-relational-facts-live-on-typed-edges.md)**, which
-  removes the property outright — deriving it turns out to be impossible, not merely
-  unimplemented. This section describes DI-1 as built; STORY-034 changes it.
-- **Documents referenced but not in the corpus carry an additional `:External` label** and
-  have no `reference_role`. `MATCH (d:Document)` still returns everything;
+  document's position relative to other documents, which is a fact about edges.
+  [ADR-006](adr/ADR-006-relational-facts-live-on-typed-edges.md) removed it from the graph:
+  no derivation reproduces those four values, and the stored label went stale the moment
+  edges became editable. "Root" and "shared" are now queries over in-degree.
+- **Documents referenced but not in the corpus carry an additional `:External` label.**
+  `MATCH (d:Document)` still returns everything;
   `MATCH (d:Document) WHERE NOT d:External` returns the 23 corpus documents.
 
 ### Slug generation **(gap review)**
@@ -158,7 +157,6 @@ Addressed by `slug`, never by raw name. **(gap review)**
 | `GET` | `/documents` | List all documents |
 | `GET` | `/documents/{slug}` | Get one document with both `references` and `referenced_by` |
 | `POST` | `/documents` | Create a document. Body: `DocumentIn`. Slug is generated, not supplied |
-| `PUT` | `/documents/{slug}` | Update `reference_role` only. A body `name` that doesn't match the addressed document is a `400` — renaming means delete and recreate |
 | `DELETE` | `/documents/{slug}` | Delete a document and all its relationships (`DETACH DELETE`) |
 
 #### References **(gap review)**
@@ -177,13 +175,12 @@ immutable after ingest.
 | `POST` | `/query` | Execute a raw Cypher string. Body: `{ "cypher": "MATCH ..." }`. Returns a list of records. **No read-only enforcement, timeout, or row cap in DI-1** — see [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md) |
 
 ### Pydantic Models **(gap review — all changed)**
-- `DocumentIn`: `name: str`, `reference_role: str`
-- `DocumentOut`: `slug: str`, `name: str`, `reference_role: str | None`, `is_external: bool`, `references: list[str]`, `referenced_by: list[str]`
-- `GraphNode`: `id: str` (slug), `label: str` (name), `reference_role: str | None`, `is_external: bool`
+- `DocumentIn`: `name: str`
+- `DocumentOut`: `slug: str`, `name: str`, `is_external: bool`, `references: list[str]`, `referenced_by: list[str]`
+- `GraphNode`: `id: str` (slug), `label: str` (name), `is_external: bool`
 - `GraphEdge`: `source: str` (slug), `target: str` (slug)
 - `GraphOut`: `nodes: list[GraphNode]`, `edges: list[GraphEdge]`, `total_nodes: int`, `returned_nodes: int`, `truncated: bool`
 
-`reference_role` is nullable because external documents don't have one.
 
 `references` and `referenced_by` carry **slugs, not names** — the same identifiers the
 reference endpoints and `GraphEdge` use, so a caller can follow one straight into
@@ -237,7 +234,6 @@ Minimum coverage for the Definition of Done:
   `GRAPH_RENDER_CAP` nodes with `truncated=true` and `total_nodes=438`
 - Truncation is deterministic: the same request twice returns the same node set, and every
   corpus document survives it
-- `PUT` with a mismatched name returns 400
 
 ---
 
@@ -250,7 +246,7 @@ Minimum coverage for the Definition of Done:
 | View | Route | Description |
 |---|---|---|
 | Graph Explorer | `/` | Force-directed graph from `GET /graph`. Defaults to the 23 corpus documents. Node click shows name and reference role, and expands that node's external neighbors via `?expand={slug}`. **(gap review)** |
-| Document Table | `/documents` | Table of all documents from `GET /documents`. Client-side search/filter by name. Each row shows name, reference role, and references. |
+| Document Table | `/documents` | Table of all documents from `GET /documents`. Client-side search/filter by name. Each row shows name, how many documents cite it (derived from `referenced_by`), and its outgoing references. |
 
 ### API Client
 - Typed fetch wrappers in `src/api/client.ts` covering all backend endpoints.
@@ -278,6 +274,6 @@ Minimum coverage for the Definition of Done:
 
 Added by the gap review:
 - **Entity resolution** — near-duplicate names are flagged, not merged
-- **Interpreting `reference_role`** — stored verbatim, not parsed or derived
+- **Interpreting the CSV's `type` column** — read during parsing, never stored; see [ADR-006](adr/ADR-006-relational-facts-live-on-typed-edges.md)
 - **Renaming documents** — delete and recreate instead
 - **Query limits on `POST /query`** — deliberately deferred, see [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md)

@@ -5,9 +5,7 @@ from policy_grapher.config import Settings
 from policy_grapher.dependencies import get_app_settings, get_driver
 from policy_grapher.documents import (
     DocumentNotFoundError,
-    ExternalDocumentError,
     NameConflictError,
-    NameMismatchError,
     SelfReferenceError,
     add_reference,
     create_document,
@@ -15,7 +13,6 @@ from policy_grapher.documents import (
     get_document,
     list_documents,
     remove_reference,
-    update_document,
 )
 from policy_grapher.models import DocumentIn, DocumentOut
 
@@ -54,36 +51,11 @@ def create(
 ) -> DocumentOut:
     try:
         return create_document(
-            driver, settings.neo4j_database, body.name, body.reference_role
+            driver, settings.neo4j_database, body.name
         )
     except NameConflictError as exc:
         raise HTTPException(
             status_code=409, detail=f"A document named {body.name!r} already exists."
-        ) from exc
-
-
-@router.put("/{slug}", response_model=DocumentOut)
-def update(
-    slug: str,
-    body: DocumentIn,
-    driver: Driver = Depends(get_driver),
-    settings: Settings = Depends(get_app_settings),
-) -> DocumentOut:
-    try:
-        return update_document(
-            driver, settings.neo4j_database, slug, body.name, body.reference_role
-        )
-    except DocumentNotFoundError as exc:
-        raise _not_found(slug) from exc
-    except ExternalDocumentError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{slug!r} is an external document and has no reference_role.",
-        ) from exc
-    except NameMismatchError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail="Body name does not match the addressed document; renaming means delete and recreate.",
         ) from exc
 
 

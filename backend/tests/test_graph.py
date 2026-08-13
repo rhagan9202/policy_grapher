@@ -32,7 +32,6 @@ def test_default_view_is_the_corpus_only(loaded):
     assert result.total_nodes == 23
     assert result.truncated is False
     assert all(node.is_external is False for node in result.nodes)
-    assert all(node.reference_role is not None for node in result.nodes)
     assert len(result.edges) == 72
 
 

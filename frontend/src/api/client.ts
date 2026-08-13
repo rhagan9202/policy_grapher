@@ -71,13 +71,6 @@ export function createDocument(document: DocumentIn): Promise<DocumentOut> {
   })
 }
 
-export function updateDocument(slug: string, document: DocumentIn): Promise<DocumentOut> {
-  return request<DocumentOut>(`/documents/${encodeURIComponent(slug)}`, {
-    method: 'PUT',
-    body: JSON.stringify(document),
-  })
-}
-
 export function deleteDocument(slug: string): Promise<void> {
   return request<void>(`/documents/${encodeURIComponent(slug)}`, { method: 'DELETE' })
 }

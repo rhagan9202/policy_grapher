@@ -48,8 +48,8 @@ import GraphExplorer from './GraphExplorer'
 
 const corpusView: GraphOut = {
   nodes: [
-    { id: 'dodd-5000-01', label: 'DoDD 5000.01', reference_role: 'Root Reference', is_external: false },
-    { id: 'dodi-3115-14', label: 'DoDI 3115.14', reference_role: 'Sub-Reference', is_external: false },
+    { id: 'dodd-5000-01', label: 'DoDD 5000.01', is_external: false },
+    { id: 'dodi-3115-14', label: 'DoDI 3115.14', is_external: false },
   ],
   edges: [{ source: 'dodd-5000-01', target: 'dodi-3115-14' }],
   total_nodes: 2,
@@ -60,7 +60,7 @@ const corpusView: GraphOut = {
 const expandedView: GraphOut = {
   nodes: [
     ...corpusView.nodes,
-    { id: 'public-law-116-92', label: 'Public Law 116-92', reference_role: null, is_external: true },
+    { id: 'public-law-116-92', label: 'Public Law 116-92', is_external: true },
   ],
   edges: [
     ...corpusView.edges,
@@ -73,9 +73,9 @@ const expandedView: GraphOut = {
 
 const reciprocalView: GraphOut = {
   nodes: [
-    { id: 'a', label: 'DoDD A', reference_role: 'Root Reference', is_external: false },
-    { id: 'b', label: 'DoDD B', reference_role: 'Sub-Reference', is_external: false },
-    { id: 'c', label: 'DoDD C', reference_role: 'Sub-Reference', is_external: false },
+    { id: 'a', label: 'DoDD A', is_external: false },
+    { id: 'b', label: 'DoDD B', is_external: false },
+    { id: 'c', label: 'DoDD C', is_external: false },
   ],
   edges: [
     { source: 'a', target: 'b' },
@@ -128,7 +128,7 @@ describe('GraphExplorer', () => {
     expect(screen.getByText('DoDD 5000.01')).toBeInTheDocument()
   })
 
-  it('shows the name and reference role of a clicked node', async () => {
+  it('shows the name and kind of a clicked node', async () => {
     getGraph.mockResolvedValue(corpusView)
     render(<GraphExplorer />)
     await waitFor(() => screen.getByTestId('force-graph'))
@@ -137,7 +137,7 @@ describe('GraphExplorer', () => {
 
     const panel = await screen.findByTestId('node-detail')
     expect(panel).toHaveTextContent('DoDD 5000.01')
-    expect(panel).toHaveTextContent('Root Reference')
+    expect(panel).toHaveTextContent('Corpus document')
   })
 
   it('refetches with expand when a node is clicked', async () => {
@@ -167,7 +167,7 @@ describe('GraphExplorer', () => {
     expect(corpusColour).not.toEqual(externalColour)
   })
 
-  it('shows the external reference fallback instead of "null" for a node with no reference role', async () => {
+  it('marks an external node as external rather than rendering "null"', async () => {
     getGraph.mockResolvedValue(expandedView)
     render(<GraphExplorer />)
     await waitFor(() => screen.getByTestId('force-graph'))
@@ -176,7 +176,7 @@ describe('GraphExplorer', () => {
 
     const panel = await screen.findByTestId('node-detail')
     expect(panel).toHaveTextContent('Public Law 116-92')
-    expect(panel).toHaveTextContent('External reference')
+    expect(panel).toHaveTextContent(/external/i)
     expect(panel.textContent).not.toMatch(/null/i)
   })
 

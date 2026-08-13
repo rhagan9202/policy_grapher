@@ -119,15 +119,12 @@ describe('documents', () => {
     const fetchMock = mockJson({ slug: 'dodd-9999-01' }, 201)
     vi.stubGlobal('fetch', fetchMock)
 
-    await createDocument({ name: 'DoDD 9999.01', reference_role: 'Root Reference' })
+    await createDocument({ name: 'DoDD 9999.01' })
 
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('/api/documents')
     expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body)).toEqual({
-      name: 'DoDD 9999.01',
-      reference_role: 'Root Reference',
-    })
+    expect(JSON.parse(init.body)).toEqual({ name: 'DoDD 9999.01' })
   })
 
   it('resolves rather than throwing on a 204', async () => {

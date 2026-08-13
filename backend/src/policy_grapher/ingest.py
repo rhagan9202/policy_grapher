@@ -11,7 +11,7 @@ from policy_grapher.slugs import assign_slugs
 MERGE_CORPUS = """
 UNWIND $docs AS doc
 MERGE (d:Document {slug: doc.slug})
-SET d.name = doc.name, d.reference_role = doc.reference_role
+SET d.name = doc.name
 REMOVE d:External
 """
 
@@ -19,7 +19,6 @@ MERGE_EXTERNAL = """
 UNWIND $docs AS doc
 MERGE (d:Document {slug: doc.slug})
 SET d.name = doc.name, d:External
-REMOVE d.reference_role
 """
 
 MERGE_EDGES = """
@@ -41,10 +40,9 @@ def _write_ingest(
     relationships_created = 0
 
     # External first, then corpus, so a node can transition either direction across
-    # ingests: the corpus pass strips :External and sets reference_role for a node
-    # first seen as a citation target; the external pass adds :External and clears
-    # reference_role for a node that was a corpus row in an earlier ingest but is now
-    # only cited.
+    # ingests: the corpus pass strips :External from a node first seen as a citation
+    # target, and the external pass adds it to a node that was a corpus row in an
+    # earlier ingest but is now only cited.
     for statement, payload in (
         (MERGE_EXTERNAL, external_docs),
         (MERGE_CORPUS, corpus_docs),
@@ -65,10 +63,9 @@ def ingest_parsed(
     driver: Driver, database: str, parsed: ParsedCorpus
 ) -> IngestResult:
     slugs = assign_slugs(parsed.all_names)
-    roles = {row.name: row.reference_role for row in parsed.rows}
 
     corpus_docs = [
-        {"slug": slugs[name], "name": name, "reference_role": roles[name]}
+        {"slug": slugs[name], "name": name}
         for name in sorted(parsed.corpus_names)
     ]
     external_docs = [

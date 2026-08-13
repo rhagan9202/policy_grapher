@@ -14,7 +14,7 @@ OPTIONAL MATCH (d)-[:REFERENCES]->(out:Document)
 WITH d, collect(DISTINCT out.slug) AS references
 OPTIONAL MATCH (d)<-[:REFERENCES]-(inc:Document)
 WITH d, references, collect(DISTINCT inc.slug) AS referenced_by
-RETURN d.slug AS slug, d.name AS name, d.reference_role AS reference_role,
+RETURN d.slug AS slug, d.name AS name,
        d:External AS is_external, references, referenced_by
 """
 
@@ -26,12 +26,7 @@ SLUG_TAKEN = "MATCH (d:Document {slug: $slug}) RETURN count(d) AS total"
 NAME_TAKEN = "MATCH (d:Document {name: $name}) RETURN count(d) AS total"
 
 CREATE_DOCUMENT = """
-CREATE (d:Document {slug: $slug, name: $name, reference_role: $reference_role})
-"""
-
-UPDATE_ROLE = """
-MATCH (d:Document {slug: $slug})
-SET d.reference_role = $reference_role
+CREATE (d:Document {slug: $slug, name: $name})
 """
 
 DELETE_DOCUMENT = "MATCH (d:Document {slug: $slug}) DETACH DELETE d"
@@ -56,14 +51,6 @@ class NameConflictError(ValueError):
     """A document with this name already exists."""
 
 
-class NameMismatchError(ValueError):
-    """The body's name does not match the addressed document."""
-
-
-class ExternalDocumentError(ValueError):
-    """The addressed document is external and has no reference_role."""
-
-
 class SelfReferenceError(ValueError):
     """A document may not reference itself."""
 
@@ -73,7 +60,6 @@ def _to_document(record) -> DocumentOut:
     return DocumentOut(
         slug=record["slug"],
         name=record["name"],
-        reference_role=record["reference_role"],
         is_external=record["is_external"],
         references=sorted(record["references"]),
         referenced_by=sorted(record["referenced_by"]),
@@ -117,9 +103,7 @@ def allocate_slug(driver: Driver, database: str, name: str) -> str:
     return f"{base}-{hash_suffix(name)}"
 
 
-def create_document(
-    driver: Driver, database: str, name: str, reference_role: str
-) -> DocumentOut:
+def create_document(driver: Driver, database: str, name: str) -> DocumentOut:
     if _count(driver, database, NAME_TAKEN, {"name": name}) > 0:
         raise NameConflictError(name)
 
@@ -128,21 +112,8 @@ def create_document(
         driver,
         database,
         CREATE_DOCUMENT,
-        {"slug": slug, "name": name, "reference_role": reference_role},
+        {"slug": slug, "name": name},
     )
-    return get_document(driver, database, slug)
-
-
-def update_document(
-    driver: Driver, database: str, slug: str, name: str, reference_role: str
-) -> DocumentOut:
-    current = get_document(driver, database, slug)  # raises DocumentNotFoundError
-    if current.is_external:
-        raise ExternalDocumentError(slug)
-    if current.name != name:
-        raise NameMismatchError(name)
-
-    _write(driver, database, UPDATE_ROLE, {"slug": slug, "reference_role": reference_role})
     return get_document(driver, database, slug)
 
 

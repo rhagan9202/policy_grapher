@@ -15,7 +15,6 @@ const documents: DocumentOut[] = [
   {
     slug: 'dodd-5000-01',
     name: 'DoDD 5000.01',
-    reference_role: 'Root Reference',
     is_external: false,
     references: ['public-law-116-92'],
     referenced_by: [],
@@ -23,7 +22,6 @@ const documents: DocumentOut[] = [
   {
     slug: 'dodi-3115-14',
     name: 'DoDI 3115.14',
-    reference_role: 'Sub-Reference',
     is_external: false,
     references: [],
     referenced_by: [],
@@ -31,7 +29,6 @@ const documents: DocumentOut[] = [
   {
     slug: 'public-law-116-92',
     name: 'Public Law 116-92',
-    reference_role: null,
     is_external: true,
     references: [],
     referenced_by: ['dodd-5000-01'],
@@ -41,23 +38,34 @@ const documents: DocumentOut[] = [
 afterEach(() => listDocuments.mockReset())
 
 describe('DocumentTable', () => {
-  it('renders a row per document with its name and reference role', async () => {
+  it('renders a row per document with its name', async () => {
     listDocuments.mockResolvedValue(documents)
     render(<DocumentTable />)
 
     await waitFor(() => expect(screen.getByText('DoDD 5000.01')).toBeInTheDocument())
-    expect(screen.getByText('Root Reference')).toBeInTheDocument()
     expect(screen.getAllByRole('row')).toHaveLength(documents.length + 1) // + header
   })
 
-  it('shows the external fallback rather than an empty role cell', async () => {
+  it('counts how many documents cite each one, derived from referenced_by', async () => {
+    // ADR-006: a document's standing among others is read off the edges, not a
+    // stored label. public-law-116-92 is cited once; dodd-5000-01 by nobody.
+    listDocuments.mockResolvedValue(documents)
+    render(<DocumentTable />)
+
+    const cited = await screen.findByRole('row', { name: /^Public Law 116-92/ })
+    expect(cited).toHaveTextContent('1')
+    const uncited = await screen.findByRole('row', { name: /^DoDD 5000.01/ })
+    expect(uncited).toHaveTextContent('0')
+  })
+
+  it('still marks which documents are external', async () => {
     listDocuments.mockResolvedValue(documents)
     render(<DocumentTable />)
 
     // Anchored: the DoDD 5000.01 row also names Public Law 116-92, in its
     // References cell. Only the external document's own row starts with it.
     const row = await screen.findByRole('row', { name: /^Public Law 116-92/ })
-    expect(row).toHaveTextContent('External reference')
+    expect(row).toHaveTextContent(/external/i)
     expect(row.textContent).not.toMatch(/null/i)
   })
 

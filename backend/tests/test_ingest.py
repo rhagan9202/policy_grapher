@@ -40,7 +40,7 @@ def test_small_corpus_creates_nodes_and_edges(clean_graph, database, tmp_path):
     assert count(clean_graph, database, "MATCH (d:Document) RETURN count(d) AS n") == 3
 
 
-def test_external_documents_carry_the_label_and_no_reference_role(
+def test_external_documents_carry_the_label(
     clean_graph, database, tmp_path
 ):
     path = write_csv(
@@ -51,21 +51,19 @@ def test_external_documents_carry_the_label_and_no_reference_role(
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (d:Document {name: 'B'}) "
-        "RETURN d:External AS is_external, d.reference_role AS role",
+        "RETURN d:External AS is_external",
         database_=database,
         routing_=RoutingControl.READ,
     )
     assert records[0]["is_external"] is True
-    assert records[0]["role"] is None
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (d:Document {name: 'A'}) "
-        "RETURN d:External AS is_external, d.reference_role AS role",
+        "RETURN d:External AS is_external",
         database_=database,
         routing_=RoutingControl.READ,
     )
     assert records[0]["is_external"] is False
-    assert records[0]["role"] == "Root Reference"
 
 
 def test_self_references_create_no_loop(clean_graph, database, tmp_path):
@@ -87,8 +85,8 @@ def test_self_references_create_no_loop(clean_graph, database, tmp_path):
 def test_a_document_transitions_correctly_in_either_direction(
     clean_graph, database, tmp_path
 ):
-    """A node's :External label and reference_role must track its most recent role
-    across ingests, in both directions: cited-only -> corpus, and corpus -> cited-only.
+    """A node's :External label must track its most recent role across ingests, in
+    both directions: cited-only -> corpus, and corpus -> cited-only.
     """
     first = tmp_path / "first.csv"
     first.write_text(
@@ -100,16 +98,15 @@ def test_a_document_transitions_correctly_in_either_direction(
     # Before the second ingest: A is corpus (has a role), B is external (no role).
     def fetch(name: str) -> dict:
         records, _, _ = clean_graph.execute_query(
-            "MATCH (d:Document {name: $name}) "
-            "RETURN d:External AS is_external, d.reference_role AS role",
+            "MATCH (d:Document {name: $name}) RETURN d:External AS is_external",
             {"name": name},
             database_=database,
             routing_=RoutingControl.READ,
         )
-        return {"is_external": records[0]["is_external"], "role": records[0]["role"]}
+        return {"is_external": records[0]["is_external"]}
 
-    assert fetch("A") == {"is_external": False, "role": "Root Reference"}
-    assert fetch("B") == {"is_external": True, "role": None}
+    assert fetch("A") == {"is_external": False}
+    assert fetch("B") == {"is_external": True}
 
     # Second file flips both: B becomes the corpus row (cited-only -> corpus), and A
     # drops out of the corpus, remaining only as B's citation target (corpus ->
@@ -121,8 +118,8 @@ def test_a_document_transitions_correctly_in_either_direction(
     )
     ingest_parsed(clean_graph, database, parse_corpus(second))
 
-    assert fetch("B") == {"is_external": False, "role": "Sub-Reference"}
-    assert fetch("A") == {"is_external": True, "role": None}
+    assert fetch("B") == {"is_external": False}
+    assert fetch("A") == {"is_external": True}
 
 
 def test_reingesting_the_sample_corpus_creates_nothing(clean_graph, database):

@@ -63,15 +63,19 @@ export default function DocumentTable() {
           <thead>
             <tr>
               <th>Name</th>
-              <th>Reference role</th>
+              <th>Cited by</th>
               <th>References</th>
             </tr>
           </thead>
           <tbody>
             {visible.map((document) => (
               <tr key={document.slug}>
-                <td>{document.name}</td>
-                <td>{document.reference_role ?? 'External reference'}</td>
+                <td>
+                  <span>{document.name}</span>
+                  {document.is_external && <span> (external)</span>}
+                </td>
+                {/* ADR-006: standing among other documents is read off the edges. */}
+                <td>{document.referenced_by.length}</td>
                 <td>
                   {document.references
                     .map((slug) => namesBySlug.get(slug) ?? slug)

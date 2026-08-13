@@ -10,7 +10,7 @@ from policy_grapher.models import GraphEdge, GraphNode, GraphOut
 
 CORPUS_NODES = """
 MATCH (d:Document) WHERE NOT d:External
-RETURN d.slug AS id, d.name AS label, d.reference_role AS reference_role
+RETURN d.slug AS id, d.name AS label
 ORDER BY d.slug ASC
 """
 
@@ -64,7 +64,6 @@ def build_graph(
         GraphNode(
             id=record["id"],
             label=record["label"],
-            reference_role=record["reference_role"],
             is_external=False,
         )
         for record in _read(driver, database, CORPUS_NODES)
@@ -86,7 +85,6 @@ def build_graph(
         GraphNode(
             id=record["id"],
             label=record["label"],
-            reference_role=None,
             is_external=True,
         )
         for record in external_records
