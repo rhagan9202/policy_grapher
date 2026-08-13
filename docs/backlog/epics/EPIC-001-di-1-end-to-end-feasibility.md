@@ -1,6 +1,6 @@
 # EPIC-001: DI-1 — end-to-end feasibility
 
-**Status:** In progress — sprint 1 delivered 11 of 18 stories · **Target:** DI-1
+**Status:** In progress — sprint 1 delivered 12 of 18 stories · **Target:** DI-1
 
 ## Goal
 
@@ -40,7 +40,7 @@ Out of scope:
 | STORY-025 | Stable URL-safe slugs | Done |
 | STORY-003 | Idempotent CSV ingestion | Done |
 | STORY-026 | External documents distinguishable | Done |
-| STORY-004 | Malformed CSV rejected cleanly | Ready |
+| STORY-004 | Malformed CSV rejected cleanly | Done |
 | STORY-005 | List documents, read one with both directions | Ready |
 | STORY-006 | Create, update, delete documents | Ready |
 | STORY-027 | Add and remove references | Ready |

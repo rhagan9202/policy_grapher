@@ -19,7 +19,6 @@ specified but not yet Ready. Size them at the first planning session and fill th
 
 | ID | Item | Epic | Est. | Notes |
 | --- | --- | --- | --- | --- |
-| STORY-004 | Ingest rejects a malformed CSV with a clear error instead of a stack trace | EPIC-001 | — | Wrong columns, unparseable `References`, missing file, traversal attempt. Not in the original spec — `ast.literal_eval` raises on real-world input |
 | STORY-005 | A user can list all documents and read one with what it cites and what cites it | EPIC-001 | — | `GET /documents`, `GET /documents/{slug}` returning `references` and `referenced_by` |
 | STORY-006 | A user can create, update, and delete documents through the API | EPIC-001 | — | `POST` / `PUT` / `DELETE /documents/{slug}`; `PUT` updates `reference_role` only and 400s on a name mismatch |
 | STORY-027 | A user can add and remove a reference between two documents | EPIC-001 | — | `POST`/`DELETE /documents/{slug}/references/{target_slug}`. Closes the gap where edges were immutable after ingest |
@@ -35,7 +34,6 @@ Understood well enough to discuss, not yet ready to start.
 | --- | --- | --- | --- |
 | ~~STORY-013~~ | ~~Referenced documents that aren't in the corpus are distinguishable~~ | — | **Superseded by STORY-026.** Resolved by [ADR-002](../specs/adr/ADR-002-external-references-and-corpus-first-graph.md); ID retained per [CONVENTIONS](../CONVENTIONS.md) |
 | STORY-014 | A user can search for a document by name or ID from anywhere in the UI | — | MVP DoD item; broader than STORY-010's table filter. "ID" is the slug from STORY-025 |
-| STORY-015 | The rendered graph is bounded by a configurable cap, and says when it truncated | — | `GRAPH_RENDER_CAP` (default 300) with `?limit=` override; deterministic truncation; `truncated` / `total_nodes` surfaced in the UI. Now specified — promote to Ready once estimated |
 | STORY-031 | Near-duplicate document names are reconciled | — | Ingest flags them (STORY-003); nothing merges them. Real entity resolution — deliberately out of DI-1 |
 | STORY-016 | Ingestion accepts PDF, DOCX, and XLSX | — | MVP DoD item and the largest scope jump past DI-1 — extraction, not parsing. Likely an epic of its own |
 | STORY-017 | A user can review the extracted text and metadata of any ingested document | — | The "corpus management" MVP item; needs a decision on storing document text |
@@ -61,6 +59,8 @@ sprint reviews.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-015 | The rendered graph is bounded by a configurable cap, and says when it truncated | 1 |
+| STORY-004 | Ingest rejects a malformed CSV with a clear error instead of a stack trace | 1 |
 | STORY-012 | The sample DoD corpus loads and renders end to end | 1 |
 | STORY-030 | Integration tests run against a real, disposable Neo4j | 1 |
 | STORY-029 | The stack comes up with the sample corpus already loaded | 1 |
