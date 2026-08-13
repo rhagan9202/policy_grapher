@@ -95,3 +95,23 @@ def test_recording_the_same_source_twice_creates_one_node(clean_graph, database)
         routing_=RoutingControl.READ,
     )
     assert records[0]["total"] == 1
+
+
+SAMPLE = "dod_policy_references_08122026.csv"
+
+
+@pytest.mark.integration
+def test_no_document_disagrees_with_its_provenance(client_with_graph, driver, database):
+    """:External is a view. If a write path forgets to refresh it, this is what says so."""
+    client_with_graph.post("/ingest", json={"filename": SAMPLE})
+    client_with_graph.post("/ingest", json={"filename": "500001p.pdf"})
+
+    records, _, _ = driver.execute_query(
+        "MATCH (d:Document) "
+        "WITH d, EXISTS { (:Source)-[:DESCRIBES]->(d) } AS described "
+        "WHERE described = d:External "
+        "RETURN collect(d.slug)[..10] AS wrong, count(*) AS total",
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    assert records[0]["total"] == 0, records[0]["wrong"]

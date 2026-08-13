@@ -17,12 +17,16 @@ def node_count(driver, database) -> int:
 
 def test_reset_empties_a_loaded_graph_and_reports_counts(client_with_graph, driver, database):
     client_with_graph.post("/ingest", json={"filename": SAMPLE})
-    assert node_count(driver, database) == 438
+    # 438 :Document nodes from the corpus plus 1 :Source node recording the
+    # manifest ingest that described them (see sources/provenance.py).
+    assert node_count(driver, database) == 439
 
     response = client_with_graph.post("/reset")
 
     assert response.status_code == 200
-    assert response.json() == {"nodes_deleted": 438, "relationships_deleted": 672}
+    # 672 :REFERENCES edges from the corpus plus 23 :DESCRIBES edges from the
+    # one :Source node to every document it described.
+    assert response.json() == {"nodes_deleted": 439, "relationships_deleted": 695}
     assert node_count(driver, database) == 0
 
 
