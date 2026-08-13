@@ -8,7 +8,7 @@ the [roadmap](../planning/roadmap.md); the reasoning behind past choices belongs
 
 ## Overview
 
-**DI-1 is built and running.** A CSV of documents and their references is read by a
+**DI-1's spine is built and running.** A CSV of documents and their references is read by a
 FastAPI backend, merged into a Neo4j graph, and served to a React force-directed UI. The
 full stack comes up with `docker compose up` and self-loads the sample corpus on first
 run — see the [README](../../README.md) for the quickstart.
@@ -24,7 +24,7 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 | --- | --- |
 | **Backend** (FastAPI, port 8000) | Parses the CSV, merges nodes and edges into Neo4j via `POST /ingest`, and serves the render-capped corpus view via `GET /graph`. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. Document CRUD, reference editing, `POST /reset`, and `POST /query` are specified in [SPEC-001](SPEC-001-di-1-policy-grapher.md) but not built in DI-1 — see the [backlog](../backlog/backlog.md). |
 | **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the committed `.env`. Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
-| **Frontend** (React + Vite, port 5173) | One route: `/` renders the force-directed graph from `GET /graph` via `react-force-graph`. Clicking a node shows its name and reference role; clicking an external node fetches its neighbours via `?expand={slug}`. Vite dev server proxies `/api` to the backend. The `/documents` table route from SPEC-001 is not built. |
+| **Frontend** (React + Vite, port 5173) | One route: `/` renders the force-directed graph from `GET /graph` via `react-force-graph`. Clicking a node shows its name and reference role; clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. Vite dev server proxies `/api` to the backend. The `/documents` table route from SPEC-001 is not built. |
 
 Typed fetch wrappers covering the three implemented endpoints (`/health`, `/graph`, `/ingest`)
 live in `src/api/client.ts`.
@@ -55,9 +55,15 @@ that break URL paths. A slug is a deterministic function of the full set of docu
 being ingested together — including the collision suffix, which is now applied to every
 contender for a contested base slug rather than only the second arrival — so slugs survive
 both a reset-and-reingest cycle and a change in row order unchanged. See
-[ADR-003](adr/ADR-003-slug-identifiers.md); an amending ADR is owed before STORY-006
-(document CRUD) lands, since a document created later through the API cannot retroactively
-re-slug one already assigned an uncontested base.
+[ADR-003](adr/ADR-003-slug-identifiers.md). That guarantee holds only within a single
+ingest: `assign_slugs` resolves collisions over the names it's given and has no knowledge
+of slugs a prior ingest already committed. Today, a later ingest whose name set newly
+contests an existing bare slug does not re-suffix anything — it tries to create a second
+node with an already-taken `name`, hits the `document_name_unique` constraint, and the
+ingest fails partway through (the external pass may already have committed), leaving the
+graph needing a reset and re-ingest to recover. Whether the incumbent should keep its bare
+slug or be displaced is undecided; that rule is the amending ADR's job before STORY-006
+(document CRUD) lands.
 
 `reference_role` is the CSV's `Type` column, renamed and stored verbatim: it describes a
 document's position in the reference graph (`Root Reference`, `Sub-Reference`, and their

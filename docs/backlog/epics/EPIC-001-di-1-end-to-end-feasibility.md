@@ -1,6 +1,6 @@
 # EPIC-001: DI-1 — end-to-end feasibility
 
-**Status:** Not started · **Target:** DI-1
+**Status:** In progress — sprint 1 delivered 11 of 18 stories · **Target:** DI-1
 
 ## Goal
 
@@ -35,24 +35,24 @@ Out of scope:
 
 | ID | Item | Status |
 | --- | --- | --- |
-| STORY-001 | Stack comes up with one command | Ready |
-| STORY-002 | Neo4j connection and unique constraints | Ready |
-| STORY-025 | Stable URL-safe slugs | Ready |
-| STORY-003 | Idempotent CSV ingestion | Ready |
-| STORY-026 | External documents distinguishable | Ready |
+| STORY-001 | Stack comes up with one command | Done |
+| STORY-002 | Neo4j connection and unique constraints | Done |
+| STORY-025 | Stable URL-safe slugs | Done |
+| STORY-003 | Idempotent CSV ingestion | Done |
+| STORY-026 | External documents distinguishable | Done |
 | STORY-004 | Malformed CSV rejected cleanly | Ready |
 | STORY-005 | List documents, read one with both directions | Ready |
 | STORY-006 | Create, update, delete documents | Ready |
 | STORY-027 | Add and remove references | Ready |
-| STORY-007 | Corpus-first graph endpoint | Ready |
+| STORY-007 | Corpus-first graph endpoint | Done |
 | STORY-028 | Reset the graph | Ready |
 | STORY-008 | Raw Cypher query endpoint | Ready |
-| STORY-009 | Graph explorer with expansion | Ready |
+| STORY-009 | Graph explorer with expansion | Done |
 | STORY-010 | Searchable document table | Ready |
-| STORY-011 | Typed API client | Ready |
-| STORY-029 | Auto-ingest on empty graph | Ready |
-| STORY-030 | Integration tests on a disposable Neo4j | Ready |
-| STORY-012 | Sample DoD corpus loads end to end | Ready |
+| STORY-011 | Typed API client | Done |
+| STORY-029 | Auto-ingest on empty graph | Done |
+| STORY-030 | Integration tests on a disposable Neo4j | Done |
+| STORY-012 | Sample DoD corpus loads end to end | Done |
 
 Six stories (025–030) came out of the 2026-08-12 gap review — they close holes the original
 spec left rather than adding scope. STORY-025 and STORY-026 are prerequisites for most of

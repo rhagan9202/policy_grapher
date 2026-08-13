@@ -33,6 +33,8 @@ export default function GraphExplorer() {
 
   const handleNodeClick = useCallback((node: GraphNode) => {
     setSelected(node)
+    // Only corpus nodes expand: an external document has no external
+    // neighbours of its own, so expanding one would be a guaranteed no-op.
     if (!node.is_external) setExpanded(node.id)
   }, [])
 
