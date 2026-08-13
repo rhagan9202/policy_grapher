@@ -49,3 +49,7 @@ class DocumentOut(BaseModel):
 class DocumentIn(BaseModel):
     name: str = Field(min_length=1)
     reference_role: str = Field(min_length=1)
+
+
+class QueryRequest(BaseModel):
+    cypher: str = Field(min_length=1)
