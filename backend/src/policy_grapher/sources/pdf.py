@@ -12,6 +12,12 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
+from policy_grapher.sources.document import (
+    DocumentSourceError,
+    ExtractedDocument,
+    ExtractionReport,
+)
+
 
 def text_of(path: Path) -> str:
     """Every page's text, joined by newlines."""
@@ -173,3 +179,42 @@ def normalise(name: str) -> str:
     if issuance:
         return f"{_ABBREVIATION[issuance.group(1).lower()]} {issuance.group(2)}"
     return name
+
+
+def extract_document(path: Path) -> ExtractedDocument:
+    """Read one issuance into a document and the documents it cites."""
+    try:
+        full = text_of(path)
+    except Exception as exc:  # pypdf raises several unrelated types
+        raise DocumentSourceError(f"{path.name!r} could not be read as a PDF.") from exc
+
+    name = document_name(full)
+    if name is None:
+        raise DocumentSourceError(
+            f"{path.name!r} has no recognisable issuance header; it may not be a DoD issuance."
+        )
+
+    fmt, section = locate_references(full)
+    attributed: list[str] = []
+    unattributed: list[str] = []
+    for entry in split_entries(fmt, section) if section else []:
+        found = identifier(entry)
+        if found is None:
+            unattributed.append(entry)
+        else:
+            attributed.append(normalise(found))
+
+    skipped = sum(1 for reference in attributed if reference == name)
+    references = tuple(sorted({r for r in attributed if r != name}))
+
+    return ExtractedDocument(
+        name=name,
+        references=references,
+        self_references_skipped=skipped,
+        report=ExtractionReport(
+            format=fmt,
+            section_found=section is not None,
+            attributed=tuple(sorted(set(attributed))),
+            unattributed=tuple(unattributed),
+        ),
+    )
