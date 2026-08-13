@@ -3,9 +3,10 @@ from neo4j import Driver
 
 from policy_grapher.config import Settings
 from policy_grapher.csv_source import CsvSourceError
+from policy_grapher.db import clear_graph
 from policy_grapher.dependencies import get_app_settings, get_driver
 from policy_grapher.ingest import ingest_file
-from policy_grapher.models import IngestRequest, IngestResult
+from policy_grapher.models import IngestRequest, IngestResult, ResetResult
 
 router = APIRouter(tags=["admin"])
 
@@ -27,3 +28,12 @@ def ingest(
         )
     except CsvSourceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/reset", response_model=ResetResult)
+def reset(
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+) -> ResetResult:
+    nodes, relationships = clear_graph(driver, settings.neo4j_database)
+    return ResetResult(nodes_deleted=nodes, relationships_deleted=relationships)

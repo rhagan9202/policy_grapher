@@ -12,6 +12,11 @@ class IngestResult(BaseModel):
     suspected_duplicates: list[list[str]] = Field(default_factory=list)
 
 
+class ResetResult(BaseModel):
+    nodes_deleted: int
+    relationships_deleted: int
+
+
 class GraphNode(BaseModel):
     id: str
     label: str

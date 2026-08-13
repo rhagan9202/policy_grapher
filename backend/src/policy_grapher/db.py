@@ -35,9 +35,11 @@ def is_graph_empty(driver: Driver, database: str) -> bool:
     return records[0]["total"] == 0
 
 
-def clear_graph(driver: Driver, database: str) -> None:
-    driver.execute_query(
+def clear_graph(driver: Driver, database: str) -> tuple[int, int]:
+    """Delete everything. Returns (nodes_deleted, relationships_deleted)."""
+    _, summary, _ = driver.execute_query(
         "MATCH (n) DETACH DELETE n",
         database_=database,
         routing_=RoutingControl.WRITE,
     )
+    return summary.counters.nodes_deleted, summary.counters.relationships_deleted
