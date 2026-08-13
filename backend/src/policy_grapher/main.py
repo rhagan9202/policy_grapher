@@ -9,7 +9,7 @@ from policy_grapher.db import apply_constraints, create_driver, is_graph_empty
 from policy_grapher.ingest import ingest_file
 from policy_grapher.models import IngestResult
 from policy_grapher.routers import admin, documents, graph
-from policy_grapher.sources.manifest import CsvSourceError
+from policy_grapher.sources import SourceError
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def maybe_autoingest(driver, settings: Settings) -> IngestResult | None:
         result = ingest_file(
             driver, settings.neo4j_database, settings.sample_csv, settings.data_dir
         )
-    except CsvSourceError as exc:
+    except SourceError as exc:
         # A missing or malformed sample must not stop the API from serving.
         logger.warning("Auto-ingest skipped: %s", exc)
         return None

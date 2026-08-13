@@ -7,16 +7,17 @@ Sequencing and intent, not commitments with dates. Individual work items live in
 
 ## Now
 
-**DI-1 is complete** — 18 of 18 stories, closed on 2026-08-13. One structured CSV in, Neo4j
-graph in the middle, CRUD API and a React UI out, exactly as
-[SPEC-001](../specs/SPEC-001-di-1-policy-grapher.md) specifies. `docker compose up` ingests
-`data/samples/dod_policy_references_08122026.csv` and renders its 23 documents as a navigable graph
-at `/`, with the full 438-document corpus listed and searchable at `/documents`. Every
-endpoint the spec names is built and covered by tests.
+**DI-1 is complete** — 18 of 18 stories, closed on 2026-08-13 — and PDF ingestion
+(STORY-016) has since landed on top of it. `docker compose up` ingests
+`data/samples/dod_policy_references_08122026.csv` and renders its 23 documents as a navigable
+graph at `/`, with the full 438-document corpus listed and searchable at `/documents`.
+`POST /ingest` now also accepts a DoD issuance PDF, extracting the document and the
+references it cites.
 
-The feasibility question DI-1 existed to answer is answered: the pipeline holds end to end
-at sample-corpus scale. What it has not been asked to do is prose parsing or scale — both
-of which the next milestone puts to it.
+The feasibility question DI-1 existed to answer is answered: the pipeline holds end to end at
+sample-corpus scale, and prose extraction works at 78–100% per document against the corpus as
+an oracle. What remains untested is **scale** — every measurement so far is against five
+documents and one 23-row manifest.
 
 ## Next
 

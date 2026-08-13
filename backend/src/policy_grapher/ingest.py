@@ -6,9 +6,9 @@ from neo4j import Driver, ManagedTransaction
 
 from policy_grapher.documents import allocate_slugs, reconcile_slugs
 from policy_grapher.models import DocumentIngestResult, DocumentRef, IngestResult
-from policy_grapher.sources import is_document_source, pdf
+from policy_grapher.sources import is_document_source, pdf, resolve_source_path
 from policy_grapher.sources.document import ExtractedDocument
-from policy_grapher.sources.manifest import ParsedCorpus, parse_corpus, resolve_csv_path
+from policy_grapher.sources.manifest import ParsedCorpus, parse_corpus
 
 MERGE_CORPUS = """
 UNWIND $docs AS doc
@@ -106,7 +106,7 @@ def ingest_parsed(
 def ingest_file(
     driver: Driver, database: str, filename: str, data_dir: Path
 ) -> IngestResult | DocumentIngestResult:
-    path = resolve_csv_path(filename, data_dir)
+    path = resolve_source_path(filename, data_dir)
     if not is_document_source(path):
         return ingest_parsed(driver, database, parse_corpus(path))
 

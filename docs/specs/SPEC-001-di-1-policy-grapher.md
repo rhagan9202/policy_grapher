@@ -19,7 +19,10 @@ CSV input, Neo4j graph storage, a full CRUD API, and a React graph UI.
 
 `POST /ingest` accepts either a CSV manifest or a single PDF issuance, dispatched by file
 extension. A CSV yields many documents (the corpus below); a PDF yields exactly one document
-plus the references it cites. Both resolve their `filename` under `DATA_DIR` the same way.
+plus **as many of its cited references as extraction can attribute** — 78–100% per document
+against the corpus, measured and pinned as test floors. What it cannot attribute is returned
+in the response rather than discarded. Both resolve their `filename` under `DATA_DIR` the same
+way.
 
 ### CSV Format
 - **Columns**: `Document Name`, `References`, `Type` (exactly these three, in this order)
@@ -36,6 +39,18 @@ layer, no spaCy, no local or hosted model — because ingest idempotency is a te
 and a model would fail invisibly rather than reporting what it could not attribute. Design
 and rationale: [PDF extraction design](../superpowers/specs/2026-08-13-story-016-pdf-extraction-design.md).
 A local model over the unattributed residue is deferred to STORY-017's human-review layer.
+
+**Known limitation — US Code citations carrying a `Section` are truncated to their title.**
+`United States Code, Title 44, Section 3552(b)(6)` is extracted as
+`United States Code, Title 44`, while the corpus records
+`United States Code, Title 44, Section 3552`. This is left unfixed deliberately: the corpus is
+not self-consistent here. The same document's `United States Code, Title 5, Sections 552 and
+552a` **is** recorded as plain `United States Code, Title 5`, which is what extraction already
+produces. A rule that captured both would have to keep a singular `Section`, drop a plural
+`Sections`, and strip subsection parentheticals — reverse-engineered from one data point to
+match an inconsistency in the source data, and wrong the moment that data is regenerated
+consistently. It costs one reference on one fixture, and the spurious ceiling in
+`test_extraction_ratchet.py` accounts for it.
 
 ### What the sample corpus actually contains **(gap review)**
 
@@ -122,7 +137,7 @@ suffix is appended after truncation, so a slug can reach **89 characters**, not 
 ## Backend
 
 ### Stack
-- Python ≥ 3.14, FastAPI, Pydantic v2, `neo4j` (official driver), `uv`, pytest, httpx
+- Python ≥ 3.14, FastAPI, Pydantic v2, `neo4j` (official driver), `pypdf`, `uv`, pytest, httpx
 - `testcontainers` for integration tests **(gap review)**
 
 ### Environment Variables

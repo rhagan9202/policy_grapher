@@ -2,11 +2,11 @@ from pathlib import Path
 
 import pytest
 
+from policy_grapher.sources import resolve_source_path
 from policy_grapher.sources.manifest import (
     CsvSourceError,
     canonical_name,
     parse_corpus,
-    resolve_csv_path,
 )
 
 REPO_DATA = Path(__file__).resolve().parents[2] / "data" / "samples"
@@ -17,24 +17,6 @@ def write_csv(tmp_path: Path, body: str) -> Path:
     path = tmp_path / "corpus.csv"
     path.write_text(body, encoding="utf-8")
     return path
-
-
-# --- path resolution -------------------------------------------------------
-
-def test_resolve_accepts_a_bare_filename(tmp_path):
-    (tmp_path / "a.csv").write_text("x", encoding="utf-8")
-    assert resolve_csv_path("a.csv", tmp_path) == (tmp_path / "a.csv").resolve()
-
-
-@pytest.mark.parametrize("attempt", ["../secrets.csv", "sub/a.csv", "/etc/passwd"])
-def test_resolve_rejects_anything_that_is_not_a_bare_filename(tmp_path, attempt):
-    with pytest.raises(CsvSourceError):
-        resolve_csv_path(attempt, tmp_path)
-
-
-def test_resolve_rejects_a_missing_file(tmp_path):
-    with pytest.raises(CsvSourceError):
-        resolve_csv_path("nope.csv", tmp_path)
 
 
 # --- canonical names -------------------------------------------------------
@@ -130,7 +112,7 @@ def test_duplicate_detection_groups_near_identical_names(tmp_path):
 # --- the real corpus -------------------------------------------------------
 
 def test_sample_corpus_matches_the_measured_figures():
-    parsed = parse_corpus(resolve_csv_path(SAMPLE, REPO_DATA))
+    parsed = parse_corpus(resolve_source_path(SAMPLE, REPO_DATA))
 
     assert len(parsed.rows) == 23
     assert len(parsed.corpus_names) == 23
@@ -142,7 +124,7 @@ def test_sample_corpus_matches_the_measured_figures():
 
 
 def test_sample_corpus_self_referencing_documents_are_the_expected_four():
-    parsed = parse_corpus(resolve_csv_path(SAMPLE, REPO_DATA))
+    parsed = parse_corpus(resolve_source_path(SAMPLE, REPO_DATA))
     self_citing = {row.name for row in parsed.rows if row.name in row.references}
     assert self_citing == {
         "DoDD 5124.02",

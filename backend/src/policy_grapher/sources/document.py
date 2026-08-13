@@ -8,8 +8,10 @@ with the result rather than being dropped.
 
 from dataclasses import dataclass
 
+from policy_grapher.sources import SourceError
 
-class DocumentSourceError(ValueError):
+
+class DocumentSourceError(SourceError):
     """The file could not be read as a policy document."""
 
 

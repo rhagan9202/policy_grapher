@@ -113,7 +113,7 @@ Because a `Document` now has no mutable field — renaming is delete-and-recreat
 
 - **Neo4j** — pinned to `2025.10` (STORY-018), so the database version no longer depends on
   when the image was last pulled.
-- **Python packages** — FastAPI, Pydantic v2, `neo4j` driver, pytest, httpx, managed by `uv`.
+- **Python packages** — FastAPI, Pydantic v2, `neo4j` driver, `pypdf` (PDF text extraction), pytest, httpx, managed by `uv`.
 - **npm packages** — React, Vite, TypeScript, vitest, `react-force-graph`, `react-router-dom`.
 - No external network services, APIs, or model providers. The system is self-contained.
 

@@ -10,30 +10,16 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from policy_grapher.sources import SourceError
+
 EXPECTED_COLUMNS = ["Document Name", "References", "Type"]
 
 _PARENTHESISED = re.compile(r"\([^)]*\)")
 _NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]")
 
 
-class CsvSourceError(ValueError):
-    """The CSV could not be located or could not be read as expected."""
-
-
-def resolve_csv_path(filename: str, data_dir: Path) -> Path:
-    """Resolve a bare filename under data_dir, refusing anything that escapes it."""
-    if not filename or Path(filename).name != filename:
-        raise CsvSourceError(
-            f"{filename!r} is not a bare filename; give a name, not a path."
-        )
-
-    root = data_dir.resolve()
-    path = (root / filename).resolve()
-    if not path.is_relative_to(root):
-        raise CsvSourceError(f"{filename!r} resolves outside the data directory.")
-    if not path.is_file():
-        raise CsvSourceError(f"{filename!r} was not found in the data directory.")
-    return path
+class CsvSourceError(SourceError):
+    """The CSV could not be parsed as expected."""
 
 
 def canonical_name(name: str) -> str:

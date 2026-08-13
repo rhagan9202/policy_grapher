@@ -30,6 +30,15 @@ def text_of(path: Path) -> str:
 _HEADING = re.compile(r"(?:ENCLOSURE(?:\s+\d+)?\s*\n+\s*)?REFERENCES\s*\n", re.IGNORECASE)
 _LETTERED = re.compile(r"\(\s*[a-z]{1,3}\s*\)\s+")
 _SECTION_END = re.compile(r"\n\s*(?:ENCLOSURE\s+\d+|GLOSSARY|APPENDIX)\s*\n", re.IGNORECASE)
+# Every page carries a footer naming the issuance, its date and any change; the last
+# one falls inside the slice because the section ends mid-page. Left in, it corrupts
+# the final entry, e.g. "...current edition DoDD 5143.01, October 24, 2014 Change 2,
+# 04/06/2020 21 GLOSSARY".
+_PAGE_FOOTER = re.compile(
+    r"\n[^\n]*?DoD[DIM]?\s+[\d.\-A-Z]+,\s+\w+ \d{1,2}, \d{4}\s*"
+    r"(?:\n[^\n]*?Change \d+[^\n]*)?\s*(?:GLOSSARY|ENCLOSURE\s+\d+)?\s*$",
+    re.IGNORECASE,
+)
 # A modern section lists citations directly; a body mention does not. The opening
 # entry isn't always a DoD issuance itself (e.g. an NDS summary), so this looks a
 # little way into the section rather than requiring a match at the very start.
@@ -70,7 +79,27 @@ def split_entries(fmt: str, section: str) -> list[str]:
     # Split on the raw section first so the boundary can key on line starts, then
     # flatten each entry's own internal wrapping.
     raw_parts = [part for part in _MODERN_BOUNDARY.split(section) if part.strip()]
-    return [re.sub(r"\s*\n\s*", " ", part).strip() for part in raw_parts]
+    return [
+        re.sub(r"\s*\n\s*", " ", part).strip() for part in _rejoin_open_quotes(raw_parts)
+    ]
+
+
+def _rejoin_open_quotes(parts: list[str]) -> list[str]:
+    """Re-attach a fragment that an opener phrase split out of an open title.
+
+    A citation's own quoted title can wrap onto a line beginning with an opener
+    ("...Systems Engineering, \u201cDepartment of / Defense Risk, Issue, and
+    Opportunity Management Guide..."), which the line-anchored boundary reads as a
+    new entry. A new citation cannot begin while the previous title is still open,
+    so a part left holding an unclosed quote absorbs the next one.
+    """
+    joined: list[str] = []
+    for part in parts:
+        if joined and joined[-1].count("\u201c") > joined[-1].count("\u201d"):
+            joined[-1] += part
+        else:
+            joined.append(part)
+    return joined
 
 
 def locate_references(full: str) -> tuple[str, str | None]:
@@ -92,9 +121,15 @@ def locate_references(full: str) -> tuple[str, str | None]:
             # real section instead of stopping at it, so it isn't trustworthy —
             # skip it and let the next, cleanly-bounded candidate be evaluated.
             continue
+        section = _PAGE_FOOTER.sub("", section)
         if _LETTERED.match(section.lstrip()):
             return "legacy", section
-        if _MODERN_MARKER.search(section[:600]):
+        # A marker phrase alone is not enough: a table-of-contents line can mention
+        # "DoD Directive" without citing anything. A real section yields at least one
+        # identifier, so require that rather than trusting the phrase.
+        if _MODERN_MARKER.search(section[:600]) and any(
+            identifier(entry) for entry in split_entries("modern", section)
+        ):
             return "modern", section
     return "unknown", None
 
@@ -156,12 +191,20 @@ _LEGACY_HEADER = re.compile(
 # could be mistaken for one (a references heading or citation) starts at character
 # 10,529 — so bounding the search to a generous prefix keeps the cover page's match the
 # only one the patterns can find, without needing to locate the references section first.
-_COVER_PAGE_SPAN = 2000
+# Identity is read from the cover page only. Searching the whole document lets a
+# CITED issuance win — 850001_2014 names its own cancelled predecessor "DoD Directive
+# 8500.01" in the enclosure, which would title a DoDI as a DoDD and hang every edge
+# off the wrong node. The bound is the references heading when there is one, since
+# nothing after it is cover matter, and a generous fixed fallback otherwise; taking
+# the smaller of the two keeps a long classification banner from pushing a real
+# header out of range.
+_COVER_PAGE_FALLBACK = 2000
 
 
 def document_name(full: str) -> str | None:
     """The issuance's own name, in the corpus's vocabulary."""
-    cover = full[:_COVER_PAGE_SPAN]
+    heading = _HEADING.search(full)
+    cover = full[: heading.start()] if heading else full[:_COVER_PAGE_FALLBACK]
     for pattern in (_MODERN_HEADER, _LEGACY_HEADER):
         match = pattern.search(cover)
         if match:
