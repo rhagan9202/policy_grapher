@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
@@ -5,10 +6,43 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from policy_grapher.config import Settings, get_settings
 from policy_grapher.csv_source import CsvSourceError
-from policy_grapher.db import apply_constraints, create_driver
+from policy_grapher.db import apply_constraints, create_driver, is_graph_empty
 from policy_grapher.graph import UnknownDocumentError, build_graph
 from policy_grapher.ingest import ingest_file
 from policy_grapher.models import GraphOut, IngestRequest, IngestResult
+
+logger = logging.getLogger(__name__)
+
+
+def maybe_autoingest(driver, settings: Settings) -> IngestResult | None:
+    """Load the sample corpus if configured to and the graph is empty.
+
+    Runs at startup only, called once from `lifespan`. This is not a
+    reaction to emptiness: a graph emptied later (e.g. by a future
+    POST /reset) stays empty until the process restarts, because nothing
+    re-invokes this check.
+    """
+    if not settings.auto_ingest:
+        return None
+    if not is_graph_empty(driver, settings.neo4j_database):
+        return None
+
+    try:
+        result = ingest_file(
+            driver, settings.neo4j_database, settings.sample_csv, settings.data_dir
+        )
+    except CsvSourceError as exc:
+        # A missing or malformed sample must not stop the API from serving.
+        logger.warning("Auto-ingest skipped: %s", exc)
+        return None
+
+    logger.info(
+        "Auto-ingested %s: %d nodes, %d relationships",
+        settings.sample_csv,
+        result.nodes_created,
+        result.relationships_created,
+    )
+    return result
 
 
 @asynccontextmanager
@@ -17,6 +51,7 @@ async def lifespan(app: FastAPI):
     driver = create_driver(settings)
     driver.verify_connectivity()
     apply_constraints(driver, settings.neo4j_database)
+    maybe_autoingest(driver, settings)
 
     app.state.driver = driver
     app.state.settings = settings
