@@ -54,6 +54,40 @@ const expandedView: GraphOut = {
   truncated: false,
 }
 
+const reciprocalView: GraphOut = {
+  nodes: [
+    { id: 'a', label: 'DoDD A', reference_role: 'Root Reference', is_external: false },
+    { id: 'b', label: 'DoDD B', reference_role: 'Sub-Reference', is_external: false },
+    { id: 'c', label: 'DoDD C', reference_role: 'Sub-Reference', is_external: false },
+  ],
+  edges: [
+    { source: 'a', target: 'b' },
+    { source: 'b', target: 'a' },
+    { source: 'a', target: 'c' },
+  ],
+  total_nodes: 3,
+  returned_nodes: 3,
+  truncated: false,
+}
+
+/** Minimal stand-in for the 2D canvas context react-force-graph hands the painter. */
+function fakeCanvasContext() {
+  return {
+    fillText: vi.fn(),
+    measureText: vi.fn(() => ({ width: 40 })),
+    font: '',
+    fillStyle: '',
+    textAlign: '',
+    textBaseline: '',
+  }
+}
+
+type Painter = (node: unknown, ctx: unknown, globalScale: number) => void
+
+function lastProps() {
+  return graphProps[graphProps.length - 1]
+}
+
 afterEach(() => {
   graphProps.length = 0
   getGraph.mockReset()
@@ -141,5 +175,90 @@ describe('GraphExplorer', () => {
     render(<GraphExplorer />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend down/i)
+  })
+
+  it('paints the document name onto the canvas for a corpus node', async () => {
+    getGraph.mockResolvedValue(corpusView)
+    render(<GraphExplorer />)
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const paint = lastProps().nodeCanvasObject as Painter
+    const ctx = fakeCanvasContext()
+
+    paint({ ...corpusView.nodes[0], x: 0, y: 0 }, ctx, 1)
+
+    expect(ctx.fillText).toHaveBeenCalledWith(
+      'DoDD 5000.01',
+      expect.any(Number),
+      expect.any(Number),
+    )
+  })
+
+  it('labels external nodes only once zoomed past the threshold', async () => {
+    getGraph.mockResolvedValue(expandedView)
+    render(<GraphExplorer />)
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const paint = lastProps().nodeCanvasObject as Painter
+    const external = { ...expandedView.nodes[2], x: 0, y: 0 }
+
+    const zoomedOut = fakeCanvasContext()
+    paint(external, zoomedOut, 1)
+    expect(zoomedOut.fillText).not.toHaveBeenCalled()
+
+    const zoomedIn = fakeCanvasContext()
+    paint(external, zoomedIn, 4)
+    expect(zoomedIn.fillText).toHaveBeenCalledWith(
+      'Public Law 116-92',
+      expect.any(Number),
+      expect.any(Number),
+    )
+  })
+
+  it('keeps the default node circle by painting labels after it', async () => {
+    getGraph.mockResolvedValue(corpusView)
+    render(<GraphExplorer />)
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    // 'replace' would make us responsible for drawing the circle and the
+    // pointer hit area; 'after' keeps both with the library.
+    const mode = lastProps().nodeCanvasObjectMode as (node: unknown) => string
+    expect(mode(corpusView.nodes[0])).toBe('after')
+  })
+
+  it('positions arrowheads at the target end rather than the link midpoint', async () => {
+    getGraph.mockResolvedValue(corpusView)
+    render(<GraphExplorer />)
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    // Left unset, react-force-graph defaults this to 0.5 and stacks every
+    // arrowhead in the middle of the canvas.
+    expect(lastProps().linkDirectionalArrowRelPos).toBe(1)
+  })
+
+  it('curves both edges of a reciprocal pair and leaves one-way edges straight', async () => {
+    getGraph.mockResolvedValue(reciprocalView)
+    render(<GraphExplorer />)
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const curvature = lastProps().linkCurvature as (link: unknown) => number
+
+    expect(curvature({ source: 'a', target: 'b' })).not.toBe(0)
+    expect(curvature({ source: 'b', target: 'a' })).not.toBe(0)
+    expect(curvature({ source: 'a', target: 'c' })).toBe(0)
+  })
+
+  it('still identifies reciprocal pairs after the simulation swaps ids for node objects', async () => {
+    getGraph.mockResolvedValue(reciprocalView)
+    render(<GraphExplorer />)
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const curvature = lastProps().linkCurvature as (link: unknown) => number
+
+    // Once the force simulation starts, react-force-graph replaces each
+    // endpoint id with the node object itself. Reading `.source` as a string
+    // from then on silently returns 0 for every link.
+    expect(curvature({ source: { id: 'a' }, target: { id: 'b' } })).not.toBe(0)
+    expect(curvature({ source: { id: 'a' }, target: { id: 'c' } })).toBe(0)
   })
 })
