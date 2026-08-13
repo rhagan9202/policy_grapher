@@ -1,6 +1,6 @@
 # Vision
 
-*Living document — edit in place. Last reviewed: 2026-08-12*
+*Living document — edit in place. Last reviewed: 2026-08-13*
 
 ## The problem
 
@@ -60,7 +60,12 @@ The MVP definition of done, from the README:
 - Handles a corpus of 20 documents
 - Ingests documents from the file system
 - Processes PDF, DOCX, XLSX, and CSV file types
-- Spins up and runs on Docker containers, using the latest Neo4j container
+- Spins up and runs on Docker containers, on a **current, pinned** Neo4j image. The source
+  requirement said "the latest Neo4j container"; taken literally that makes the database
+  version depend on when the image was last pulled, so two machines can differ. STORY-018
+  pins an explicit current version instead — `2025.10` today — which meets the intent
+  (a modern Neo4j, not a legacy one) without the irreproducibility. Bumping the pin is
+  routine work, not a deviation from this bar.
 - Visualizes and explores a graph up to a **configurable render cap, defaulting to 300
   nodes**. This bounds what is drawn at once, not what is stored — the graph itself is
   expected to be larger, since node count tracks citation breadth rather than corpus size
@@ -103,7 +108,9 @@ dependency management, pytest and httpx for tests.
 
 **Frontend:** React, Vite, TypeScript, vitest, `react-force-graph` (2D), `react-router-dom`.
 
-**Infrastructure:** Docker Compose, Neo4j `latest` container.
+**Infrastructure:** Docker Compose, a current Neo4j image pinned to an explicit version
+(`2025.10` today) rather than `latest` — see STORY-018 and the note under
+[What success looks like](#what-success-looks-like).
 
 Python ≥ 3.14 is a hard floor worth noting — it constrains which base images and which
 library versions are available.
