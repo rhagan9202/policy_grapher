@@ -10,7 +10,7 @@ Sequencing and intent, not commitments with dates. Individual work items live in
 **DI-1 is complete** — 18 of 18 stories, closed on 2026-08-13. One structured CSV in, Neo4j
 graph in the middle, CRUD API and a React UI out, exactly as
 [SPEC-001](../specs/SPEC-001-di-1-policy-grapher.md) specifies. `docker compose up` ingests
-`data/dod_policy_references_08122026.csv` and renders its 23 documents as a navigable graph
+`data/samples/dod_policy_references_08122026.csv` and renders its 23 documents as a navigable graph
 at `/`, with the full 438-document corpus listed and searchable at `/documents`. Every
 endpoint the spec names is built and covered by tests.
 

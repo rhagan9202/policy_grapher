@@ -6,7 +6,7 @@
 
 Policy corpora are dense webs of cross-references. A single DoD directive cites a dozen
 other directives, instructions, manuals, public laws, and standards — and those cite
-further documents in turn. The corpus in `data/dod_policy_references_08122026.csv` shows
+further documents in turn. The corpus in `data/samples/dod_policy_references_08122026.csv` shows
 the shape: 23 documents, each carrying up to 18 outbound references, including references
 to documents outside the corpus entirely.
 

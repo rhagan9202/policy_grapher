@@ -9,7 +9,7 @@ from policy_grapher.csv_source import (
     resolve_csv_path,
 )
 
-REPO_DATA = Path(__file__).resolve().parents[2] / "data"
+REPO_DATA = Path(__file__).resolve().parents[2] / "data" / "samples"
 SAMPLE = "dod_policy_references_08122026.csv"
 
 

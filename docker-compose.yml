@@ -35,7 +35,9 @@ services:
       NEO4J_PASSWORD: ${NEO4J_PASSWORD}
       NEO4J_DATABASE: ${NEO4J_DATABASE}
       GRAPH_RENDER_CAP: ${GRAPH_RENDER_CAP}
-      DATA_DIR: /data
+      # Hardcoded, not ${DATA_DIR}: it must agree with the bind mount below, and a
+      # .env override that disagreed would fail at ingest rather than at startup.
+      DATA_DIR: /data/samples
       SAMPLE_CSV: ${SAMPLE_CSV}
       AUTO_INGEST: ${AUTO_INGEST}
     volumes:

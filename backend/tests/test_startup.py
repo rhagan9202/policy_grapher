@@ -12,7 +12,7 @@ from policy_grapher.main import maybe_autoingest
 
 pytestmark = pytest.mark.integration
 
-REPO_DATA = Path(__file__).resolve().parents[2] / "data"
+REPO_DATA = Path(__file__).resolve().parents[2] / "data" / "samples"
 SAMPLE = "dod_policy_references_08122026.csv"
 
 

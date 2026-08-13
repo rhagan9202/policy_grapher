@@ -17,7 +17,7 @@ first run — see the [README](../../README.md) for the quickstart.
 
 ```
 CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (React/Vite)
-  /data/          POST /ingest         bolt      GET /graph      force-graph
+  /data/samples/  POST /ingest         bolt      GET /graph      force-graph
 ```
 
 ## Components
@@ -102,7 +102,8 @@ the backend through `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE
 `GRAPH_RENDER_CAP`, `SAMPLE_CSV`, and `AUTO_INGEST`, all supplied by the committed `.env`.
 CORS allows all origins; there is no authentication. `backend` waits on Neo4j's HTTP
 healthcheck before starting. `./data` is bind-mounted into `backend` read-only with an
-SELinux private label (`:Z`) since only one container consumes it; `./frontend/src` is
+SELinux private label (`:Z`) since only one container consumes it, and `DATA_DIR` points at
+`/data/samples` inside it; `./frontend/src` is
 bind-mounted into `frontend` with the shared label (`:z`) instead, because tooling
 containers (`docker compose run`/`build`, ad-hoc `docker run`) also read that path and a
 private label lets one steal exclusive access from the other.

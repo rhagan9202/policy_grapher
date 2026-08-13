@@ -20,12 +20,13 @@ CSV input, Neo4j graph storage, a full CRUD API, and a React graph UI.
 ### CSV Format
 - **Columns**: `Document Name`, `References`, `Type` (exactly these three, in this order)
 - **References field**: a Python-style stringified list, e.g. `"['Policy A', 'Policy B']"` — parsed via `ast.literal_eval`
-- **Source**: a bare **filename**, not a path. The backend joins it to `/data` and rejects
+- **Source**: a bare **filename**, not a path. The backend joins it to `DATA_DIR`
+  (`/data/samples`, mounted from `data/samples/`) and rejects
   anything that escapes that directory. **(gap review)**
 
 ### What the sample corpus actually contains **(gap review)**
 
-`data/dod_policy_references_08122026.csv`, measured:
+`data/samples/dod_policy_references_08122026.csv`, measured:
 
 | Measure | Count |
 | --- | --- |
@@ -117,7 +118,7 @@ suffix is appended after truncation, so a slug can reach **89 characters**, not 
 | `NEO4J_PASSWORD` | Neo4j password |
 | `NEO4J_DATABASE` | Database name. Default `neo4j` |
 | `GRAPH_RENDER_CAP` | **(gap review)** Maximum nodes returned by `GET /graph`. Default `300` |
-| `DATA_DIR` | Directory `POST /ingest` resolves filenames under. Default `/data` |
+| `DATA_DIR` | Directory `POST /ingest` resolves filenames under. Default `/data/samples` |
 | `SAMPLE_CSV` | Corpus file auto-ingest loads. Default `dod_policy_references_08122026.csv` |
 | `AUTO_INGEST` | Whether an empty graph self-loads at startup. Default `true` |
 
@@ -143,7 +144,7 @@ Served by `routers/admin.py`.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Liveness probe. Returns `{ "status": "ok" }`. Touches no database — it answers whether the API process is up, not whether Neo4j is reachable |
-| `POST` | `/ingest` | Ingest a CSV. Body: `{ "filename": "dod_policy_references_08122026.csv" }`, resolved under `/data`. Returns `{ nodes_created, relationships_created, self_references_skipped, suspected_duplicates }` |
+| `POST` | `/ingest` | Ingest a CSV. Body: `{ "filename": "dod_policy_references_08122026.csv" }`, resolved under `DATA_DIR`. Returns `{ nodes_created, relationships_created, self_references_skipped, suspected_duplicates }` |
 | `POST` | `/reset` | **(gap review)** Delete every node and relationship. The explicit way to make the graph match a changed file, since ingest never removes |
 
 #### Documents (CRUD)

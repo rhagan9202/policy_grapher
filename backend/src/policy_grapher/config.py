@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     graph_render_cap: int = 300
 
-    data_dir: Path = Path("/data")
+    data_dir: Path = Path("/data/samples")
     sample_csv: str = "dod_policy_references_08122026.csv"
     auto_ingest: bool = True
 

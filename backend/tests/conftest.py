@@ -58,8 +58,8 @@ def clean_graph(driver, database) -> Driver:
 @pytest.fixture
 def client_with_graph(clean_graph, settings_for_container, database, monkeypatch):
     """A TestClient wired to the container, with auto-ingest off and /data pointed
-    at the repository's real data directory."""
-    repo_data = Path(__file__).resolve().parents[2] / "data"
+    at the repository's real sample directory."""
+    repo_data = Path(__file__).resolve().parents[2] / "data" / "samples"
     settings = settings_for_container.model_copy(update={"data_dir": repo_data})
 
     get_settings.cache_clear()
