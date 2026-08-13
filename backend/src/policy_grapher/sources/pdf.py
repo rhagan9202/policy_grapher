@@ -91,3 +91,42 @@ def locate_references(full: str) -> tuple[str, str | None]:
         if _MODERN_MARKER.search(section[:600]):
             return "modern", section
     return "unknown", None
+
+
+_QUOTED_TITLE = re.compile(r"(.+?),\s*[“\"]")
+# Entries that carry no quoted title at all, e.g. "Title 10, United States Code".
+_CODE_CITATION = re.compile(r"((?:Title|Section)\s+[\dA-Za-z().]+,\s*United States Code)")
+_ISSUANCE = re.compile(r"^DoD\s+(Directive|Instruction|Manual)\s+([0-9][0-9.\-]*[A-Z]?)$", re.IGNORECASE)
+_US_CODE = re.compile(r"^Title\s+(\d+),\s*United States Code$", re.IGNORECASE)
+_ABBREVIATION = {"directive": "DoDD", "instruction": "DoDI", "manual": "DoDM"}
+
+# Longer than any real identifier in the sample corpus; a longer match means the
+# entry boundary was wrong, and a wrong name is worse than an unattributed one.
+_MAX_IDENTIFIER = 140
+
+
+def identifier(entry: str) -> str | None:
+    """The citation's leading identifier, or None if the entry has none."""
+    match = _QUOTED_TITLE.match(entry)
+    if match:
+        name = match.group(1)
+    else:
+        code = _CODE_CITATION.match(entry)
+        if not code:
+            return None
+        name = code.group(1)
+    name = name.strip().rstrip(",").strip()
+    if not name or len(name) > _MAX_IDENTIFIER:
+        return None
+    return name
+
+
+def normalise(name: str) -> str:
+    """Map an identifier to the vocabulary the corpus CSV uses."""
+    code = _US_CODE.match(name)
+    if code:
+        return f"United States Code, Title {code.group(1)}"
+    issuance = _ISSUANCE.match(name)
+    if issuance:
+        return f"{_ABBREVIATION[issuance.group(1).lower()]} {issuance.group(2)}"
+    return name

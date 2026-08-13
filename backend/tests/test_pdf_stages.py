@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from policy_grapher.sources import pdf
 
 SAMPLES = Path(__file__).resolve().parents[2] / "data" / "samples"
@@ -82,3 +84,40 @@ def test_wrapped_lines_are_rejoined_into_one_entry():
     assert wrapped, "expected the entry that wraps across two lines"
     assert "USD(P&R)" in wrapped[0]
     assert "\n" not in wrapped[0]
+
+
+@pytest.mark.parametrize(
+    "entry,expected",
+    [
+        ('DoD Directive 1322.18, “Military Training,” October 3, 2019', "DoD Directive 1322.18"),
+        ('Military-Standard 882E, “DoD Standard Practice,” May 11, 2012', "Military-Standard 882E"),
+        (
+            'DoD Directive 5143.01, “USD(I),” November 23, 2005 (hereby cancelled)',
+            "DoD Directive 5143.01",
+        ),
+        ("Title 10, United States Code", "Title 10, United States Code"),
+    ],
+)
+def test_identifier_is_the_text_before_the_quoted_title(entry, expected):
+    assert pdf.identifier(entry) == expected
+
+
+def test_an_entry_with_neither_identifier_nor_recognised_shape_is_unattributable():
+    entry = '“Summary of the 2018 National Defense Strategy,” 2018'
+
+    assert pdf.identifier(entry) is None
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("DoD Directive 5000.01", "DoDD 5000.01"),
+        ("DoD Instruction 8500.01", "DoDI 8500.01"),
+        ("DoD Manual 8180.01", "DoDM 8180.01"),
+        ("Title 10, United States Code", "United States Code, Title 10"),
+        ("Public Law 116-283", "Public Law 116-283"),
+        ("Military-Standard 882E", "Military-Standard 882E"),
+    ],
+)
+def test_normalise_maps_to_the_corpus_vocabulary(name, expected):
+    assert pdf.normalise(name) == expected
