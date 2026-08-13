@@ -41,5 +41,18 @@ services:
       neo4j:
         condition: service_healthy
 
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      BACKEND_URL: http://backend:8000
+    volumes:
+      # :Z relabels the host directory for exclusive container access under SELinux
+      # (enforcing on Fedora/RHEL hosts); harmless no-op where SELinux is disabled.
+      - ./frontend/src:/app/src:ro,Z
+    depends_on:
+      - backend
+
 volumes:
   neo4j-data:
