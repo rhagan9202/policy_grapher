@@ -159,8 +159,12 @@ unattributed entry shown is genuine, though: that entry opens with a quoted titl
 no identifier, so the stage-4 rule cannot attribute it — and the corpus CSV omits it too.
 `DoDD 5000.01` skips no self-reference because it does not cite itself.
 
-The manifest response is byte-identical to today's, so existing tests and the typed frontend
-client need no changes for this story.
+The manifest response gains `source: "manifest"` and is otherwise unchanged. That is
+**additive, not byte-identical** — an earlier draft of this document claimed the latter, which
+was wrong. It is backward-compatible in practice: no test asserts exact equality on the ingest
+response, every one reads fields by name, and the frontend's `IngestResult` is a structural
+interface that tolerates an extra field. Adding the discriminator to both branches is what
+lets FastAPI type the union at all.
 
 **One file per call.** A directory loop belongs in the client: ADR-005 means order affects
 slugs where bases contest, and burying that inside one call makes it invisible.
