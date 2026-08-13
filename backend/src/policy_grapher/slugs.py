@@ -3,7 +3,8 @@
 Slug assignment is a pure function of the *set* of names, not of the order they
 arrive in. When two names normalise to the same base slug, every contender gets a
 hash suffix — so no document's URL depends on which row was ingested first.
-See ADR-003.
+See ADR-003 as amended by ADR-005; `documents.allocate_slug` covers the other path,
+where a document is created one at a time and there is no name set to resolve over.
 """
 
 import hashlib

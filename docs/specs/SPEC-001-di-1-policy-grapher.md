@@ -1,12 +1,13 @@
 # SPEC-001: DI-1 — Policy Grapher
 
 *Living document — behavior changes here in the same pull request that changes the code.
-Last reviewed: 2026-08-12*
+Last reviewed: 2026-08-13*
 
 Originated as `SPEC.md` at the repository root. Expanded 2026-08-12 with decisions from a
 gap review against the sample corpus; sections marked **(gap review)** were added or changed
 then. Rationale for the larger calls lives in [ADR-002](adr/ADR-002-external-references-and-corpus-first-graph.md),
 [ADR-003](adr/ADR-003-slug-identifiers.md), and [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md).
+Slug assignment was later amended by [ADR-005](adr/ADR-005-slug-assignment-over-the-name-set.md).
 
 ## Increment Scope
 Development Increment 1 (DI-1): demonstrate end-to-end feasibility with a single structured
@@ -85,6 +86,12 @@ in a URL path. Every node gets a `slug`:
 The hash suffix — rather than a counter — keeps slugs **deterministic and independent of
 ingest order**, so re-ingesting the same corpus yields the same URLs.
 
+**(ADR-005)** Which contender takes the suffix depends on the path. At ingest the whole name
+set is slugged at once and *every* contender for a contested base is suffixed; at
+`POST /documents` the incumbent keeps its bare slug and only the newcomer is suffixed. The
+suffix is appended after truncation, so a slug can reach **89 characters**, not 80. See
+[ADR-005](adr/ADR-005-slug-assignment-over-the-name-set.md).
+
 ### Relationships
 
 | Type | Direction | Meaning |
@@ -108,7 +115,14 @@ ingest order**, so re-ingesting the same corpus yields the same URLs.
 | `NEO4J_URI` | Bolt URI, e.g. `bolt://neo4j:7687` |
 | `NEO4J_USER` | Default `neo4j` |
 | `NEO4J_PASSWORD` | Neo4j password |
+| `NEO4J_DATABASE` | Database name. Default `neo4j` |
 | `GRAPH_RENDER_CAP` | **(gap review)** Maximum nodes returned by `GET /graph`. Default `300` |
+| `DATA_DIR` | Directory `POST /ingest` resolves filenames under. Default `/data` |
+| `SAMPLE_CSV` | Corpus file auto-ingest loads. Default `dod_policy_references_08122026.csv` |
+| `AUTO_INGEST` | Whether an empty graph self-loads at startup. Default `true` |
+
+`NEO4J_AUTH` also appears in `.env`; it configures the Neo4j container itself and is not
+read by the backend.
 
 **(gap review)** A `.env` file with a development default is **committed**, so a clean clone
 runs with `docker compose up` and no manual step. The password is therefore public by

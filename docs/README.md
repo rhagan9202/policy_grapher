@@ -16,7 +16,7 @@ Each question below has exactly one authoritative answer. Everything else refere
 | What work is queued up? | [Backlog](backlog/backlog.md) |
 | How is the system put together? | [Architecture](specs/architecture.md) |
 | Why was it built that way? | [Decision records](specs/adr/) |
-| What are we doing right now? | [Current sprint](sprints/sprint-01/plan.md) |
+| What are we doing right now? | [Latest sprint](sprints/sprint-02/review.md) |
 | Where does this new document go? | [Conventions](CONVENTIONS.md) |
 
 ## Layout
@@ -35,4 +35,4 @@ docs/
 Docs rot when nobody owns them. The upkeep rules — what to update when, and what to do
 with a document that's gone stale — are in [CONVENTIONS.md](CONVENTIONS.md).
 
-*Last reviewed: 2026-08-12*
+*Last reviewed: 2026-08-13*

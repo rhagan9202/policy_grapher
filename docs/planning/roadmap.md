@@ -42,10 +42,12 @@ document and one relationship type (`REFERENCES`); the program intent needs cons
 - **Richer metadata and relationships** — which entities a policy applies to, who is
   responsible for enforcing it. Both imply new node labels and relationship types.
 - **Lineage views** — showing a policy's ancestry and descendants, not just direct neighbors.
-- **External reference handling.** The sample corpus already cites documents outside itself
-  (public laws, MIL-STDs, DHS, Joint Chiefs memoranda). DI-1's `MERGE`-on-name approach
-  creates these as bare nodes with no `type`; whether they deserve a distinct label is an
-  open modeling question.
+- **External reference handling beyond a label.** DI-1 settled the immediate question:
+  cited documents absent from the corpus carry an `:External` label and no `reference_role`
+  ([ADR-002](../specs/adr/ADR-002-external-references-and-corpus-first-graph.md), STORY-026),
+  and they are 415 of the graph's 438 nodes. What stays open is what they should *become* —
+  they exist only as a name, so they cannot be ingested, browsed, or reasoned about until
+  something resolves them to real documents.
 - **LLM-constructed queries.** The demo assumes users write Cypher
   ([ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md)); as development
   matures, queries get constructed via LLM instead. This is what opens the system to the

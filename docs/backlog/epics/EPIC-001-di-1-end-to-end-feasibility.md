@@ -74,9 +74,12 @@ than deleted, so the reasoning stays findable.
 - ~~**How should out-of-corpus references be modeled?**~~ **Resolved:** `:External` label,
   corpus-first `/graph` — [ADR-002](../../specs/adr/ADR-002-external-references-and-corpus-first-graph.md).
   Now STORY-026.
-- ~~**What is the acceptance bar for "renders"?"**~~ **Partly resolved:** the default view is
-  the 23 corpus documents, which is legible by construction. Still unstated is what good
-  looks like with `include_external=true` at 438 nodes — see STORY-015.
+- ~~**What is the acceptance bar for "renders"?"**~~ **Resolved:** the default view is the 23
+  corpus documents, legible by construction. STORY-015 answered the rest mechanically rather
+  than aesthetically — `include_external=true` returns at most `GRAPH_RENDER_CAP` nodes,
+  corpus documents always survive the cut, and `truncated` says so — so a partial view is
+  never presented as the whole graph. Whether 300 nodes *looks* good is still a judgement
+  nobody has made against a rendered screen.
 - **Is there a CI target?** Still open, and now sharper: STORY-030 puts integration tests on
   `testcontainers`, so **any CI needs Docker-in-Docker or an equivalent**. Worth answering
   before the test suite is written, not after.

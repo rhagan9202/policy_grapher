@@ -9,8 +9,10 @@ it through a query API and a lightweight visual explorer.
 
 ## Status
 
-DI-1 spine complete: `docker compose up` ingests the sample corpus and serves it as a
-navigable graph at http://localhost:5173.
+**DI-1 complete** — 18 of 18 stories. `docker compose up` ingests the sample corpus and
+serves it as a navigable graph at http://localhost:5173, with the full 438-document corpus
+listed and searchable at http://localhost:5173/documents. Every endpoint SPEC-001 names is
+built: document CRUD, reference editing, `POST /reset`, and raw Cypher via `POST /query`.
 
 ## Quickstart
 
@@ -41,14 +43,14 @@ lives in [`docs/`](docs/README.md).
 | What work is queued up? | [Backlog](docs/backlog/backlog.md) |
 | How is the system put together? | [Architecture](docs/specs/architecture.md) |
 | What exactly does DI-1 require? | [SPEC-001](docs/specs/SPEC-001-di-1-policy-grapher.md) |
-| What are we doing right now? | [Sprint 1](docs/sprints/sprint-01/plan.md) |
+| What are we doing right now? | [Latest sprint](docs/sprints/sprint-02/review.md) |
 | Where does this new document go? | [Conventions](docs/CONVENTIONS.md) |
 
 ## Repository layout
 
 ```
-backend/   FastAPI service: CSV ingest into Neo4j, GET /graph
+backend/   FastAPI service: CSV ingest into Neo4j, document CRUD, graph and Cypher endpoints
 data/      sample corpus (DoD directives and their references)
 docs/      planning, backlog, specs, sprints, artifacts
-frontend/  React + Vite force-directed graph explorer
+frontend/  React + Vite: force-directed graph explorer and document table
 ```

@@ -60,19 +60,28 @@ CFR titles, DHS and Joint Chiefs memoranda. These carry an extra `:External` lab
 [ADR-002](adr/ADR-002-external-references-and-corpus-first-graph.md).
 
 **Documents are addressed by `slug`, not name**, because names contain slashes and commas
-that break URL paths. A slug is a deterministic function of the full set of document names
-being ingested together — including the collision suffix, which is now applied to every
-contender for a contested base slug rather than only the second arrival — so slugs survive
-both a reset-and-reingest cycle and a change in row order unchanged. See
-[ADR-003](adr/ADR-003-slug-identifiers.md). That guarantee holds only within a single
-ingest: `assign_slugs` resolves collisions over the names it's given and has no knowledge
-of slugs a prior ingest already committed. Today, a later ingest whose name set newly
-contests an existing bare slug does not re-suffix anything — it tries to create a second
-node with an already-taken `name`, hits the `document_name_unique` constraint, and the
-ingest rolls back atomically — all three statements run in one write transaction — and
-cannot succeed until a reset lets the whole name set be re-slugged. Whether the incumbent
-should keep its bare slug or be displaced is undecided; that rule is the amending ADR's job
-before STORY-006 (document CRUD) lands.
+that break URL paths. At ingest a slug is a deterministic function of the full set of names
+being ingested together — the collision suffix goes to every contender for a contested base
+slug, not just the second arrival — so slugs survive both a reset-and-reingest cycle and a
+change in row order unchanged. See [ADR-003](adr/ADR-003-slug-identifiers.md), as amended by
+[ADR-005](adr/ADR-005-slug-assignment-over-the-name-set.md).
+
+That guarantee holds only within a single ingest: `assign_slugs` resolves collisions over
+the names it is given and knows nothing of slugs a prior ingest committed. Two consequences,
+both deliberate:
+
+- **A later ingest that newly contests an existing bare slug fails rather than re-slugging.**
+  It attempts a second node with an already-taken `name`, hits `document_name_unique`, and
+  the whole ingest rolls back — all three statements run in one write transaction — so it
+  cannot succeed until a reset lets the entire name set be re-slugged.
+- **`POST /documents` favours the incumbent.** `allocate_slug` gives the newcomer the hash
+  suffix and leaves the existing document's bare slug untouched, so live URLs never move.
+  Ingest-time and creation-time assignment can therefore disagree, and a reset-and-reingest
+  may produce different slugs than incremental creation did. ADR-005 accepts that trade for
+  URL stability.
+
+A suffixed slug reaches **89 characters**, not the 80 ADR-003 states: the suffix is appended
+after truncation and nothing enforces a ceiling.
 
 `reference_role` is the CSV's `Type` column, renamed and stored verbatim: it describes a
 document's position in the reference graph (`Root Reference`, `Sub-Reference`, and their
