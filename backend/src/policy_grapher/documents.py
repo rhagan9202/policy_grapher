@@ -10,6 +10,13 @@ from neo4j import Driver, RoutingControl
 
 from policy_grapher.models import DocumentOut
 from policy_grapher.slugs import assign_slugs, base_slug, hash_suffix
+from policy_grapher.sources.provenance import (
+    API,
+    API_SOURCE_ID,
+    DESCRIBES,
+    MERGE_SOURCE,
+    REFRESH_EXTERNAL,
+)
 
 DOCUMENT_FIELDS = """
 OPTIONAL MATCH (d)-[:REFERENCES]->(out:Document)
@@ -234,6 +241,30 @@ def create_document(driver: Driver, database: str, name: str) -> DocumentOut:
         CREATE_DOCUMENT,
         {"slug": slug, "name": name},
     )
+
+    # ADR-007: the user's assertion that this document exists is itself
+    # provenance. One shared :Source node stands for every hand-created
+    # document — there are no users to attribute to yet, and a node per
+    # request would be provenance theatre.
+    _write(
+        driver,
+        database,
+        MERGE_SOURCE,
+        {"id": API_SOURCE_ID, "kind": API, "filename": ""},
+    )
+    _write(
+        driver,
+        database,
+        DESCRIBES,
+        {"id": API_SOURCE_ID, "slugs": [slug]},
+    )
+    _write(
+        driver,
+        database,
+        REFRESH_EXTERNAL,
+        {"slugs": [slug]},
+    )
+
     return get_document(driver, database, slug)
 
 

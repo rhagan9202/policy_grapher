@@ -236,3 +236,40 @@ def test_documents_no_longer_carry_a_reference_role(loaded):
     # is_external is what distinguishes them now.
     assert corpus["is_external"] is False
     assert external["is_external"] is True
+
+
+def test_a_created_document_is_described_by_the_api(client_with_graph, driver, database):
+    """ADR-007: a user asserting a document exists is provenance."""
+    from neo4j import RoutingControl
+
+    created = client_with_graph.post("/documents", json={"name": "Hand Made Doc"}).json()
+
+    records, _, _ = driver.execute_query(
+        "MATCH (s:Source)-[:DESCRIBES]->(d:Document {slug: $slug}) RETURN s.id AS id, s.kind AS kind",
+        {"slug": created["slug"]},
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    assert records[0]["id"] == "api"
+    assert records[0]["kind"] == "api"
+
+
+def test_a_created_document_is_not_external(client_with_graph):
+    created = client_with_graph.post("/documents", json={"name": "Hand Made Doc"}).json()
+
+    assert created["is_external"] is False
+    assert client_with_graph.get(f"/documents/{created['slug']}").json()["is_external"] is False
+
+
+def test_every_created_document_shares_one_api_source(client_with_graph, driver, database):
+    from neo4j import RoutingControl
+
+    client_with_graph.post("/documents", json={"name": "First Hand Made"})
+    client_with_graph.post("/documents", json={"name": "Second Hand Made"})
+
+    records, _, _ = driver.execute_query(
+        "MATCH (s:Source {kind: 'api'}) RETURN count(s) AS total",
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    assert records[0]["total"] == 1

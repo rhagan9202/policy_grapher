@@ -8,6 +8,8 @@ ingest path according to its own opinion.
 
 MANIFEST = "manifest"
 DOCUMENT = "document"
+API = "api"
+API_SOURCE_ID = "api"
 
 
 def source_id(kind: str, filename: str) -> str:
