@@ -1,7 +1,9 @@
 from pathlib import Path
 
 import pytest
+from neo4j import RoutingControl
 
+from policy_grapher.documents import add_reference
 from policy_grapher.graph import UnknownDocumentError, build_graph
 from policy_grapher.ingest import ingest_file, ingest_parsed
 from policy_grapher.sources.manifest import parse_corpus
@@ -16,6 +18,25 @@ def write_csv(tmp_path: Path, name: str, body: str) -> Path:
     path = tmp_path / name
     path.write_text(body, encoding="utf-8")
     return path
+
+
+def slugs_by_name(driver, database) -> dict[str, str]:
+    records, _, _ = driver.execute_query(
+        "MATCH (d:Document) RETURN d.name AS name, d.slug AS slug",
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    return {r["name"]: r["slug"] for r in records}
+
+
+def is_external(driver, database, name: str) -> bool:
+    records, _, _ = driver.execute_query(
+        "MATCH (d:Document {name: $name}) RETURN d:External AS is_external",
+        {"name": name},
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    return records[0]["is_external"]
 
 
 @pytest.fixture
@@ -134,16 +155,18 @@ def test_expand_ranks_external_neighbours_by_true_degree(
 
     The bug needed an :External neighbour with a *reverse* edge back to the
     expand node — the undirected match matched it twice, and without `WITH
-    DISTINCT d` ahead of the degree count, its degree was doubled. Under
-    ADR-007 that scenario can no longer arise through the manifest path: only a
-    corpus row can be the source of a REFERENCES edge, and any document that
-    has ever been a corpus row is described forever (see
-    provenance.REFRESH_EXTERNAL) — so a node with an outgoing edge can never be
-    :External. This test keeps the remaining, still-reachable coverage: D and E
-    are both cited-only in every manifest that touches them, so both stay
-    :External, and a one-slot external budget must keep the one with the
-    genuinely higher degree — E, cited by S, F and G (3), over D, cited by S
-    alone (1).
+    DISTINCT d` ahead of the degree count, its degree was doubled. Through the
+    manifest path alone, that scenario cannot arise: only a corpus row is the
+    source of a manifest-created REFERENCES edge, and any document that has
+    ever been a corpus row is described forever (see
+    provenance.REFRESH_EXTERNAL), so a node with a *manifest-created* outgoing
+    edge can never be :External. (A reverse edge can still be added directly
+    through the documents API without describing anything — see
+    test_expand_ranks_external_neighbours_with_a_user_added_reverse_edge for
+    that path's guard.) This test keeps the remaining, manifest-only coverage:
+    D and E are both cited-only in this manifest, so both stay :External, and
+    a one-slot external budget must keep the one with the genuinely higher
+    degree — E, cited by S, F and G (3), over D, cited by S alone (1).
     """
     first = write_csv(
         tmp_path,
@@ -154,6 +177,47 @@ def test_expand_ranks_external_neighbours_by_true_degree(
         'G,"[\'E\']",Sub-Reference\n',
     )
     ingest_parsed(clean_graph, database, parse_corpus(first), first.name)
+
+    # Corpus is S, F, G (3 nodes); a budget of 4 leaves exactly one external slot.
+    result = build_graph(clean_graph, database, expand="s", limit=4)
+
+    external_ids = {node.id for node in result.nodes if node.is_external}
+    assert external_ids == {"e"}
+
+
+def test_expand_ranks_external_neighbours_with_a_user_added_reverse_edge(
+    clean_graph, database, tmp_path
+):
+    """Regression guard for the degree-doubling bug in EXTERNAL_NEIGHBOURS,
+    exercised through the one path that can still produce it.
+
+    The manifest path can never give an :External document an outgoing edge
+    (see test_expand_ranks_external_neighbours_by_true_degree's docstring).
+    But `documents.add_reference` — the code behind
+    `POST /documents/{slug}/references/{target_slug}` — only checks that both
+    slugs exist; it never inspects :External and never calls
+    REFRESH_EXTERNAL. A user is free to add D -> S even though D is external:
+    under ADR-007 that is a legitimate state, since an asserted edge is not a
+    description. That reproduces exactly the bidirectional match (S <-> D)
+    the original bug needed. Without `WITH DISTINCT d` ahead of the degree
+    count, D's undirected match against S is counted twice, so its two real
+    edges are counted four times (2 x 2 = 4), wrongly outranking E's genuine
+    degree of 3.
+    """
+    first = write_csv(
+        tmp_path,
+        "first.csv",
+        'Document Name,References,Type\n'
+        'S,"[\'D\', \'E\']",Root Reference\n'
+        'F,"[\'E\']",Sub-Reference\n'
+        'G,"[\'E\']",Sub-Reference\n',
+    )
+    ingest_parsed(clean_graph, database, parse_corpus(first), first.name)
+
+    slugs = slugs_by_name(clean_graph, database)
+    # A user-added reverse edge is not a description: D stays external.
+    add_reference(clean_graph, database, slugs["D"], slugs["S"])
+    assert is_external(clean_graph, database, "D") is True
 
     # Corpus is S, F, G (3 nodes); a budget of 4 leaves exactly one external slot.
     result = build_graph(clean_graph, database, expand="s", limit=4)
