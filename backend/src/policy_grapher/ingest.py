@@ -11,6 +11,7 @@ from policy_grapher.sources.document import ExtractedDocument
 from policy_grapher.sources.manifest import ParsedCorpus, parse_corpus
 from policy_grapher.sources.provenance import (
     DESCRIBES,
+    DOCUMENT,
     MANIFEST,
     MERGE_SOURCE,
     REFRESH_EXTERNAL,
@@ -133,7 +134,9 @@ def ingest_file(
         return ingest_parsed(driver, database, parse_corpus(path), path.name)
 
     extracted = pdf.extract_document(path)
-    slug, nodes_created, relationships_created = ingest_document(driver, database, extracted)
+    slug, nodes_created, relationships_created = ingest_document(
+        driver, database, extracted, path.name
+    )
     return DocumentIngestResult(
         format=extracted.report.format,
         document=DocumentRef(slug=slug, name=extracted.name),
@@ -148,18 +151,23 @@ def ingest_file(
 MERGE_DOCUMENT = """
 MERGE (d:Document {slug: $slug})
 SET d.name = $name
-REMOVE d:External
 """
 
 MERGE_CITED = """
 UNWIND $docs AS doc
 MERGE (d:Document {slug: doc.slug})
-ON CREATE SET d.name = doc.name, d:External
+ON CREATE SET d.name = doc.name
 """
 
 
 def _write_document(
-    tx: ManagedTransaction, *, slug: str, name: str, cited: list[dict], edges: list[dict]
+    tx: ManagedTransaction,
+    *,
+    filename: str,
+    slug: str,
+    name: str,
+    cited: list[dict],
+    edges: list[dict],
 ) -> tuple[int, int]:
     nodes_created = tx.run(MERGE_DOCUMENT, {"slug": slug, "name": name}).consume().counters.nodes_created
     if cited:
@@ -169,11 +177,30 @@ def _write_document(
         relationships_created = tx.run(
             MERGE_EDGES, {"edges": edges}
         ).consume().counters.relationships_created
+
+    # Provenance bookkeeping: consumed for its side effects, but not counted
+    # toward nodes_created/relationships_created — those report Document nodes
+    # and REFERENCES edges, which is what the caller asked about. Only the
+    # document's own subject is described; what it cites is not (that stays
+    # external until some ingest describes it first-hand).
+    tx.run(
+        MERGE_SOURCE,
+        {"id": source_id(DOCUMENT, filename), "kind": DOCUMENT, "filename": filename},
+    ).consume()
+    tx.run(
+        DESCRIBES,
+        {"id": source_id(DOCUMENT, filename), "slugs": [slug]},
+    ).consume()
+    tx.run(
+        REFRESH_EXTERNAL,
+        {"slugs": [slug, *(entry["slug"] for entry in cited)]},
+    ).consume()
+
     return nodes_created, relationships_created
 
 
 def ingest_document(
-    driver: Driver, database: str, extracted: ExtractedDocument
+    driver: Driver, database: str, extracted: ExtractedDocument, filename: str
 ) -> tuple[str, int, int]:
     """Merge one extracted document and the documents it cites.
 
@@ -192,6 +219,11 @@ def ingest_document(
 
     with driver.session(database=database) as session:
         nodes_created, relationships_created = session.execute_write(
-            _write_document, slug=slug, name=extracted.name, cited=cited, edges=edges
+            _write_document,
+            filename=filename,
+            slug=slug,
+            name=extracted.name,
+            cited=cited,
+            edges=edges,
         )
     return slug, nodes_created, relationships_created
