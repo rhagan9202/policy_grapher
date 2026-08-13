@@ -7,14 +7,18 @@ from policy_grapher.db import apply_constraints, is_graph_empty
 pytestmark = pytest.mark.integration
 
 
-def test_both_uniqueness_constraints_exist(driver, database):
+def test_all_uniqueness_constraints_exist(driver, database):
     records, _, _ = driver.execute_query(
         "SHOW CONSTRAINTS YIELD name RETURN collect(name) AS names",
         database_=database,
         routing_=RoutingControl.READ,
     )
     names = set(records[0]["names"])
-    assert {"document_slug_unique", "document_name_unique"} <= names
+    assert {
+        "document_slug_unique",
+        "document_name_unique",
+        "source_id_unique",
+    } <= names
 
 
 def test_applying_constraints_twice_is_safe(driver, database):

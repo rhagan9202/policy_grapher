@@ -13,6 +13,10 @@ CONSTRAINTS: tuple[str, ...] = (
         "CREATE CONSTRAINT document_name_unique IF NOT EXISTS "
         "FOR (d:Document) REQUIRE d.name IS UNIQUE"
     ),
+    (
+        "CREATE CONSTRAINT source_id_unique IF NOT EXISTS "
+        "FOR (s:Source) REQUIRE s.id IS UNIQUE"
+    ),
 )
 
 
