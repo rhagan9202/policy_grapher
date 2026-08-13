@@ -1,4 +1,4 @@
-import type { GraphOut, IngestResult } from './types'
+import type { DocumentIn, DocumentOut, GraphOut, IngestResult, ResetResult } from './types'
 
 const BASE = '/api'
 
@@ -24,6 +24,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(response.status, detail)
   }
+  // 204 has no body; json() would throw.
+  if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
 
@@ -52,4 +54,55 @@ export function getGraph(options: GraphOptions = {}): Promise<GraphOut> {
 
   const query = params.toString()
   return request<GraphOut>(`/graph${query ? `?${query}` : ''}`)
+}
+
+export function listDocuments(): Promise<DocumentOut[]> {
+  return request<DocumentOut[]>('/documents')
+}
+
+export function getDocument(slug: string): Promise<DocumentOut> {
+  return request<DocumentOut>(`/documents/${encodeURIComponent(slug)}`)
+}
+
+export function createDocument(document: DocumentIn): Promise<DocumentOut> {
+  return request<DocumentOut>('/documents', {
+    method: 'POST',
+    body: JSON.stringify(document),
+  })
+}
+
+export function updateDocument(slug: string, document: DocumentIn): Promise<DocumentOut> {
+  return request<DocumentOut>(`/documents/${encodeURIComponent(slug)}`, {
+    method: 'PUT',
+    body: JSON.stringify(document),
+  })
+}
+
+export function deleteDocument(slug: string): Promise<void> {
+  return request<void>(`/documents/${encodeURIComponent(slug)}`, { method: 'DELETE' })
+}
+
+export function addReference(slug: string, targetSlug: string): Promise<void> {
+  return request<void>(
+    `/documents/${encodeURIComponent(slug)}/references/${encodeURIComponent(targetSlug)}`,
+    { method: 'POST' },
+  )
+}
+
+export function removeReference(slug: string, targetSlug: string): Promise<void> {
+  return request<void>(
+    `/documents/${encodeURIComponent(slug)}/references/${encodeURIComponent(targetSlug)}`,
+    { method: 'DELETE' },
+  )
+}
+
+export function reset(): Promise<ResetResult> {
+  return request<ResetResult>('/reset', { method: 'POST' })
+}
+
+export function runQuery(cypher: string): Promise<Record<string, unknown>[]> {
+  return request<Record<string, unknown>[]>('/query', {
+    method: 'POST',
+    body: JSON.stringify({ cypher }),
+  })
 }

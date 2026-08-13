@@ -1,5 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, getGraph, getHealth, ingest } from './client'
+import {
+  ApiError,
+  addReference,
+  createDocument,
+  deleteDocument,
+  getDocument,
+  getGraph,
+  getHealth,
+  ingest,
+  listDocuments,
+  runQuery,
+} from './client'
 
 function mockJson(body: unknown, status = 200) {
   return vi.fn().mockResolvedValue({
@@ -7,6 +18,17 @@ function mockJson(body: unknown, status = 200) {
     status,
     json: async () => body,
     text: async () => JSON.stringify(body),
+  })
+}
+
+function mockNoContent() {
+  return vi.fn().mockResolvedValue({
+    ok: true,
+    status: 204,
+    json: async () => {
+      throw new Error('204 responses have no body')
+    },
+    text: async () => '',
   })
 }
 
@@ -71,5 +93,73 @@ describe('getHealth', () => {
   it('returns the status payload', async () => {
     vi.stubGlobal('fetch', mockJson({ status: 'ok' }))
     expect(await getHealth()).toEqual({ status: 'ok' })
+  })
+})
+
+describe('documents', () => {
+  it('lists documents', async () => {
+    const fetchMock = mockJson([])
+    vi.stubGlobal('fetch', fetchMock)
+
+    await listDocuments()
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/documents', expect.anything())
+  })
+
+  it('reads one by slug', async () => {
+    const fetchMock = mockJson({ slug: 'dodd-5000-01' })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getDocument('dodd-5000-01')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/documents/dodd-5000-01')
+  })
+
+  it('posts a new document', async () => {
+    const fetchMock = mockJson({ slug: 'dodd-9999-01' }, 201)
+    vi.stubGlobal('fetch', fetchMock)
+
+    await createDocument({ name: 'DoDD 9999.01', reference_role: 'Root Reference' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/documents')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({
+      name: 'DoDD 9999.01',
+      reference_role: 'Root Reference',
+    })
+  })
+
+  it('resolves rather than throwing on a 204', async () => {
+    // request() calls response.json() unconditionally today, which throws on an
+    // empty body — five of the nine new endpoints return 204.
+    vi.stubGlobal('fetch', mockNoContent())
+
+    await expect(deleteDocument('dodd-5000-01')).resolves.toBeUndefined()
+  })
+
+  it('adds a reference at the nested path', async () => {
+    const fetchMock = mockNoContent()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await addReference('dodd-5000-01', 'dodi-3115-14')
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/documents/dodd-5000-01/references/dodi-3115-14')
+    expect(init.method).toBe('POST')
+  })
+})
+
+describe('runQuery', () => {
+  it('posts the cypher string', async () => {
+    const fetchMock = mockJson([{ total: 438 }])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const rows = await runQuery('MATCH (d:Document) RETURN count(d) AS total')
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      cypher: 'MATCH (d:Document) RETURN count(d) AS total',
+    })
+    expect(rows).toEqual([{ total: 438 }])
   })
 })
