@@ -1,0 +1,29 @@
+from fastapi import APIRouter, Depends, HTTPException
+from neo4j import Driver
+
+from policy_grapher.config import Settings
+from policy_grapher.csv_source import CsvSourceError
+from policy_grapher.dependencies import get_app_settings, get_driver
+from policy_grapher.ingest import ingest_file
+from policy_grapher.models import IngestRequest, IngestResult
+
+router = APIRouter(tags=["admin"])
+
+
+@router.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@router.post("/ingest", response_model=IngestResult)
+def ingest(
+    body: IngestRequest,
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+) -> IngestResult:
+    try:
+        return ingest_file(
+            driver, settings.neo4j_database, body.filename, settings.data_dir
+        )
+    except CsvSourceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

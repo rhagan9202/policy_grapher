@@ -1,15 +1,15 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from policy_grapher.config import Settings, get_settings
 from policy_grapher.csv_source import CsvSourceError
 from policy_grapher.db import apply_constraints, create_driver, is_graph_empty
-from policy_grapher.graph import UnknownDocumentError, build_graph
 from policy_grapher.ingest import ingest_file
-from policy_grapher.models import GraphOut, IngestRequest, IngestResult
+from policy_grapher.models import IngestResult
+from policy_grapher.routers import admin, graph
 
 logger = logging.getLogger(__name__)
 
@@ -72,43 +72,5 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@app.post("/ingest", response_model=IngestResult)
-def ingest(request: IngestRequest) -> IngestResult:
-    settings: Settings = app.state.settings
-    try:
-        return ingest_file(
-            app.state.driver,
-            settings.neo4j_database,
-            request.filename,
-            settings.data_dir,
-        )
-    except CsvSourceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/graph", response_model=GraphOut)
-def graph(
-    include_external: bool = False,
-    expand: str | None = None,
-    limit: int | None = Query(default=None, ge=0),
-) -> GraphOut:
-    settings: Settings = app.state.settings
-    effective_limit = settings.graph_render_cap if limit is None else limit
-    try:
-        return build_graph(
-            app.state.driver,
-            settings.neo4j_database,
-            include_external=include_external,
-            expand=expand,
-            limit=effective_limit,
-        )
-    except UnknownDocumentError as exc:
-        raise HTTPException(
-            status_code=404, detail=f"No document with slug {exc.args[0]!r}."
-        ) from exc
+app.include_router(admin.router)
+app.include_router(graph.router)
