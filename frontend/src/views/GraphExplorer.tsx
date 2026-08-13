@@ -51,11 +51,16 @@ export default function GraphExplorer() {
 
   useEffect(() => {
     let cancelled = false
-    setError(null)
 
     getGraph(expanded ? { expand: expanded } : {})
       .then((result) => {
-        if (!cancelled) setGraph(result)
+        if (!cancelled) {
+          setGraph(result)
+          // Cleared here rather than in the effect body: a synchronous setState in an
+          // effect costs an extra render pass (react-hooks/set-state-in-effect), and
+          // clearing on arrival also stops a stale error blanking mid-refetch.
+          setError(null)
+        }
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
