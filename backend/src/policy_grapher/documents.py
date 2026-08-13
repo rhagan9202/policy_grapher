@@ -4,6 +4,8 @@ Knows nothing about HTTP, exactly as graph.py does not. Reference lists carry
 slugs, not names — see the DI-1 completion design.
 """
 
+from collections.abc import Iterable
+
 from neo4j import Driver, RoutingControl
 
 from policy_grapher.models import DocumentOut
@@ -24,6 +26,7 @@ GET_DOCUMENT = f"MATCH (d:Document {{slug: $slug}}) {DOCUMENT_FIELDS}"
 
 SLUG_TAKEN = "MATCH (d:Document {slug: $slug}) RETURN count(d) AS total"
 NAME_TAKEN = "MATCH (d:Document {name: $name}) RETURN count(d) AS total"
+SLUG_FOR_NAME = "MATCH (d:Document {name: $name}) RETURN d.slug AS slug"
 
 CREATE_DOCUMENT = """
 CREATE (d:Document {slug: $slug, name: $name})
@@ -96,11 +99,74 @@ def _count(driver: Driver, database: str, cypher: str, params: dict) -> int:
 
 
 def allocate_slug(driver: Driver, database: str, name: str) -> str:
-    """ADR-005: the incumbent keeps its bare slug, the newcomer takes the suffix."""
+    """ADR-005: the incumbent keeps its bare slug, the newcomer takes the suffix.
+
+    Callers must only pass a `name` that is not already an existing document's
+    name (`create_document` enforces this with `NameConflictError` before ever
+    reaching here) — ADR-005 treats a duplicate name as a different case from a
+    contested slug, and this function only implements the latter. A name that
+    already belongs to a stored document would be misread here as a *newcomer*
+    contesting its own base slug and get needlessly suffixed; `allocate_slugs`
+    below is the batch-safe version that does handle that case, for callers
+    (like PDF re-ingestion) that can legitimately see the same name twice.
+    """
     base = base_slug(name)
     if _count(driver, database, SLUG_TAKEN, {"slug": base}) == 0:
         return base
     return f"{base}-{hash_suffix(name)}"
+
+
+def allocate_slugs(driver: Driver, database: str, names: Iterable[str]) -> dict[str, str]:
+    """Allocate slugs for a batch of names arriving together, e.g. one ingested
+    document plus everything it cites.
+
+    Two distinct problems `allocate_slug` doesn't handle on its own:
+
+    1. **Same-batch collision.** `allocate_slug` decides bare-vs-suffixed by
+       querying the database, which can't see a sibling name in this same batch
+       that hasn't been written yet. "Military Standard 882E" and
+       "Military-Standard 882E" both normalise to the base slug
+       `military-standard-882e`; if each were resolved independently against an
+       empty database, both would get the bare slug, and `MERGE (d:Document
+       {slug: ...})` would silently collapse the second into the first node,
+       discarding its name. Fix: track bases claimed *within this call* the same
+       way the database is checked for bases claimed by earlier ingests — the
+       first name (in the order given) to reach a base keeps it bare, and any
+       later contender for that base, in this batch or already stored, takes
+       the hash suffix. This mirrors `allocate_slug`'s own incumbent-wins rule,
+       just extended to cover an incumbent that hasn't been committed yet.
+
+    2. **Re-arrival of an already-stored name.** PDF ingestion is a MERGE, not
+       a create — the same document (or one of its citations) can legitimately
+       arrive again on a later ingest. `d.name` is unique (see `db.py`'s
+       constraints), so if a document with this exact name already exists, this
+       is not a new contender for its base slug at all — it is the incumbent
+       itself, reappearing. Reusing whatever slug it already holds (bare or
+       previously suffixed) keeps re-ingestion a no-op, per the additive
+       promise `ingest.py` opens with; recomputing via the bare-vs-suffix rule
+       would, on the document's own second appearance, hash-suffix it against
+       itself and then fail the unique name constraint when MERGE tried to
+       create a second node under a slug nobody has yet, but a name someone
+       already has. ADR-005 treats a duplicate name as a different case from a
+       contested slug for `POST /documents` (a 409, not resolved here); for a
+       merge, the equivalent right answer is "reuse it," not "reject it."
+    """
+    assigned: dict[str, str] = {}
+    claimed_bases: set[str] = set()
+    for name in names:
+        if name in assigned:
+            continue
+        records = _read(driver, database, SLUG_FOR_NAME, {"name": name})
+        if records:
+            assigned[name] = records[0]["slug"]
+            continue
+        base = base_slug(name)
+        if base in claimed_bases or _count(driver, database, SLUG_TAKEN, {"slug": base}) > 0:
+            assigned[name] = f"{base}-{hash_suffix(name)}"
+        else:
+            assigned[name] = base
+            claimed_bases.add(base)
+    return assigned
 
 
 def create_document(driver: Driver, database: str, name: str) -> DocumentOut:

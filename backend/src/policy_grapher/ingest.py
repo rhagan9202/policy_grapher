@@ -4,8 +4,10 @@ from pathlib import Path
 
 from neo4j import Driver, ManagedTransaction
 
+from policy_grapher.documents import allocate_slugs
 from policy_grapher.models import IngestResult
 from policy_grapher.slugs import assign_slugs
+from policy_grapher.sources.document import ExtractedDocument
 from policy_grapher.sources.manifest import ParsedCorpus, parse_corpus, resolve_csv_path
 
 MERGE_CORPUS = """
@@ -101,3 +103,55 @@ def ingest_file(
 ) -> IngestResult:
     path = resolve_csv_path(filename, data_dir)
     return ingest_parsed(driver, database, parse_corpus(path))
+
+
+MERGE_DOCUMENT = """
+MERGE (d:Document {slug: $slug})
+SET d.name = $name
+REMOVE d:External
+"""
+
+MERGE_CITED = """
+UNWIND $docs AS doc
+MERGE (d:Document {slug: doc.slug})
+ON CREATE SET d.name = doc.name, d:External
+"""
+
+
+def _write_document(
+    tx: ManagedTransaction, *, slug: str, name: str, cited: list[dict], edges: list[dict]
+) -> tuple[int, int]:
+    nodes_created = tx.run(MERGE_DOCUMENT, {"slug": slug, "name": name}).consume().counters.nodes_created
+    if cited:
+        nodes_created += tx.run(MERGE_CITED, {"docs": cited}).consume().counters.nodes_created
+    relationships_created = 0
+    if edges:
+        relationships_created = tx.run(
+            MERGE_EDGES, {"edges": edges}
+        ).consume().counters.relationships_created
+    return nodes_created, relationships_created
+
+
+def ingest_document(
+    driver: Driver, database: str, extracted: ExtractedDocument
+) -> tuple[str, int, int]:
+    """Merge one extracted document and the documents it cites.
+
+    Slugs are resolved for the whole batch (this document plus every name it
+    cites) *before* the write transaction opens: `allocate_slugs` reads via
+    `driver.execute_query`, which cannot run inside a `session.execute_write`
+    callback, and two names in this same batch can contest the same base slug
+    before either exists in the database — see `documents.allocate_slugs` for
+    why resolving them one at a time (with plain `allocate_slug`) silently
+    collapses distinct documents into one node.
+    """
+    slugs = allocate_slugs(driver, database, [extracted.name, *extracted.references])
+    slug = slugs[extracted.name]
+    cited = [{"slug": slugs[name], "name": name} for name in extracted.references]
+    edges = [{"source": slug, "target": entry["slug"]} for entry in cited]
+
+    with driver.session(database=database) as session:
+        nodes_created, relationships_created = session.execute_write(
+            _write_document, slug=slug, name=extracted.name, cited=cited, edges=edges
+        )
+    return slug, nodes_created, relationships_created
