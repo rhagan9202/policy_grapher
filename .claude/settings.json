@@ -5,12 +5,10 @@
         "matcher": "Bash",
         "hooks": [
           {
-            "type": "agent",
-            "if": "Bash(git commit*)",
-            "model": "claude-sonnet-5",
-            "timeout": 600,
-            "statusMessage": "Syncing /docs before commit",
-            "prompt": "A `git commit` is about to run in this repository. Before it does, bring the /docs tree in line with the code so the documentation edits ride along in that same commit.\n\nLoad and follow the `project-docs-sync` skill (Skill tool, name `project-docs-sync`; if the Skill tool is unavailable, read ~/.claude/skills/synced/project-docs-sync/SKILL.md and follow it). Resolve the repo root with `git rev-parse --show-toplevel` and pass it as --root; do not assume the cwd.\n\nFollow the skill exactly, including its restraint rule: most runs should produce small or no documentation edits, and \"no documentation changes needed\" is a correct and complete outcome. On a no-op run you still update and stage the marker.\n\nHard constraints:\n- Stage only. NEVER run `git commit`, `git push`, `git merge`, `git reset`, `git checkout`, or `git stash` — the commit you are running ahead of will carry your staged edits.\n- Only ever `git add` the specific doc paths you edited plus docs/.doc-sync.json. Never `git add -A` and never `git add docs/`.\n- Touch nothing outside the docs tree. Do not edit source code.\n\nThis hook is a docs-sync step, not a gate. ALWAYS approve the pending git commit when you finish, whatever you did or didn't change — including when the sync found nothing to write, when /docs does not exist, or when the sync itself failed. Report what you changed (or that you changed nothing) in one short paragraph and let the commit proceed. The only case where you may block is if you somehow left the repository in a broken state you could not undo.\n\nPending tool call: $ARGUMENTS"
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/docs-sync-precommit.sh\"",
+            "timeout": 660,
+            "statusMessage": "Syncing /docs before commit"
           }
         ]
       }

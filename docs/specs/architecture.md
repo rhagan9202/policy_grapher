@@ -1,6 +1,6 @@
 # Architecture
 
-*Living document — edit in place. Last reviewed: 2026-08-13*
+*Living document — edit in place. Last reviewed: 2026-08-20*
 
 Describes the system as it is today, not as it's planned to be. Planned changes belong in
 the [roadmap](../planning/roadmap.md); the reasoning behind past choices belongs in
@@ -220,7 +220,10 @@ turns a surprise outage into a planned piece of work.
   [SPEC-001's Testing section](SPEC-001-di-1-policy-grapher.md#testing-gap-review) for the
   pinned floors.
 - **Auto-ingest only runs at startup.** It checks once, in `lifespan`, whether the graph is
-  empty. A graph emptied at runtime by `POST /reset` stays empty until the backend process
+  empty — and "empty" means holding no `:Document` nodes, not no nodes at all. Provenance
+  outlives what it describes, so a create-then-delete round trip leaves an orphan `:Source`
+  behind; counting every node would let that invisible leftover read as content and skip the
+  sample corpus. A graph emptied at runtime by `POST /reset` stays empty until the backend process
   restarts; nothing re-triggers the check. That is intentional rather than incidental —
   `test_reset_does_not_retrigger_auto_ingest` pins it — but it does mean the documented way
   to reload a changed file is reset, then ingest.
