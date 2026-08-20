@@ -36,6 +36,39 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('the dev-proxy header', () => {
+  it('is sent on reads', async () => {
+    const fetchMock = mockJson({ nodes: [], edges: [], total_nodes: 0, returned_nodes: 0, truncated: false })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getGraph()
+
+    const headers = fetchMock.mock.calls[0][1].headers
+    expect(headers['x-policy-grapher-ui']).toBe('1')
+  })
+
+  it('is sent on writes, which is the whole reason the proxy takes them', async () => {
+    const fetchMock = mockJson({ slug: 'x', name: 'X', is_external: false, references: [], referenced_by: [] }, 201)
+    vi.stubGlobal('fetch', fetchMock)
+
+    await createDocument({ name: 'X' })
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.method).toBe('POST')
+    expect(init.headers['x-policy-grapher-ui']).toBe('1')
+  })
+
+  it('does not lose Content-Type when a caller supplies its own headers', async () => {
+    const fetchMock = mockJson({ nodes: [], edges: [], total_nodes: 0, returned_nodes: 0, truncated: false })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getGraph()
+
+    const headers = fetchMock.mock.calls[0][1].headers
+    expect(headers['Content-Type']).toBe('application/json')
+  })
+})
+
 describe('getGraph', () => {
   it('requests the default corpus view with no query string', async () => {
     const fetchMock = mockJson({

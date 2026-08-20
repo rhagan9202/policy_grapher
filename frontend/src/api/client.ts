@@ -16,10 +16,16 @@ export class ApiError extends Error {
   }
 }
 
+// The dev proxy injects the bearer token only for requests carrying this header
+// (vite.config.ts, ADR-018). A cross-origin page cannot set it — custom headers
+// force a CORS preflight, which `mode: 'no-cors'` forbids — so a drive-by cannot
+// borrow our credentials. Removing it here silently breaks every request.
+const UI_HEADER = { 'x-policy-grapher-ui': '1' } as const
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...init,
+    headers: { 'Content-Type': 'application/json', ...UI_HEADER, ...init?.headers },
   })
   if (!response.ok) {
     let detail = response.statusText

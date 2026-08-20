@@ -38,8 +38,11 @@ Bearer <token>` header whose SHA-256 digest matches one of the `name:sha256hex` 
 digest to `API_TOKENS`, so a clean clone authenticates that one token and every other
 request gets `401` — the failure mode is universal denial, not universal access. The
 browser app authenticates too: the vite dev proxy injects the same token server-side, so
-the UI works without exposing it to JavaScript. The proxy injects the token on GET
-requests only, so nothing reaching port 5173 can mutate the graph without a token of its own.
+the UI works without exposing it to JavaScript. The proxy forwards every method, but injects the
+token only for requests carrying `x-policy-grapher-ui: 1` — a header a cross-origin page
+cannot set, so a drive-by `POST /api/reset` from another site gets no credential. A local
+process can set it, so the real bound is that the port publishes on `127.0.0.1` only. See
+[ADR-018](docs/specs/adr/ADR-018-the-dev-proxy-forwards-writes.md).
 CORS is limited to the origins `CORS_ALLOW_ORIGINS` lists (`http://localhost:5173` by
 default), without credentials — the credential here is a header, not a cookie.
 `/openapi.json`, `/docs` and `/redoc` are not published unless `ENABLE_API_DOCS=true`, since

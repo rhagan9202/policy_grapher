@@ -46,7 +46,7 @@
 | `backend/src/policy_grapher/db.py` | *Modify* — vector index with recorded model identity |
 | `frontend/src/views/Triage.tsx`, `Review.tsx`, `Ask.tsx` | *Create* |
 | `frontend/src/App.tsx` | *Modify* — routes and, at last, navigation |
-| `docs/specs/adr/ADR-016-*.md`, `ADR-017-*.md`, `ADR-018-*.md` | *Create* — embeddings are a port; answers select templates; how UI writes authenticate |
+| `docs/specs/adr/ADR-016-*.md`, `ADR-017-*.md` | *Create* — embeddings are a port; answers select templates. UI writes are already decided by ADR-018. |
 
 ---
 
@@ -196,15 +196,18 @@ Following the existing `GraphExplorer.test.tsx` and `DocumentTable.test.tsx` pat
 
 - [ ] **Step 2: Implement the views and navigation**
 
-The GET-only proxy token from Phase 0 covers `GET /triage`, `/review/queue` and `/ask`… but
-**`POST /review/{...}` and `POST /ask` are not GETs.** Phase 0 deliberately restricted the dev
-proxy to GET to close a drive-by mutation path, so this task must decide how a reviewer
-authenticates a write. Do not simply widen the proxy back to all methods — that reopens the
-hole the phase 0 final review found. Either add a real login that puts a token in memory
-(not `localStorage`), or scope the proxy exception to the specific review endpoints and say
-plainly in a comment why those and nothing else. **Record the choice in ADR-018** — it is the
-point where the phase 0 development affordance stops being sufficient, and that boundary
-deserves its own decision record rather than a comment.
+**This question is already answered — do not re-open it.** [ADR-018](../../specs/adr/ADR-018-the-dev-proxy-forwards-writes.md)
+decided it: the dev proxy forwards every method and injects the token only for requests
+carrying `x-policy-grapher-ui: 1`. `frontend/src/api/client.ts` already sends that header on
+every request and three tests in `client.test.ts` pin it, so `POST /review/{...}` and
+`POST /ask` work through the proxy with nothing further to build.
+
+Two things follow for this task. Any new client code must go through the existing `request()`
+helper rather than calling `fetch` directly, or it loses the header and 401s. And the residual
+ADR-018 accepts — a local process can set the header too, so the port is the credential for
+writes as well as reads — is a development posture, not a deployment one. If this phase is
+the point at which the UI gets served to someone who is not the person who ran
+`init-env.sh`, that is ADR-018's stated expiry condition and it needs a superseding ADR.
 
 - [ ] **Step 3: Run `npm test`, the backend suite, and commit**
 
@@ -222,6 +225,6 @@ git commit -m "feat: screens for triage, review and asking"
 - Every answer carries citations, or states that the corpus does not say
 - An injection attempt in a question mutates nothing
 - Triage, review and ask screens exist, navigable, with citations visible on every row
-- Writes from the UI authenticate by a mechanism recorded in an ADR — not by widening the GET-only proxy
+- Writes from the UI go through `request()` so they carry the ADR-018 header, and are asserted to
 
 DI-2 is complete. Coverage matrices (DI-3) and drafted amendments (DI-4) can start.

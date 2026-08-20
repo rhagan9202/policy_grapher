@@ -201,13 +201,15 @@ turns a surprise outage into a planned piece of work.
   manifest citing that name demotes it, so it vanishes from the default graph view with no
   error anywhere. STORY-038.
 
-- **Anything that reaches port 5173 reads the corpus as the dev principal.** The vite
-  dev proxy adds `Authorization: Bearer $API_TOKEN` to the GET requests it forwards, so a
-  reader needs no credential of its own — the port *is* the credential. Injection is
-  restricted to GET (`frontend/vite.config.ts`), which keeps a stray cross-origin `POST
-  /api/reset` from wiping the graph, and the published port is bound to `127.0.0.1` so the
-  door is not open to the rest of the network; neither makes the reads authenticated. This
-  is a development affordance, and it is the piece that a real login flow replaces first.
+- **Anything on this machine that reaches port 5173 acts as the dev principal, reads and
+  writes alike.** The vite dev proxy adds `Authorization: Bearer $API_TOKEN` to requests
+  carrying `x-policy-grapher-ui: 1`, so a caller needs no credential of its own — the port
+  *is* the credential. Writes are forwarded deliberately (ADR-018): a review queue has to
+  POST verdicts. The header keeps a *browser* out, since a cross-origin page cannot set a
+  custom header without a preflight that `mode: 'no-cors'` forbids; it does not keep a local
+  process out, and `curl -H 'x-policy-grapher-ui: 1' -X POST localhost:5173/api/reset` still
+  wipes the graph. The only bound on that is the published port being `127.0.0.1`. This is a
+  development affordance and it is the piece a real login flow replaces first.
 
 - **A bearer token is all or nothing.** Authentication answers *whether* a caller is known,
   not *what* it may do: every valid token drives every route, and the `Principal` a route

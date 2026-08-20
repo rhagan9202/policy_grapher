@@ -19,16 +19,23 @@ export default defineConfig({
         // login, no per-user identity, no logout. A real login flow replaces this
         // when multi-user lands.
         //
-        // GET only, deliberately. Injecting on every method makes this port an
-        // unauthenticated bypass of the whole auth gate: `curl -X POST
-        // localhost:5173/api/reset` would wipe the graph, and since /reset needs no
-        // body and no custom header it is a CORS *simple request*, so any page the
-        // developer happens to visit could fire it with `mode: 'no-cors'` — the
-        // browser blocks reading the response, not sending it. The UI issues only
-        // GETs (getGraph, listDocuments), so this costs nothing it uses.
+        // All methods, by decision (ADR-018) — the review queue has to POST
+        // verdicts, and a GET-only proxy cannot serve a UI that writes.
+        //
+        // The guard is the custom header, not the method. A cross-origin page
+        // cannot set one: custom headers force a CORS preflight, and `mode:
+        // 'no-cors'` — the only mode that lets a page fire a request it cannot
+        // read — forbids them. So the drive-by `POST /api/reset` from any site
+        // the developer happens to visit does not get a token injected.
+        //
+        // It stops a browser, not a local process. `curl -H 'x-policy-grapher-ui: 1'
+        // -X POST localhost:5173/api/reset` still wipes the graph. The bound on that
+        // is docker-compose publishing this port as 127.0.0.1:5173, so the caller is
+        // already on the machine. Accepted and recorded in ADR-018.
         configure(proxy) {
           proxy.on('proxyReq', (proxyReq, req) => {
-            if (req.method === 'GET' && process.env.API_TOKEN) {
+            const fromUi = req.headers['x-policy-grapher-ui'] === '1'
+            if (fromUi && process.env.API_TOKEN) {
               proxyReq.setHeader('authorization', `Bearer ${process.env.API_TOKEN}`)
             }
           })
