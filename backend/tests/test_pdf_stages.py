@@ -341,3 +341,33 @@ def test_the_cover_page_bound_is_the_heading_when_it_is_smaller_than_the_fallbac
     assert len(full) < pdf._COVER_PAGE_FALLBACK, "so a flat fallback slice would still see the citation"
 
     assert pdf.document_name(full) == "DoDI 8500.01"
+
+
+def test_a_legacy_cover_is_not_titled_as_the_predecessor_it_cancels():
+    """Pattern order must not beat text position.
+
+    Real cover matter from DoDD 5000.01 (May 12, 2003). Its own header is the
+    legacy form — "DIRECTIVE ... NUMBER 5000.01" — but reference (a) cites the
+    modern-format "DoD Directive 5000.1", the very issuance it cancels. Trying
+    `_MODERN_HEADER` across the whole cover before `_LEGACY_HEADER` lets that
+    citation win from further down the page, titling the document as the one it
+    replaced and hanging every citation edge off the wrong node.
+
+    The heading bound does not save this: `_HEADING` wants "REFERENCES" on its
+    own line, and this cover runs "References:   (a) ..." inline.
+    """
+    full = (
+        "Department of Defense\n\nDIRECTIVE\n\nNUMBER 5000.01\nMay 12, 2003\n"
+        "Incorporating Change 2, August 31, 2018\n\nUSD(A&S)\n\n"
+        "SUBJECT:   The Defense Acquisition System\n\n"
+        'References:   (a) DoD Directive 5000.1, "The Defense Acquisition System,"\n'
+        "October 23, 2000 (hereby canceled)\n"
+    )
+    assert _HEADING_DOES_NOT_BITE(full)
+    assert pdf.document_name(full) == "DoDD 5000.01"
+
+
+def _HEADING_DOES_NOT_BITE(full: str) -> bool:
+    """Guard: if this ever bites, the test stops exercising what it claims to."""
+    heading = pdf._HEADING.search(full)
+    return heading is None or heading.start() >= pdf._COVER_PAGE_FALLBACK

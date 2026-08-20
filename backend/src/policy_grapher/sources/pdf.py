@@ -225,14 +225,33 @@ def _cover_page(full: str) -> str:
 
 
 def document_name(full: str) -> str | None:
-    """The issuance's own name, in the corpus's vocabulary."""
+    """The issuance's own name, in the corpus's vocabulary.
+
+    The earliest match on the page wins, not the first pattern to match. A cover
+    states its own identity at the top and cites other issuances below it, so
+    position is the signal and pattern order is noise. Trying `_MODERN_HEADER`
+    across the whole cover first let a *cited* modern-format name beat the
+    document's own legacy header: DoDD 5000.01 (May 12, 2003) carries the legacy
+    "DIRECTIVE / NUMBER 5000.01" at the top and cites "DoD Directive 5000.1" —
+    the issuance it cancels — a few lines down, and came back titled 5000.1.
+    Every citation edge would then hang off the predecessor's node.
+
+    `_cover_page`'s bound does not cover this on its own: `_HEADING` wants
+    "REFERENCES" on a line of its own, and legacy covers run "References:  (a) …"
+    inline, so the fallback slice keeps the citation in view.
+    """
     cover = _cover_page(full)
-    for pattern in (_MODERN_HEADER, _LEGACY_HEADER):
-        match = pattern.search(cover)
-        if match:
-            kind = _ABBREVIATION[match.group(1).lower()]
-            return f"{kind} {match.group(2)}"
-    return None
+    found = [
+        match
+        for match in (pattern.search(cover) for pattern in (_MODERN_HEADER, _LEGACY_HEADER))
+        if match is not None
+    ]
+    if not found:
+        return None
+
+    earliest = min(found, key=lambda match: match.start())
+    kind = _ABBREVIATION[earliest.group(1).lower()]
+    return f"{kind} {earliest.group(2)}"
 
 
 # A bare date, in either of the two forms DoD issuances use: "April 1, 2026" and
