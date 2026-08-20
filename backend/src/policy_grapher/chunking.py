@@ -47,11 +47,27 @@ def _push(path: list[str], heading: str) -> list[str]:
     """
     if not heading[0].isdigit():
         return [heading]
-    # If path is just [PREAMBLE], replace it with the numbered heading
+    # PREAMBLE ("(preamble)") starts with "(", not a digit, so the `kept`
+    # filter below -- which only ever drops a *digit*-prefixed ancestor, via
+    # `p[0].isdigit()` -- can never remove it. Without this early return,
+    # PREAMBLE would ride along as a permanent, phantom ancestor of every
+    # section for the rest of the document (e.g. ["(preamble)", "3.1"]
+    # instead of ["3.1"]), because "not p[0].isdigit()" is unconditionally
+    # true for it and nothing else in `kept` ever re-evaluates it.
     if path == [PREAMBLE]:
         return [heading]
     depth = heading.count(".")
-    kept = [p for p in path if not p[0].isdigit() or p.count(".") < depth]
+    # A digit-prefixed ancestor is kept only if it is both shallower *and* a
+    # genuine numeric-prefix ancestor of `heading` (e.g. "3.2" of "3.2.1").
+    # Comparing depth alone lets an unrelated number at the same depth as a
+    # still-open ancestor survive -- "10.1" arriving after "9", "9.10",
+    # "9.10.2" would otherwise keep "9" (depth 0 < 1) as "10.1"'s parent even
+    # though "10.1" has nothing to do with section "9".
+    kept = [
+        p
+        for p in path
+        if not p[0].isdigit() or (p.count(".") < depth and heading.startswith(f"{p}."))
+    ]
     return [*kept, heading]
 
 
@@ -63,6 +79,21 @@ def _chunk_id(version_id: str, section_path: list[str], ordinal: int) -> str:
 def _split(text: str, max_chars: int, overlap_chars: int) -> list[str]:
     if len(text) <= max_chars:
         return [text]
+    # A misconfigured overlap_chars >= max_chars collapses forward progress to
+    # ~1 char/iteration (start creeps forward one character at a time), which
+    # still terminates but blows a 2000-char section up into ~1900 near-duplicate
+    # chunks. Clamp well below max_chars so every iteration makes real progress.
+    overlap_chars = max(0, min(overlap_chars, max_chars // 2))
+    # A ". " boundary must land past roughly half of max_chars, not merely past
+    # `start`. Without a floor, `rfind` can keep re-finding the *same* early
+    # boundary as `start` creeps forward (e.g. a heading's own "5.1. " a few
+    # characters into the section body), producing a shrinking cascade of
+    # near-empty chunks before recovering to full max_chars parts. A prior fix
+    # used a bare 50-char constant, which silently disabled sentence-boundary
+    # breaking (reintroducing mid-word cuts) for any max_chars near or below
+    # 100. Scaling with max_chars -- "a chunk must be at least half the cap" --
+    # degrades sensibly at every max_chars instead of only near the defaults.
+    min_sentence_offset = max(1, max_chars // 2)
     parts: list[str] = []
     start = 0
     while start < len(text):
@@ -71,8 +102,8 @@ def _split(text: str, max_chars: int, overlap_chars: int) -> list[str]:
             # Prefer a paragraph break, then a sentence end, before cutting mid-word.
             for boundary in ("\n\n", ". "):
                 found = text.rfind(boundary, start, end)
-                # Only break on ". " if we have a reasonable chunk size (avoid tiny chunks)
-                if found > start and (boundary != ". " or found - start >= 50):
+                min_offset = min_sentence_offset if boundary == ". " else 1
+                if found - start >= min_offset:
                     end = found + len(boundary)
                     break
         parts.append(text[start:end])
@@ -95,7 +126,7 @@ def chunk_pages(
     body: list[str] = []
     page_of_section = 1
 
-    def close(page: int) -> None:
+    def close() -> None:
         if any(line.strip() for line in body):
             sections.append((list(path), page_of_section, list(body)))
         body.clear()
@@ -104,11 +135,11 @@ def chunk_pages(
         for line in page_text.splitlines():
             heading = section_heading(line)
             if heading:
-                close(page_number)
+                close()
                 path = _push(path, heading)
                 page_of_section = page_number
             body.append(line)
-    close(len(pages))
+    close()
 
     chunks: list[Chunk] = []
     ordinal = 0

@@ -1,4 +1,4 @@
-from policy_grapher.chunking import chunk_pages, section_heading
+from policy_grapher.chunking import _split, chunk_pages, section_heading
 
 
 def test_a_numbered_heading_is_recognised():
@@ -14,11 +14,17 @@ def test_a_chapter_heading_is_recognised():
 def test_ordinary_prose_is_not_a_heading():
     assert section_heading("The Director shall notify the Comptroller.") is None
     assert section_heading("") is None
+    # Positive control: without this, the test would still pass if
+    # section_heading always returned None.
+    assert section_heading("3.2. RESPONSIBILITIES.") == "3.2"
 
 
 def test_a_decimal_in_prose_is_not_a_heading():
     """"...within 3.2 percent" must not open a section."""
     assert section_heading("Rates above 3.2 percent require approval.") is None
+    # Positive control: without this, the test would still pass if
+    # section_heading always returned None.
+    assert section_heading("3.2. Rates above 3.2 percent require approval.") == "3.2"
 
 
 def test_chunks_never_span_a_section():
@@ -35,6 +41,28 @@ def test_the_section_path_carries_the_hierarchy():
     pages = ["CHAPTER 4\n4.1. SCOPE.\n4.1.2. Detail here.\nBody.\n"]
     chunks = chunk_pages(pages, version_id="v")
     assert chunks[-1].section_path == ["CHAPTER 4", "4.1", "4.1.2"]
+
+
+def test_unrelated_top_level_numbers_do_not_nest():
+    """"10.1" arriving after "9", "9.10", "9.10.2" must not become a child of
+    the unrelated section "9" just because their dot-depths coincide."""
+    pages = ["9. NINE.\nBody.\n9.10. TEN.\nBody.\n9.10.2. Detail.\nBody.\n10.1. ELEVEN.\nBody.\n"]
+    chunks = chunk_pages(pages, version_id="v")
+    assert chunks[-1].section_path == ["10.1"]
+
+
+def test_a_sibling_heading_replaces_rather_than_nests():
+    pages = ["3.1. FIRST.\nBody.\n3.2. SECOND.\nBody.\n"]
+    chunks = chunk_pages(pages, version_id="v")
+    assert chunks[-1].section_path == ["3.2"]
+
+
+def test_a_skipped_level_still_nests_under_its_true_ancestor():
+    """"3" then "3.2.1" (skipping "3.2") still nests, because "3.2.1" is a
+    genuine numeric-prefix descendant of "3"."""
+    pages = ["3. THREE.\nBody.\n3.2.1. DEEP.\nBody.\n"]
+    chunks = chunk_pages(pages, version_id="v")
+    assert chunks[-1].section_path == ["3", "3.2.1"]
 
 
 def test_the_page_number_is_one_indexed_and_tracked():
@@ -99,6 +127,53 @@ def test_split_with_no_sentence_boundaries():
     total_chars = sum(len(c.text) for c in chunks)
     overlap_chars_total = (len(chunks) - 1) * 50
     assert total_chars - overlap_chars_total <= len(body) + len("7.2. TEST.\n")
+
+
+def test_split_breaks_on_a_sentence_boundary():
+    """A ". " boundary inside the split window ends the chunk there, not at
+    max_chars. Proves the accept-branch is actually exercised: deleting ". "
+    from _split's boundary list entirely leaves this failing."""
+    text = "A" * 25 + ". " + "B" * 50
+    parts = _split(text, max_chars=40, overlap_chars=0)
+    assert parts[0] == "A" * 25 + ". "
+
+
+def test_split_boundary_just_under_the_threshold_is_rejected():
+    """At max_chars=40 the sentence-boundary floor is max_chars // 2 == 20.
+    A boundary only 19 characters into the window must NOT be used --
+    otherwise the near-zero-forward-progress cascade (Important finding 1)
+    comes back."""
+    text = "A" * 19 + ". " + "B" * 60
+    parts = _split(text, max_chars=40, overlap_chars=0)
+    assert len(parts[0]) == 40
+    assert not parts[0].endswith(". ")
+
+
+def test_split_boundary_just_over_the_threshold_is_accepted():
+    """Same window, boundary at offset 20 (== max_chars // 2) is used."""
+    text = "A" * 20 + ". " + "B" * 60
+    parts = _split(text, max_chars=40, overlap_chars=0)
+    assert parts[0] == "A" * 20 + ". "
+
+
+def test_small_max_chars_does_not_reintroduce_mid_word_cuts():
+    """Regression for the reviewed bug: at max_chars=30 a bare 50-char floor
+    disabled sentence-boundary breaking entirely, cutting "Delta echo" as
+    "Delta ech" / "a echo...". The floor must scale with max_chars instead."""
+    text = "Alpha bravo charlie. Delta echo foxtrot. Golf hotel india juliet."
+    parts = _split(text, max_chars=30, overlap_chars=0)
+    assert parts[0] == "Alpha bravo charlie. "
+    assert parts[1] == "Delta echo foxtrot. "
+    assert not any(p.endswith(("ech", " ind")) for p in parts)
+
+
+def test_overlap_at_or_above_max_chars_is_clamped():
+    """overlap_chars >= max_chars must not collapse forward progress to
+    ~1 char/iteration -- previously produced ~1901 chunks from a 2000-char
+    section (100/100). Clamping keeps the chunk count sane."""
+    body = "x" * 2000
+    chunks = chunk_pages([f"9.9. CLAMP.\n{body}"], version_id="v", max_chars=100, overlap_chars=100)
+    assert len(chunks) < 50
 
 
 def test_split_with_overlap_larger_than_chunk():
@@ -195,7 +270,8 @@ def test_overlap_is_actually_overlap():
 
 
 def test_reassemble_loses_no_characters():
-    """Reassembling chunks (removing overlap) should recreate the original text."""
+    """Reassembling chunks (removing overlap) must recreate the original text
+    exactly, not just retain a handful of marker words."""
     body = " ".join(f"word{i}" for i in range(300))
     original_text = f"8.9. RECONSTRUCT.\n{body}"
     chunks = chunk_pages([original_text], version_id="v", max_chars=250, overlap_chars=50)
@@ -206,14 +282,10 @@ def test_reassemble_loses_no_characters():
         # Look for the last overlap_chars of previous chunk in this chunk
         prev_tail = reconstructed[-50:]
         idx = chunk.text.find(prev_tail)
-        if idx >= 0:
-            reconstructed += chunk.text[idx + len(prev_tail):]
-        else:
-            reconstructed += chunk.text
+        assert idx >= 0, "expected the previous chunk's overlap tail to reappear"
+        reconstructed += chunk.text[idx + len(prev_tail):]
 
-    # The reconstructed text should contain all the important content
-    for word in ["8.9", "RECONSTRUCT", "word0", "word100", "word299"]:
-        assert word in reconstructed, f"Word '{word}' missing from reconstruction"
+    assert reconstructed == original_text
 
 
 def test_frozen_dataclass_cannot_be_hashed():
