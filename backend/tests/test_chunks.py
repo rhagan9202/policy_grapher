@@ -1,6 +1,6 @@
 import pytest
 
-from policy_grapher.chunking import Chunk, chunk_pages
+from policy_grapher.chunking import PREAMBLE, Chunk, chunk_pages
 from policy_grapher.chunks import UnknownVersionError, drop_chunks, write_chunks
 
 
@@ -302,3 +302,190 @@ def test_write_chunks_return_value_reflects_what_was_actually_written(clean_grap
         "MATCH (c:Chunk) RETURN count(c) AS total", database_=database
     )
     assert records[0]["total"] == 1
+
+
+# --- Task 3: chunking connected to ingest, and exposed -------------------
+
+
+@pytest.mark.integration
+def test_ingesting_a_pdf_stores_its_text(client_with_auth):
+    response = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    slug = response.json()["document"]["slug"]
+
+    chunks = client_with_auth.get(f"/documents/{slug}/chunks")
+    assert chunks.status_code == 200
+    body = chunks.json()
+    assert body, "a real DoD issuance must produce at least one chunk"
+    assert all(c["text"].strip() for c in body)
+    assert all(c["page"] >= 1 for c in body)
+    assert any(c["section_path"] != ["(preamble)"] for c in body), (
+        "every chunk landing in the preamble means section detection found nothing"
+    )
+
+
+@pytest.mark.integration
+def test_page_numbers_are_real_and_varied(client_with_auth):
+    """A chunk's `page` is how a citation points a reviewer at the document. If
+    `chunk_pages` were fed the whole document as one page (e.g. `[text_of(path)]`
+    instead of the real per-page list `sources.pdf.pages_of` now produces), every
+    chunk would come back `page=1` and the anchor would be worthless. 500001p.pdf
+    runs well past one page, so a correct pipeline must report more than one
+    distinct page across its chunks.
+    """
+    response = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    slug = response.json()["document"]["slug"]
+
+    chunks = client_with_auth.get(f"/documents/{slug}/chunks").json()
+    pages = {c["page"] for c in chunks}
+    assert len(pages) > 1, f"every chunk landed on the same page: {pages}"
+
+
+@pytest.mark.integration
+def test_manifest_ingest_creates_no_chunks(client_with_auth, driver, database):
+    """The manifest (CSV) path states no text and no version: `write_chunks`
+    must never be reached for it. A document introduced only by the manifest
+    has no `:DocumentVersion` for a chunk to attach to, so this pins the
+    invariant directly against the graph rather than trusting that no route
+    happens to expose a stray chunk.
+    """
+    response = client_with_auth.post(
+        "/ingest", json={"filename": "dod_policy_references_08122026.csv"}
+    )
+    assert response.status_code == 200
+
+    records, _, _ = driver.execute_query(
+        "MATCH (c:Chunk) RETURN count(c) AS total", database_=database
+    )
+    assert records[0]["total"] == 0
+
+
+@pytest.mark.integration
+def test_reingesting_an_unchanged_pdf_keeps_one_set_of_chunks(client_with_auth):
+    """DI-1's re-ingest-is-a-no-op invariant, extended to the derived layer:
+    posting the identical file twice must not double the chunk count or mint a
+    second, parallel set of ids.
+    """
+    first = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    slug = first.json()["document"]["slug"]
+    first_chunks = client_with_auth.get(f"/documents/{slug}/chunks").json()
+    assert first_chunks, "the fixture PDF must produce at least one chunk"
+
+    client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    second_chunks = client_with_auth.get(f"/documents/{slug}/chunks").json()
+
+    assert len(second_chunks) == len(first_chunks)
+    assert {c["chunk_id"] for c in second_chunks} == {c["chunk_id"] for c in first_chunks}
+
+
+@pytest.mark.integration
+def test_a_chunker_change_replaces_rather_than_duplicates_chunks(client_with_auth, monkeypatch):
+    """The scenario an identical re-ingest cannot exercise: chunk ids are a pure
+    function of (version_id, section_path, ordinal), so an *unchanged* chunker
+    naturally re-merges onto the same nodes whether or not `_write_document`
+    drops first. `write_chunks` alone (no `drop_chunks`) would still pass
+    `test_reingesting_an_unchanged_pdf_keeps_one_set_of_chunks` above.
+
+    This monkeypatches `chunk_pages` itself to return a *different* chunk set on
+    the second ingest of the same file — same version_id (same bytes, same
+    checksum), different output, exactly the "a chunker improvement must not
+    leave the previous run's chunks orphaned" scenario the brief names. Only
+    `drop` then `write` clears the first run's chunk before the second lands.
+    """
+    from policy_grapher import ingest as ingest_module
+    from policy_grapher.chunking import Chunk
+
+    calls = {"n": 0}
+
+    def fake_chunk_pages(pages, *, version_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return [
+                Chunk(
+                    chunk_id="run-one-only",
+                    text="first pass",
+                    page=1,
+                    section_path=[PREAMBLE],
+                    ordinal=0,
+                )
+            ]
+        return [
+            Chunk(
+                chunk_id="run-two-only",
+                text="second pass",
+                page=1,
+                section_path=[PREAMBLE],
+                ordinal=0,
+            )
+        ]
+
+    monkeypatch.setattr(ingest_module, "chunk_pages", fake_chunk_pages)
+
+    first = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    slug = first.json()["document"]["slug"]
+    client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+
+    chunks = client_with_auth.get(f"/documents/{slug}/chunks").json()
+    ids = {c["chunk_id"] for c in chunks}
+    assert ids == {"run-two-only"}, (
+        "the first run's chunk must be dropped, not left beside the new one"
+    )
+
+
+@pytest.mark.integration
+def test_chunks_route_orders_by_ordinal(client_with_auth, clean_graph, database):
+    """Written out of order so a passing assertion actually exercises the
+    route's `ORDER BY c.ordinal` rather than getting a free pass from Neo4j
+    happening to return simple MATCH results in insertion order — which is
+    exactly the order `chunk_pages` already produces them in, so writing them
+    unmodified would let a missing ORDER BY pass by accident.
+    """
+    _seed_version(clean_graph, database)
+    pages = ["1.1. A.\nAlpha.\n1.2. B.\nBravo.\n1.3. C.\nCharlie.\n"]
+    chunks = chunk_pages(pages, version_id="v")
+    assert len(chunks) >= 3, "need more than two chunks for order to mean anything"
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(write_chunks, version_id="v", chunks=list(reversed(chunks)))
+
+    body = client_with_auth.get("/documents/d/chunks").json()
+    ordinals = [c["ordinal"] for c in body]
+    assert ordinals == sorted(ordinals)
+    assert ordinals == [c.ordinal for c in chunks]
+
+
+@pytest.mark.integration
+def test_chunks_route_defaults_to_the_newest_version_and_can_be_pinned(
+    client_with_auth, clean_graph, database
+):
+    """`version_id` omitted resolves to the newest edition; passed explicitly,
+    it pins one version even while a newer one exists in the same graph.
+    """
+    clean_graph.execute_query(
+        "CREATE (d:Document {slug: 's', name: 'S'})"
+        "-[:HAS_VERSION]->(:DocumentVersion {version_id: 'v-old', "
+        "effective_date: '2020-01-01', checksum: 'a', source_uri: 'file:///a.pdf'})",
+        database_=database,
+    )
+    clean_graph.execute_query(
+        "MATCH (d:Document {slug: 's'}) CREATE (d)-[:HAS_VERSION]->"
+        "(:DocumentVersion {version_id: 'v-new', effective_date: '2024-01-01', "
+        "checksum: 'b', source_uri: 'file:///b.pdf'})",
+        database_=database,
+    )
+    old_chunks = chunk_pages(["1.1. Old.\nOld body.\n"], version_id="v-old")
+    new_chunks = chunk_pages(["1.1. New.\nNew body.\n"], version_id="v-new")
+    with clean_graph.session(database=database) as session:
+        session.execute_write(write_chunks, version_id="v-old", chunks=old_chunks)
+        session.execute_write(write_chunks, version_id="v-new", chunks=new_chunks)
+
+    default = client_with_auth.get("/documents/s/chunks").json()
+    assert {c["chunk_id"] for c in default} == {c.chunk_id for c in new_chunks}
+
+    pinned = client_with_auth.get("/documents/s/chunks", params={"version_id": "v-old"}).json()
+    assert {c["chunk_id"] for c in pinned} == {c.chunk_id for c in old_chunks}
+
+
+@pytest.mark.integration
+def test_chunks_route_rejects_an_unauthenticated_caller(client_with_graph):
+    response = client_with_graph.get("/documents/some-slug/chunks")
+    assert response.status_code == 401

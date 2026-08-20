@@ -89,3 +89,11 @@ class DocumentIn(BaseModel):
 
 class QueryRequest(BaseModel):
     cypher: str = Field(min_length=1)
+
+
+class ChunkOut(BaseModel):
+    chunk_id: str
+    text: str
+    page: int
+    section_path: list[str]
+    ordinal: int

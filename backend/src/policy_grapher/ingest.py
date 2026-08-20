@@ -6,6 +6,8 @@ from pathlib import Path
 
 from neo4j import Driver, ManagedTransaction
 
+from policy_grapher.chunking import chunk_pages
+from policy_grapher.chunks import drop_chunks, write_chunks
 from policy_grapher.documents import allocate_slugs, reconcile_slugs
 from policy_grapher.models import DocumentIngestResult, DocumentRef, IngestResult
 from policy_grapher.sources import is_document_source, pdf, resolve_source_path
@@ -174,6 +176,7 @@ def _write_document(
     path: Path,
     checksum: str,
     effective_date: date | None,
+    pages: list[str],
 ) -> tuple[int, int]:
     nodes_created = tx.run(MERGE_DOCUMENT, {"slug": slug, "name": name}).consume().counters.nodes_created
     if cited:
@@ -198,7 +201,7 @@ def _write_document(
         {"id": source_id(DOCUMENT, filename), "slugs": [slug]},
     ).consume()
 
-    merge_version(
+    version = merge_version(
         tx,
         document_slug=slug,
         effective_date=effective_date,
@@ -206,6 +209,19 @@ def _write_document(
         source_uri=f"file://{path}",
     )
     link_supersession(tx, slug)
+
+    # Drop before write, inside this same transaction: a re-ingest (a chunker
+    # improvement, or the same file scanned again) must *replace* this
+    # version's chunks, not leave the previous run's chunks orphaned beside
+    # the new ones. `merge_version` already resolved `version` above — bound,
+    # not recomputed, since it is the same resolution `chunk_pages` and
+    # `write_chunks` need to attach against.
+    drop_chunks(tx, version_id=version)
+    write_chunks(
+        tx,
+        version_id=version,
+        chunks=chunk_pages(pages, version_id=version),
+    )
 
     tx.run(
         REFRESH_EXTERNAL,
@@ -249,5 +265,6 @@ def ingest_document(
             path=path,
             checksum=checksum,
             effective_date=extracted.effective_date,
+            pages=extracted.pages,
         )
     return slug, nodes_created, relationships_created

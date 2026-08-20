@@ -20,9 +20,17 @@ from policy_grapher.sources.document import (
 )
 
 
+def pages_of(path: Path) -> list[str]:
+    """Each page's text, in reading order — 1-based page numbers are this
+    list's index + 1. `text_of` used to flatten this straight to a string and
+    throw the boundaries away; phase 2 chunking needs them back to attach a
+    real page number to a citation."""
+    return [page.extract_text() or "" for page in PdfReader(path).pages]
+
+
 def text_of(path: Path) -> str:
     """Every page's text, joined by newlines."""
-    return "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
+    return "\n".join(pages_of(path))
 
 
 # The heading is spelled three ways across the sample fixtures: a bare REFERENCES,
@@ -336,9 +344,10 @@ def normalise(name: str) -> str:
 def extract_document(path: Path) -> ExtractedDocument:
     """Read one issuance into a document and the documents it cites."""
     try:
-        full = text_of(path)
+        pages = pages_of(path)
     except Exception as exc:  # pypdf raises several unrelated types
         raise DocumentSourceError(f"{path.name!r} could not be read as a PDF.") from exc
+    full = "\n".join(pages)
 
     name = document_name(full)
     if name is None:
@@ -371,4 +380,5 @@ def extract_document(path: Path) -> ExtractedDocument:
             attributed=tuple(sorted(set(attributed))),
             unattributed=tuple(unattributed),
         ),
+        pages=pages,
     )

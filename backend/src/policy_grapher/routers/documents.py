@@ -15,7 +15,7 @@ from policy_grapher.documents import (
     list_documents,
     remove_reference,
 )
-from policy_grapher.models import DocumentIn, DocumentOut, DocumentVersionOut
+from policy_grapher.models import ChunkOut, DocumentIn, DocumentOut, DocumentVersionOut
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -137,3 +137,42 @@ def list_versions(
         routing_=RoutingControl.READ,
     )
     return [DocumentVersionOut(**dict(record)) for record in records]
+
+
+LIST_CHUNKS = """
+MATCH (d:Document {slug: $slug})-[:HAS_VERSION]->(v:DocumentVersion)
+WHERE $version_id IS NULL OR v.version_id = $version_id
+WITH v ORDER BY coalesce(v.effective_date, '') DESC, v.ingested_at DESC
+LIMIT 1
+MATCH (v)-[:HAS_CHUNK]->(c:Chunk)
+RETURN c.chunk_id     AS chunk_id,
+       c.text         AS text,
+       c.page         AS page,
+       c.section_path AS section_path,
+       c.ordinal      AS ordinal
+ORDER BY c.ordinal
+"""
+
+
+@router.get("/{slug}/chunks", response_model=list[ChunkOut])
+def list_chunks(
+    slug: str,
+    version_id: str | None = None,
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
+) -> list[ChunkOut]:
+    """A version's chunks, ordered by `ordinal`.
+
+    `version_id` picks one edition explicitly; omitted, it resolves to the
+    newest version by the same "latest labelled date, then latest ingest"
+    ordering `link_supersession` uses to build the SUPERSEDES chain — see
+    `versions.link_supersession`.
+    """
+    records, _, _ = driver.execute_query(
+        LIST_CHUNKS,
+        {"slug": slug, "version_id": version_id},
+        database_=settings.neo4j_database,
+        routing_=RoutingControl.READ,
+    )
+    return [ChunkOut(**dict(record)) for record in records]
