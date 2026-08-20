@@ -14,10 +14,11 @@ graph at `/`, with the full 438-document corpus listed and searchable at `/docum
 `POST /ingest` now also accepts a DoD issuance PDF, extracting the document and the
 references it cites.
 
-Those two views are currently reachable only by a caller that sets its own bearer token — the
-browser app is not yet wired to send one, so a clean `docker compose up` shows a UI that errors
-everywhere. See *Known weak points* in the
-[architecture](../specs/architecture.md#known-weak-points).
+Every route but `/health` requires a bearer token, and the browser app sends one: the vite dev
+proxy injects the token `./scripts/init-env.sh` generates, so a clean clone loads both views
+after `./scripts/init-env.sh && docker compose up`. See
+[ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md) and
+[ADR-010](../specs/adr/ADR-010-secrets-leave-the-repository.md).
 
 The feasibility question DI-1 existed to answer is answered: the pipeline holds end to end at
 sample-corpus scale, and prose extraction works at 78–100% per document against the corpus as
@@ -27,14 +28,16 @@ documents and one 23-row manifest.
 ## Next
 
 **Development Increment 2 is designed and approved** — see the
-[DI-2 design](../superpowers/specs/2026-08-20-di-2-design.md), approved 2026-08-20. Phase 0's
-[implementation plan](../superpowers/plans/2026-08-20-di-2-phase-0-security-gate.md) is written;
-the remaining phases and a `SPEC-002` are not. It builds the semantic substrate that turns DI-1's
-bibliographic graph into a policy knowledge graph — document text, the obligations inside that
-text, and version supersession — proven by one deliverable, **impact triage**: *a higher-level
-policy changed; which of our policies are affected, and how urgently?* Several items in
-[Later](#later) fall inside that scope, notably policy point extraction and richer metadata and
-relationships. Nothing is implemented yet.
+[DI-2 design](../superpowers/specs/2026-08-20-di-2-design.md), approved 2026-08-20. Phase 0, the
+[security gate](../superpowers/plans/2026-08-20-di-2-phase-0-security-gate.md), has landed:
+bounded `POST /query` (STORY-024), bearer-token authentication (STORY-019), and locally
+generated secrets. The remaining phases and a `SPEC-002` are not yet written. DI-2 builds the
+semantic substrate that turns DI-1's bibliographic graph into a policy knowledge graph —
+document text, the obligations inside that text, and version supersession — proven by one
+deliverable, **impact triage**: *a higher-level policy changed; which of our policies are
+affected, and how urgently?* Several items in [Later](#later) fall inside that scope, notably
+policy point extraction and richer metadata and relationships. Phase 1 (schema migration and
+versioning) is next.
 
 Closing the gap between DI-1 and the MVP definition of done in the [vision](vision.md):
 

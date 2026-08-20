@@ -17,6 +17,7 @@ built: document CRUD, reference editing, `POST /reset`, and raw Cypher via `POST
 ## Quickstart
 
 ```bash
+./scripts/init-env.sh      # once — generates .env and prints your API token
 docker compose up --build
 ```
 
@@ -25,15 +26,19 @@ http://localhost:7474.
 
 **Every route but `/health` requires a bearer token.** A request needs an `Authorization:
 Bearer <token>` header whose SHA-256 digest matches one of the `name:sha256hex` pairs in
-`API_TOKENS`; `API_TOKENS` ships **empty** in the committed `.env`, so a clean clone
-authenticates nobody and every route but `/health` answers `401` until an operator puts a
-digest there — the failure mode is universal denial, not universal access. CORS is limited
-to the origins `CORS_ALLOW_ORIGINS` lists (`http://localhost:5173` by default), with
-credentials permitted. See
+`API_TOKENS`. `scripts/init-env.sh` generates one token (principal `dev`) and writes its
+digest to `API_TOKENS`, so a clean clone authenticates that one token and every other
+request gets `401` — the failure mode is universal denial, not universal access. The
+browser app authenticates too: the vite dev proxy injects the same token server-side, so
+the UI works without exposing it to JavaScript. CORS is limited to the origins
+`CORS_ALLOW_ORIGINS` lists (`http://localhost:5173` by default), with credentials
+permitted. See
 [ADR-008](docs/specs/adr/ADR-008-authenticated-non-cypher-audience.md).
 
-**The Neo4j password is still committed in `.env` and this stack is still local-only by
-design.** Do not expose it on a shared network.
+**Secrets are generated locally, not committed.** `./scripts/init-env.sh` writes a fresh
+Neo4j password and API token into an untracked `.env`; nothing in the repository grants
+access to anything. See
+[ADR-010](docs/specs/adr/ADR-010-secrets-leave-the-repository.md).
 
 ## Stack
 

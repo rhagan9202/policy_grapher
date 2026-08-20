@@ -58,6 +58,7 @@ services:
       - "5173:5173"
     environment:
       BACKEND_URL: http://backend:8000
+      API_TOKEN: ${API_TOKEN}
     volumes:
       # Lowercase :z (shared label), not :Z (private label), on purpose: this path has
       # two consumers, the long-running compose service and any ad-hoc tooling

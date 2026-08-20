@@ -206,15 +206,13 @@ turns a surprise outage into a planned piece of work.
   ([ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md)) and the eventual target of
   LLM-constructed queries, so its contract outlives the assumption that a trusted human is
   typing into it.
-- **The committed `.env` makes the Neo4j password public by construction.** Accepted so a
-  clean clone runs with one command; the deployment target is still local only. That file now
-  also carries `API_TOKENS`, which ships **empty** — so a clean clone authenticates nobody and
-  every route but `/health` answers `401` until an operator puts a digest there. Nothing
-  supplies the browser app a token either: the Vite proxy in `frontend/vite.config.ts`
-  forwards `/api` without an `Authorization` header, and `docker-compose.yml` passes the
-  token allow-list to the backend only. A clean `docker compose up` therefore renders a UI
-  whose every view errors, which is why the graph and document routes described above are
-  currently reachable only by a caller that sets the header itself.
+- **Secrets are generated locally, not committed.** `scripts/init-env.sh` writes a fresh
+  Neo4j password and API token into an untracked `.env`; nothing in the repository grants
+  access to anything. The previously committed password remains in git history and is
+  treated as compromised — harmless, since it protected only a local development database.
+  The vite dev proxy (`frontend/vite.config.ts`) injects the generated token server-side, so
+  a clean `docker compose up` loads the UI rather than erroring on every view. See
+  [ADR-010](adr/ADR-010-secrets-leave-the-repository.md).
 - **Graph size grows with citation breadth, not corpus size.** One 23-row CSV yields 438
   nodes. The 300-node figure is a configurable render cap (`GRAPH_RENDER_CAP`), not a
   storage limit, so this is bounded rather than dangerous — but it means corpus size is a

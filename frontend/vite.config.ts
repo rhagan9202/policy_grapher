@@ -14,6 +14,13 @@ export default defineConfig({
         target: process.env.BACKEND_URL ?? 'http://backend:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
+        // Development affordance, not frontend authentication: one shared token,
+        // injected here by the dev proxy so it never enters browser JavaScript. No
+        // login, no per-user identity, no logout. A real login flow replaces this
+        // when multi-user lands.
+        headers: process.env.API_TOKEN
+          ? { Authorization: `Bearer ${process.env.API_TOKEN}` }
+          : {},
       },
     },
   },

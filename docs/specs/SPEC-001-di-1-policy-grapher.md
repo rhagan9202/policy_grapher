@@ -162,6 +162,7 @@ suffix is appended after truncation, so a slug can reach **89 characters**, not 
 | `QUERY_ROW_CAP` | Maximum rows returned by `POST /query`. Default `1000` — see [ADR-009](adr/ADR-009-query-is-read-only-and-bounded.md) |
 | `QUERY_TIMEOUT_SECONDS` | Transaction timeout applied to each `POST /query`. Default `10.0` |
 | `API_TOKENS` | Comma-separated `name:sha256hex` pairs accepted as bearer tokens. Default empty, which authenticates nobody — see [ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md) |
+| `API_TOKEN` | The same token as one `API_TOKENS` entry, in plaintext. Not read by the backend — consumed only by the vite dev proxy (`frontend/vite.config.ts`) so the browser app can authenticate. Not interchangeable with `API_TOKENS`; see ADR-010 |
 | `CORS_ALLOW_ORIGINS` | Comma-separated browser origins allowed to call the API. Default `http://localhost:5173` |
 | `DATA_DIR` | Directory `POST /ingest` resolves filenames under. Default `/data/samples` |
 | `SAMPLE_CSV` | Corpus file auto-ingest loads. Default `dod_policy_references_08122026.csv` |
@@ -170,18 +171,17 @@ suffix is appended after truncation, so a slug can reach **89 characters**, not 
 `NEO4J_AUTH` also appears in `.env`; it configures the Neo4j container itself and is not
 read by the backend.
 
-**(gap review)** A `.env` file with a development default is **committed**, so a clean clone
-runs with `docker compose up` and no manual step. The password is therefore public by
-construction. This is acceptable only because the deployment target is local only — the API
-itself is no longer unauthenticated (see *Authentication* below), but the database password
-grants direct Neo4j access that bypasses the API entirely. The README must say so plainly,
-and it must change before any shared deployment.
+**(gap review)** Secrets are generated locally, not committed. `scripts/init-env.sh` writes a
+fresh Neo4j password and API token into an untracked `.env`, so a clean clone runs
+`./scripts/init-env.sh` once and then `docker compose up` with no other manual step. See
+[ADR-010](adr/ADR-010-secrets-leave-the-repository.md).
 
 ### Startup behavior **(gap review)**
 On boot the backend checks whether the graph is empty. If it is, it ingests the sample corpus
-from `/data` automatically, so `docker compose up` leaves a populated graph behind it. Opening
-the browser does not yet show that graph: the frontend sends no bearer token, so every view
-errors until a caller supplies the header itself — see *Known weak points* in the
+from `/data` automatically, so `docker compose up` leaves a populated graph behind it. The
+browser also shows that graph: the vite dev proxy injects the generated token server-side
+(`frontend/vite.config.ts`), so opening the UI does not require a caller to supply the header
+itself — see *Known weak points* in the
 [architecture](architecture.md#known-weak-points). An empty
 graph after an explicit `POST /reset` is still empty on the next request; auto-ingest runs at
 startup only, never in response to a reset.
