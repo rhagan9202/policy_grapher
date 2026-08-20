@@ -132,6 +132,51 @@ def test_delete_removes_the_document_and_its_edges(loaded):
     assert "dodd-5000-01" not in survivor["referenced_by"]
 
 
+def _count(driver, database, cypher):
+    records, _, _ = driver.execute_query(cypher, database_=database)
+    return records[0]["total"]
+
+
+def test_deleting_a_document_takes_its_versions_and_chunks_with_it(
+    client_with_auth, clean_graph, database
+):
+    """`DETACH DELETE d` removes the :Document and nothing below it. Its
+    :DocumentVersion nodes survive, and since phase 2 so does every :Chunk hanging
+    off them — 253 of them for `818001m.pdf` — unreachable through
+    `GET /documents/{slug}/chunks`, which anchors on the :Document.
+    """
+    doomed = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"}).json()
+    kept = client_with_auth.post("/ingest", json={"filename": "500088p.pdf"}).json()
+    doomed_slug = doomed["document"]["slug"]
+    kept_slug = kept["document"]["slug"]
+
+    kept_chunks_before = len(client_with_auth.get(f"/documents/{kept_slug}/chunks").json())
+    assert len(client_with_auth.get(f"/documents/{doomed_slug}/chunks").json()) > 0
+    assert kept_chunks_before > 0
+
+    assert client_with_auth.delete(f"/documents/{doomed_slug}").status_code == 204
+
+    orphan_versions = _count(
+        clean_graph,
+        database,
+        "MATCH (v:DocumentVersion) WHERE NOT (:Document)-[:HAS_VERSION]->(v) "
+        "RETURN count(v) AS total",
+    )
+    # "Orphan" means unreachable from any :Document — a chunk still hanging off a
+    # surviving-but-orphaned version counts, since every route anchors on the
+    # :Document and nothing can reach it.
+    orphan_chunks = _count(
+        clean_graph,
+        database,
+        "MATCH (c:Chunk) "
+        "WHERE NOT (:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:HAS_CHUNK]->(c) "
+        "RETURN count(c) AS total",
+    )
+    assert (orphan_versions, orphan_chunks) == (0, 0)
+    # The other document's derived layer is untouched: the delete is scoped, not global.
+    assert len(client_with_auth.get(f"/documents/{kept_slug}/chunks").json()) == kept_chunks_before
+
+
 def test_delete_an_unknown_slug_is_404(loaded):
     assert loaded.delete("/documents/no-such-document").status_code == 404
 

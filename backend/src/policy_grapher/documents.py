@@ -46,7 +46,18 @@ CREATE_DOCUMENT = """
 CREATE (d:Document {slug: $slug, name: $name})
 """
 
-DELETE_DOCUMENT = "MATCH (d:Document {slug: $slug}) DETACH DELETE d"
+# A document owns its editions, and since phase 2 each edition owns its chunks.
+# Deleting only the :Document leaves both behind, reachable from nothing: the
+# versions route and the chunks route both anchor on the :Document, so the
+# orphans are invisible to the API and to `is_graph_empty` alike (818001m.pdf
+# leaves 253 of them). Both OPTIONAL MATCHes are needed — a document may have no
+# version, and a version may have no chunks — and DETACH DELETE ignores nulls.
+DELETE_DOCUMENT = """
+MATCH (d:Document {slug: $slug})
+OPTIONAL MATCH (d)-[:HAS_VERSION]->(v:DocumentVersion)
+OPTIONAL MATCH (v)-[:HAS_CHUNK]->(c:Chunk)
+DETACH DELETE c, v, d
+"""
 
 ADD_REFERENCE = """
 MATCH (source:Document {slug: $source})
