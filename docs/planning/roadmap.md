@@ -32,7 +32,13 @@ documents and one 23-row manifest.
 [security gate](../superpowers/plans/2026-08-20-di-2-phase-0-security-gate.md), has landed:
 bounded `POST /query` (STORY-024), bearer-token authentication (STORY-019), and locally
 generated secrets. Phase 1
-([versioned schema](../superpowers/plans/2026-08-20-di-2-phase-1-versioned-schema.md)), Phase 2
+([versioned schema](../superpowers/plans/2026-08-20-di-2-phase-1-versioned-schema.md)) has
+landed: a `:Document` is now the instrument and its editions hang off it as
+`:DocumentVersion` nodes with a content-derived identity, a derived `SUPERSEDES` chain, and
+`:Authority`/`:Entity` reference nodes alongside them. A single-PDF ingest records one
+edition and `GET /documents/{slug}/versions` serves the chain; the manifest path records
+none, because a CSV row describes no edition. See
+[ADR-011](../specs/adr/ADR-011-instruments-have-versions.md). Phase 2
 ([text storage and section-aware chunking](../superpowers/plans/2026-08-20-di-2-phase-2-text-and-chunking.md)),
 Phase 3
 ([obligation extraction port](../superpowers/plans/2026-08-20-di-2-phase-3-extraction-port.md))
@@ -42,13 +48,12 @@ Phase 5
 ([change detection and propagation](../superpowers/plans/2026-08-20-di-2-phase-5-diff-and-propagation.md))
 and Phase 6
 ([retrieval, question answering and the UI](../superpowers/plans/2026-08-20-di-2-phase-6-retrieval-and-ui.md))
-are planned but not started; a `SPEC-002` is not yet written. DI-2 builds the
+have not started; a `SPEC-002` is not yet written. DI-2 builds the
 semantic substrate that turns DI-1's bibliographic graph into a policy knowledge graph —
 document text, the obligations inside that text, and version supersession — proven by one
 deliverable, **impact triage**: *a higher-level policy changed; which of our policies are
 affected, and how urgently?* Several items in [Later](#later) fall inside that scope, notably
-policy point extraction and richer metadata and relationships. Phase 1 (schema migration and
-versioning) is next.
+policy point extraction and richer metadata and relationships.
 
 Closing the gap between DI-1 and the MVP definition of done in the [vision](vision.md):
 

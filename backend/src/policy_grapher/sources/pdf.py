@@ -8,6 +8,7 @@ explicitly rather than returning an empty string.
 """
 
 import re
+from datetime import date, datetime
 from pathlib import Path
 
 from pypdf import PdfReader
@@ -201,15 +202,63 @@ _LEGACY_HEADER = re.compile(
 _COVER_PAGE_FALLBACK = 2000
 
 
+def _cover_page(full: str) -> str:
+    """The slice of text that is cover matter, not body or references.
+
+    Shared by `document_name` and `effective_date` for the same reason: both
+    read facts that are only reliable on the cover, and both would otherwise
+    risk matching a body mention (a cited predecessor's own date, e.g.) instead.
+    """
+    heading = _HEADING.search(full)
+    return full[: heading.start()] if heading else full[:_COVER_PAGE_FALLBACK]
+
+
 def document_name(full: str) -> str | None:
     """The issuance's own name, in the corpus's vocabulary."""
-    heading = _HEADING.search(full)
-    cover = full[: heading.start()] if heading else full[:_COVER_PAGE_FALLBACK]
+    cover = _cover_page(full)
     for pattern in (_MODERN_HEADER, _LEGACY_HEADER):
         match = pattern.search(cover)
         if match:
             kind = _ABBREVIATION[match.group(1).lower()]
             return f"{kind} {match.group(2)}"
+    return None
+
+
+# DoD issuances state the date near the designator, in forms such as
+# "April 1, 2026" and "1 April 2026".
+DATE_PATTERNS = (
+    re.compile(
+        r"\b(?P<month>January|February|March|April|May|June|July|August|September|"
+        r"October|November|December)\s+(?P<day>\d{1,2}),?\s+(?P<year>\d{4})\b"
+    ),
+    re.compile(
+        r"\b(?P<day>\d{1,2})\s+(?P<month>January|February|March|April|May|June|July|"
+        r"August|September|October|November|December)\s+(?P<year>\d{4})\b"
+    ),
+)
+
+
+def effective_date(cover_text: str) -> date | None:
+    """The date the cover page states, or None.
+
+    None is a correct and common answer. Guessing a date would put a wrong
+    edition boundary into the graph, which is worse than an undated edition —
+    version identity falls back to a checksum, which is honest about what we
+    could not read.
+    """
+    for pattern in DATE_PATTERNS:
+        match = pattern.search(cover_text)
+        if match:
+            try:
+                # Only the calendar date is kept (`.date()`); a cover page states no
+                # timezone, and inventing one would be no more honest than guessing
+                # the date itself. DTZ007 flags naive datetimes as a rule of thumb,
+                # not because a wall-clock instant is wanted here.
+                return datetime.strptime(  # noqa: DTZ007
+                    f"{match['day']} {match['month']} {match['year']}", "%d %B %Y"
+                ).date()
+            except ValueError:
+                continue
     return None
 
 
@@ -236,6 +285,7 @@ def extract_document(path: Path) -> ExtractedDocument:
         raise DocumentSourceError(
             f"{path.name!r} has no recognisable issuance header; it may not be a DoD issuance."
         )
+    date_found = effective_date(_cover_page(full))
 
     fmt, section = locate_references(full)
     attributed: list[str] = []
@@ -254,6 +304,7 @@ def extract_document(path: Path) -> ExtractedDocument:
         name=name,
         references=references,
         self_references_skipped=skipped,
+        effective_date=date_found,
         report=ExtractionReport(
             format=fmt,
             section_found=section is not None,

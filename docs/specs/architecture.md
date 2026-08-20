@@ -26,7 +26,7 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 
 | Component | Responsibility |
 | --- | --- |
-| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes read-only Cypher under a transaction timeout and a row cap. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
+| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `GET /documents/{slug}/versions` lists an instrument's editions oldest first with each one's `supersedes` link, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes read-only Cypher under a transaction timeout and a row cap. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
 | **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the generated `.env` — written by `./scripts/init-env.sh`, never committed ([ADR-010](adr/ADR-010-secrets-leave-the-repository.md)). Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
 | **Frontend** (React + Vite, port 5173) | Two routes. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`; clicking a node shows its name and whether it is a corpus or external document, and clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. `/documents` renders every document from `GET /documents` as a table — name, how many documents cite it, and outgoing references with slugs resolved to names from the same payload — filtered client-side by name as the user types. Vite dev server proxies `/api` to the backend. |
 
@@ -63,14 +63,35 @@ for the reasoning behind each stage.
 | `Document` | `slug: str`, `name: str` | `slug` unique, `name` unique |
 | `Document:External` | `slug: str`, `name: str` | same, plus the `:External` label |
 | `Source` | `id: str`, `kind: str`, `filename: str` | `id` unique |
+| `DocumentVersion` | `version_id: str`, `effective_date: str \| null`, `checksum: str`, `source_uri: str`, `ingested_at: datetime` | `version_id` unique |
+| `Authority` | `slug: str`, `name: str` | `slug` unique |
+| `Entity` | `slug: str`, `name: str`, `kind: str` | `slug` unique |
 
 | Type | Direction | Meaning |
 | --- | --- | --- |
 | `REFERENCES` | `(:Document)-[:REFERENCES]->(:Document)` | Document cites another document |
 | `DESCRIBES` | `(:Source)-[:DESCRIBES]->(:Document)` | An ingest recorded this document first-hand |
+| `HAS_VERSION` | `(:Document)-[:HAS_VERSION]->(:DocumentVersion)` | One edition of the instrument |
+| `SUPERSEDES` | `(:DocumentVersion)-[:SUPERSEDES]->(:DocumentVersion)` | The newer edition replaces the older |
+| `ISSUED_BY` | `(:DocumentVersion)-[:ISSUED_BY]->(:Authority)` | Who issued that edition |
 
 Nodes and relationships are created with `MERGE`, making ingestion idempotent — re-running
 `/ingest` on the same file creates nothing new. Self-loops are never created.
+
+**A `Document` is the instrument; a `DocumentVersion` is one edition of it.** A single-PDF
+ingest records one edition (`versions.py`); the manifest path records none, since a CSV row
+states no text, date or checksum. A version's id is `slug@discriminator` — the effective date
+the cover page states, or a checksum prefix when it states none — so re-ingesting the same
+file resolves to the edition it already made rather than duplicating it. Two files claiming
+one date under different checksums raise `VersionConflictError` instead of overwriting.
+`SUPERSEDES` is derived from the editions' dates and rebuilt from scratch on every ingest of
+that instrument — the one place ingest is not purely additive, safe only because no human
+judgement lives on those edges. Editions with no date sort as oldest, which is a real
+limitation rather than a detail. See
+[ADR-011](adr/ADR-011-instruments-have-versions.md).
+
+`Authority` and `Entity` exist as constrained labels with additive merge helpers, but no
+ingest path writes them yet — nothing today creates an `ISSUED_BY` edge outside the tests.
 
 **The corpus is mostly external.** Ingesting the 23-row sample CSV produces **438 `Document`
 nodes**: 415 of them are documents cited by the corpus but absent from it — public laws,
@@ -246,9 +267,11 @@ turns a surprise outage into a planned piece of work.
   on every call. At DI-1's corpus size that is fine, and it will stop being fine well before
   the corpus reaches its MVP target. The
   document table compounds it by rendering every row and filtering in the browser.
-- **One node label, one relationship type.** The Policy Concierge capabilities in the
-  [vision](../planning/vision.md) — policy points, applicable entities, enforcement
-  ownership — don't fit this schema. Expect a migration, not an extension.
+- **The schema is mid-migration.** DI-2's phase 1 added editions (`DocumentVersion`) and the
+  `Authority`/`Entity` labels the Policy Concierge capabilities in the
+  [vision](../planning/vision.md) will hang off, but the substance those capabilities need —
+  policy points, applicable entities, enforcement ownership — is not modelled yet, and
+  nothing populates the reference labels. Expect further schema change, not a settled model.
 - **PDF extraction is partial by design.** The parser is deterministic and reports what it
   cannot attribute rather than guessing or dropping it — `references_unattributed` in the
   `POST /ingest` response is the record of what a document's references section contained

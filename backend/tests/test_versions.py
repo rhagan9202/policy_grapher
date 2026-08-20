@@ -311,3 +311,41 @@ def test_a_re_merge_does_not_rewrite_a_recorded_name(clean_graph, database):
     )
     # Original attributes should be preserved
     assert [(r["name"], r["kind"]) for r in records] == [("DLA J8", "directorate")]
+
+
+@pytest.mark.integration
+def test_ingesting_a_pdf_records_a_version(client_with_auth, tmp_path):
+    """The single-document path versions; the manifest path does not."""
+    response = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    assert response.status_code == 200
+    slug = response.json()["document"]["slug"]
+
+    versions = client_with_auth.get(f"/documents/{slug}/versions")
+    assert versions.status_code == 200
+    body = versions.json()
+    assert len(body) == 1
+    assert body[0]["checksum"]
+    assert body[0]["supersedes"] is None
+
+
+@pytest.mark.integration
+def test_re_ingesting_the_same_pdf_adds_no_version(client_with_auth):
+    first = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    slug = first.json()["document"]["slug"]
+    client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+
+    versions = client_with_auth.get(f"/documents/{slug}/versions").json()
+    assert len(versions) == 1
+
+
+@pytest.mark.integration
+def test_the_manifest_path_creates_no_versions(client_with_auth):
+    """A CSV of citations describes no edition — inventing one would be a lie."""
+    client_with_auth.post(
+        "/ingest", json={"filename": "dod_policy_references_08122026.csv"}
+    )
+    documents = client_with_auth.get("/documents").json()
+    assert documents  # sanity: the corpus loaded
+
+    versions = client_with_auth.get(f"/documents/{documents[0]['slug']}/versions").json()
+    assert versions == []

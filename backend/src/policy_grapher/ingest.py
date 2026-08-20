@@ -1,5 +1,7 @@
 """Merge a parsed corpus into Neo4j. Additive: MERGE creates and updates, never deletes."""
 
+import hashlib
+from datetime import date
 from pathlib import Path
 
 from neo4j import Driver, ManagedTransaction
@@ -17,6 +19,7 @@ from policy_grapher.sources.provenance import (
     REFRESH_EXTERNAL,
     source_id,
 )
+from policy_grapher.versions import link_supersession, merge_version
 
 MERGE_CORPUS = """
 UNWIND $docs AS doc
@@ -135,7 +138,7 @@ def ingest_file(
 
     extracted = pdf.extract_document(path)
     slug, nodes_created, relationships_created = ingest_document(
-        driver, database, extracted, path.name
+        driver, database, extracted, path
     )
     return DocumentIngestResult(
         format=extracted.report.format,
@@ -168,6 +171,9 @@ def _write_document(
     name: str,
     cited: list[dict],
     edges: list[dict],
+    path: Path,
+    checksum: str,
+    effective_date: date | None,
 ) -> tuple[int, int]:
     nodes_created = tx.run(MERGE_DOCUMENT, {"slug": slug, "name": name}).consume().counters.nodes_created
     if cited:
@@ -196,11 +202,20 @@ def _write_document(
         {"slugs": [slug, *(entry["slug"] for entry in cited)]},
     ).consume()
 
+    merge_version(
+        tx,
+        document_slug=slug,
+        effective_date=effective_date,
+        checksum=checksum,
+        source_uri=f"file://{path}",
+    )
+    link_supersession(tx, slug)
+
     return nodes_created, relationships_created
 
 
 def ingest_document(
-    driver: Driver, database: str, extracted: ExtractedDocument, filename: str
+    driver: Driver, database: str, extracted: ExtractedDocument, path: Path
 ) -> tuple[str, int, int]:
     """Merge one extracted document and the documents it cites.
 
@@ -211,19 +226,27 @@ def ingest_document(
     before either exists in the database — see `documents.allocate_slugs` for
     why resolving them one at a time (with plain `allocate_slug`) silently
     collapses distinct documents into one node.
+
+    The checksum is computed here too, alongside slug resolution, for the same
+    reason: it is a read (of the file), not a write, and belongs outside the
+    transaction with the rest of this function's reads.
     """
     slugs = allocate_slugs(driver, database, [extracted.name, *extracted.references])
     slug = slugs[extracted.name]
     cited = [{"slug": slugs[name], "name": name} for name in extracted.references]
     edges = [{"source": slug, "target": entry["slug"]} for entry in cited]
+    checksum = hashlib.sha256(path.read_bytes()).hexdigest()
 
     with driver.session(database=database) as session:
         nodes_created, relationships_created = session.execute_write(
             _write_document,
-            filename=filename,
+            filename=path.name,
             slug=slug,
             name=extracted.name,
             cited=cited,
             edges=edges,
+            path=path,
+            checksum=checksum,
+            effective_date=extracted.effective_date,
         )
     return slug, nodes_created, relationships_created

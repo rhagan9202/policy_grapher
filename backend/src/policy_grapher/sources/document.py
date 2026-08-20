@@ -7,6 +7,7 @@ with the result rather than being dropped.
 """
 
 from dataclasses import dataclass
+from datetime import date
 
 from policy_grapher.sources import SourceError
 
@@ -29,3 +30,4 @@ class ExtractedDocument:
     references: tuple[str, ...]
     self_references_skipped: int
     report: ExtractionReport
+    effective_date: date | None = None

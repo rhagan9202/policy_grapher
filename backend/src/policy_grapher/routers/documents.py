@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
-from neo4j import Driver
+from neo4j import Driver, RoutingControl
 
 from policy_grapher.auth import Principal, require_principal
 from policy_grapher.config import Settings
@@ -15,7 +15,7 @@ from policy_grapher.documents import (
     list_documents,
     remove_reference,
 )
-from policy_grapher.models import DocumentIn, DocumentOut
+from policy_grapher.models import DocumentIn, DocumentOut, DocumentVersionOut
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -109,3 +109,31 @@ def remove_ref(
     except DocumentNotFoundError as exc:
         raise _not_found(exc.args[0]) from exc
     return Response(status_code=204)
+
+
+LIST_VERSIONS = """
+MATCH (d:Document {slug: $slug})-[:HAS_VERSION]->(v:DocumentVersion)
+OPTIONAL MATCH (v)-[:SUPERSEDES]->(older:DocumentVersion)
+RETURN v.version_id   AS version_id,
+       v.effective_date AS effective_date,
+       v.checksum     AS checksum,
+       v.source_uri   AS source_uri,
+       older.version_id AS supersedes
+ORDER BY coalesce(v.effective_date, ''), v.ingested_at
+"""
+
+
+@router.get("/{slug}/versions", response_model=list[DocumentVersionOut])
+def list_versions(
+    slug: str,
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
+) -> list[DocumentVersionOut]:
+    records, _, _ = driver.execute_query(
+        LIST_VERSIONS,
+        {"slug": slug},
+        database_=settings.neo4j_database,
+        routing_=RoutingControl.READ,
+    )
+    return [DocumentVersionOut(**dict(record)) for record in records]

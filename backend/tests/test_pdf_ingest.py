@@ -16,7 +16,7 @@ def test_ingesting_a_pdf_creates_the_document_and_its_edges(clean_graph, databas
     extracted = pdf.extract_document(SAMPLES / "500001p.pdf")
 
     slug, nodes, relationships = ingest_document(
-        clean_graph, database, extracted, "500001p.pdf"
+        clean_graph, database, extracted, SAMPLES / "500001p.pdf"
     )
 
     assert slug == "dodd-5000-01"
@@ -27,7 +27,7 @@ def test_ingesting_a_pdf_creates_the_document_and_its_edges(clean_graph, databas
 def test_cited_documents_are_created_external(clean_graph, database):
     extracted = pdf.extract_document(SAMPLES / "500001p.pdf")
 
-    ingest_document(clean_graph, database, extracted, "500001p.pdf")
+    ingest_document(clean_graph, database, extracted, SAMPLES / "500001p.pdf")
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (d:Document {slug: 'dodd-5000-01'})-[:REFERENCES]->(t) "
@@ -41,10 +41,10 @@ def test_cited_documents_are_created_external(clean_graph, database):
 def test_reingesting_the_same_pdf_creates_nothing_new(clean_graph, database):
     """STORY-003's invariant, on the document path."""
     extracted = pdf.extract_document(SAMPLES / "500001p.pdf")
-    ingest_document(clean_graph, database, extracted, "500001p.pdf")
+    ingest_document(clean_graph, database, extracted, SAMPLES / "500001p.pdf")
 
     slug, nodes, relationships = ingest_document(
-        clean_graph, database, extracted, "500001p.pdf"
+        clean_graph, database, extracted, SAMPLES / "500001p.pdf"
     )
 
     assert (slug, nodes, relationships) == ("dodd-5000-01", 0, 0)
@@ -54,7 +54,7 @@ def test_the_ingested_document_is_not_external(clean_graph, database):
     """It was cited by nothing, but it is a corpus document, not a citation target."""
     extracted = pdf.extract_document(SAMPLES / "500001p.pdf")
 
-    ingest_document(clean_graph, database, extracted, "500001p.pdf")
+    ingest_document(clean_graph, database, extracted, SAMPLES / "500001p.pdf")
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (d:Document {slug: 'dodd-5000-01'}) RETURN d:External AS is_external",
@@ -86,7 +86,7 @@ def test_two_cited_names_contesting_a_base_slug_stay_distinct(clean_graph, datab
     )
 
     slug, nodes, relationships = ingest_document(
-        clean_graph, database, extracted, "500001p.pdf"
+        clean_graph, database, extracted, SAMPLES / "500001p.pdf"
     )
 
     assert nodes == 3
@@ -168,7 +168,7 @@ def test_a_document_the_manifest_only_cites_is_not_demoted_by_reingest(
     the PDF had already described it first-hand.
     """
     extracted = pdf.extract_document(SAMPLES / "500001p.pdf")
-    ingest_document(clean_graph, database, extracted, "500001p.pdf")
+    ingest_document(clean_graph, database, extracted, SAMPLES / "500001p.pdf")
 
     citing_csv = tmp_path / "citing.csv"
     citing_csv.write_text(
