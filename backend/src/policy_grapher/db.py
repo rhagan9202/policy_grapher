@@ -29,6 +29,19 @@ CONSTRAINTS: tuple[str, ...] = (
         "CREATE CONSTRAINT entity_slug_unique IF NOT EXISTS "
         "FOR (e:Entity) REQUIRE e.slug IS UNIQUE"
     ),
+    (
+        "CREATE CONSTRAINT chunk_id_unique IF NOT EXISTS "
+        "FOR (c:Chunk) REQUIRE c.chunk_id IS UNIQUE"
+    ),
+)
+
+INDEXES: tuple[str, ...] = (
+    # Exact designators ("DoDI 5000.88", "s.14(2)") are lexical. Embeddings are
+    # poor at them, so the hybrid retrieval in phase 5 needs this leg.
+    (
+        "CREATE FULLTEXT INDEX chunk_text IF NOT EXISTS "
+        "FOR (c:Chunk) ON EACH [c.text]"
+    ),
 )
 
 
@@ -39,8 +52,8 @@ def create_driver(settings: Settings) -> Driver:
     )
 
 
-def apply_constraints(driver: Driver, database: str) -> None:
-    for statement in CONSTRAINTS:
+def apply_schema(driver: Driver, database: str) -> None:
+    for statement in (*CONSTRAINTS, *INDEXES):
         driver.execute_query(
             statement, database_=database, routing_=RoutingControl.WRITE
         )

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from policy_grapher.config import Settings, get_settings
-from policy_grapher.db import apply_constraints, create_driver, is_graph_empty
+from policy_grapher.db import apply_schema, create_driver, is_graph_empty
 from policy_grapher.ingest import ingest_file
 from policy_grapher.models import IngestResult
 from policy_grapher.routers import admin, documents, graph
@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
     settings: Settings = get_settings()
     driver = create_driver(settings)
     driver.verify_connectivity()
-    apply_constraints(driver, settings.neo4j_database)
+    apply_schema(driver, settings.neo4j_database)
     maybe_autoingest(driver, settings)
 
     app.state.driver = driver

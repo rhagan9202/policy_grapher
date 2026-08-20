@@ -2,7 +2,7 @@ import pytest
 from neo4j import RoutingControl
 from neo4j.exceptions import ConstraintError
 
-from policy_grapher.db import apply_constraints, is_graph_empty
+from policy_grapher.db import apply_schema, is_graph_empty
 
 pytestmark = pytest.mark.integration
 
@@ -18,7 +18,24 @@ def test_all_uniqueness_constraints_exist(driver, database):
         "document_slug_unique",
         "document_name_unique",
         "source_id_unique",
+        "chunk_id_unique",
     } <= names
+
+
+def test_the_chunk_fulltext_index_exists(driver, database):
+    """Pins that INDEXES actually gets run, not merely declared: a version of
+    apply_schema that still only loops over CONSTRAINTS would leave every test
+    querying the index (test_chunks.py) failing at CALL time, but this test
+    fails more directly, by name, against SHOW INDEXES.
+    """
+    records, _, _ = driver.execute_query(
+        "SHOW INDEXES YIELD name, type WHERE name = 'chunk_text' "
+        "RETURN type AS index_type",
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    assert len(records) == 1
+    assert records[0]["index_type"] == "FULLTEXT"
 
 
 def test_applying_constraints_twice_is_safe(driver, database):
@@ -30,10 +47,10 @@ def test_applying_constraints_twice_is_safe(driver, database):
         )
         return records[0]["total"]
 
-    apply_constraints(driver, database)
+    apply_schema(driver, database)
     first_count = constraint_count()
 
-    apply_constraints(driver, database)
+    apply_schema(driver, database)
     second_count = constraint_count()
 
     assert second_count == first_count

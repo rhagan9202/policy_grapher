@@ -7,7 +7,7 @@ from testcontainers.community.neo4j import Neo4jContainer
 
 from policy_grapher import main
 from policy_grapher.config import Settings, get_settings
-from policy_grapher.db import apply_constraints, clear_graph, create_driver
+from policy_grapher.db import apply_schema, clear_graph, create_driver
 
 NEO4J_IMAGE = "neo4j:2025.10"
 TEST_PASSWORD = "testpassword"
@@ -43,7 +43,7 @@ def settings_for_container(neo4j_container, database, tmp_path_factory) -> Setti
 def driver(settings_for_container, database) -> Driver:
     drv = create_driver(settings_for_container)
     drv.verify_connectivity()
-    apply_constraints(drv, database)
+    apply_schema(drv, database)
     yield drv
     drv.close()
 
