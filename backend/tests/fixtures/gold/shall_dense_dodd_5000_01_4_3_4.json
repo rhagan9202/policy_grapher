@@ -1,0 +1,48 @@
+{
+  "note": "Four SHALL duties in one short subsection, one of them ('Approved program baseline parameters shall serve as control objectives') with a non-human actor. Labelled by reading the passage, not by correcting an extractor.",
+  "source": {
+    "file": "500001p_2003.pdf",
+    "page": 3,
+    "document": "DoDD 5000.01 (2003)"
+  },
+  "section_path": [
+    "4",
+    "4.3",
+    "4.3.4"
+  ],
+  "chunk_text": "4.3.4.  Discipline.  PMs shall manage programs consistent with statute and the regulatory \nrequirements specified in this Directive and in reference (b).  Every PM shall establish program \ngoals for the minimum number of cost, schedule, and performance parameters that describe the \nprogram over its life cycle.  Approved program baseline parameters shall serve as control \nobjectives.  PMs shall identify deviations from approved acquisition program baseline \nparameters and exit criteria.",
+  "obligations": [
+    {
+      "statement": "PMs shall manage programs consistent with statute and the regulatory requirements specified in this Directive and in reference (b).",
+      "modality": "SHALL",
+      "actor": "PMs",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Every PM shall establish program goals for the minimum number of cost, schedule, and performance parameters that describe the program over its life cycle.",
+      "modality": "SHALL",
+      "actor": "Every PM",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Approved program baseline parameters shall serve as control objectives.",
+      "modality": "SHALL",
+      "actor": "Approved program baseline parameters",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "PMs shall identify deviations from approved acquisition program baseline parameters and exit criteria.",
+      "modality": "SHALL",
+      "actor": "PMs",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    }
+  ]
+}

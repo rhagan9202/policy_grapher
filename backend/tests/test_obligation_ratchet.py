@@ -1,0 +1,164 @@
+"""The swap gate: extraction quality as numbers that fail the build when they regress.
+
+`test_extraction_ratchet.py` pins the deterministic *citation* parser. This pins
+the *obligation* extractor, which is a model behind a port — so the numbers are
+per adapter, and a provider swap is legal only when the new adapter clears its
+floors. That is what makes "swappable" a tested property rather than a hope.
+
+Floors ratchet **up**. Raise one when a run beats it; never lower one to turn a
+red suite green. A lowered floor needs a reason in the commit message.
+
+`precision`, `recall` and `modality_accuracy` are pinned separately on purpose.
+A SHALL read as a SHOULD finds the duty and downgrades it from binding to
+advisory — an aggregate score absorbs that, and this is a compliance tool.
+"""
+
+import json
+from pathlib import Path
+
+import httpx
+import pytest
+
+from policy_grapher.config import Settings
+from policy_grapher.extraction import build_extractor
+from policy_grapher.extraction.schema import ExtractedObligation, normalize
+from policy_grapher.extraction.scoring import micro_average, score
+
+GOLD = Path(__file__).parent / "fixtures" / "gold"
+
+# Per adapter. The local model is for iteration speed; a hosted adapter must
+# clear the production bar before it is promoted.
+FLOORS = {
+    "null": {"precision": 0.0, "recall": 0.0, "modality_accuracy": 0.0},
+    "local:qwen3:8b": {"precision": 0.60, "recall": 0.50, "modality_accuracy": 0.85},
+}
+
+
+def _gold_cases() -> list[tuple[str, dict]]:
+    cases = [
+        (path.name, json.loads(path.read_text(encoding="utf-8")))
+        for path in sorted(GOLD.glob("*.json"))
+    ]
+    assert cases, f"no gold fixtures in {GOLD}"
+    return cases
+
+
+def _model_is_reachable(settings: Settings) -> bool:
+    try:
+        httpx.get(f"{settings.extractor_base_url.rstrip('/')}/api/tags", timeout=2.0)
+    except httpx.HTTPError:
+        return False
+    return True
+
+
+@pytest.mark.parametrize("name", [name for name, _ in _gold_cases()])
+def test_the_gold_set_is_well_formed(name):
+    """Every labelled obligation validates, and quotes its passage verbatim.
+
+    Matching is on the normalized statement, so a gold statement that is a
+    paraphrase of its passage rather than a quotation makes the recall floor
+    unreachable by construction — and the tempting fix for an unreachable floor
+    is to lower it, which is exactly what a ratchet must never allow.
+    """
+    case = dict(_gold_cases())[name]
+    passage = normalize(case["chunk_text"])
+
+    for raw in case["obligations"]:
+        obligation = ExtractedObligation.model_validate(raw)
+        assert normalize(obligation.statement) in passage, (
+            f"{name}: gold statement is not a verbatim quotation of the passage: "
+            f"{obligation.statement!r}"
+        )
+
+
+def test_the_gold_set_covers_the_cases_that_discriminate():
+    """Three shapes, each catching a failure the others cannot: a passage dense in
+    duties (recall), a passage with none (precision), and one mixing modalities
+    against 'may' used as prediction rather than permission (modality)."""
+    cases = dict(_gold_cases())
+    counts = sorted(len(c["obligations"]) for c in cases.values())
+    modalities = {
+        o["modality"] for c in cases.values() for o in c["obligations"]
+    }
+
+    assert len(cases) >= 3
+    assert counts[0] == 0, "no fixture whose correct answer is empty"
+    assert counts[-1] >= 3, "no fixture dense enough to measure recall"
+    assert len(modalities) >= 2, "no fixture mixing modalities"
+
+
+class _InventingExtractor:
+    """Reports a duty in every passage, including the one that has none."""
+
+    adapter_id = "inventing"
+
+    def extract(self, chunk_text, *, section_path):
+        return [
+            ExtractedObligation(
+                statement="The Component shall comply with this issuance.",
+                modality="SHALL",
+                actor="The Component",
+                deadline=None,
+                conditions=None,
+                confidence=0.9,
+            )
+        ]
+
+
+def test_the_gate_has_teeth():
+    """An extractor that manufactures duties must fail the floors a real adapter
+    has to clear. Without this the gate could be vacuously green and nobody would
+    know until a bad adapter shipped."""
+    scores = [
+        score(
+            _InventingExtractor().extract(
+                case["chunk_text"], section_path=case["section_path"]
+            ),
+            [ExtractedObligation.model_validate(o) for o in case["obligations"]],
+        )
+        for _, case in _gold_cases()
+    ]
+    overall = micro_average(scores)
+    floors = FLOORS["local:qwen3:8b"]
+
+    assert overall["precision"] < floors["precision"]
+    assert overall["recall"] < floors["recall"]
+
+
+@pytest.mark.integration
+def test_the_configured_extractor_clears_its_floors():
+    settings = Settings()
+    extractor = build_extractor(settings)
+    floors = FLOORS.get(extractor.adapter_id)
+
+    if floors is None:
+        pytest.skip(
+            f"THE EXTRACTION GATE DID NOT RUN: no floors are recorded for adapter "
+            f"{extractor.adapter_id!r}. Record them in FLOORS before using it."
+        )
+    if settings.extractor_adapter != "null" and not _model_is_reachable(settings):
+        pytest.skip(
+            f"THE EXTRACTION GATE DID NOT RUN: no model server answered at "
+            f"{settings.extractor_base_url}. A green suite does not mean adapter "
+            f"{extractor.adapter_id!r} passed its floors — it means nothing checked."
+        )
+
+    scores = []
+    for name, case in _gold_cases():
+        predicted = extractor.extract(
+            case["chunk_text"], section_path=case["section_path"]
+        )
+        gold = [ExtractedObligation.model_validate(o) for o in case["obligations"]]
+        scores.append(score(predicted, gold))
+
+    overall = micro_average(scores)
+    below = {
+        leg: (overall[leg], floor)
+        for leg, floor in floors.items()
+        if overall[leg] < floor
+    }
+    assert not below, (
+        f"{extractor.adapter_id} scored below its floor: "
+        + "; ".join(f"{leg} {got:.2f} < {floor:.2f}" for leg, (got, floor) in below.items())
+        + f". Full scores: {overall}. Fix the extractor — do not lower the floor."
+    )

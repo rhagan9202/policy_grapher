@@ -1,5 +1,7 @@
 # DI-2 Phase 3: Obligation Extraction Port — Implementation Plan
 
+**Status:** Complete. Verified on 2026-08-20 with `uv run pytest` (378 passed), including the integration suite against a real `neo4j:2025.10` container.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn stored text into `:Obligation` nodes anchored to the chunk they came from — behind a provider-agnostic port, with an eval ratchet that makes a provider swap a tested property rather than a hope.
@@ -28,7 +30,8 @@
 
 **2. `modality` is a closed enum and its own ratchet floor.** `SHALL | MUST | SHOULD | MAY`. A `SHALL` misread as `SHOULD` silently downgrades a binding obligation to advice, and an aggregate F1 hides it. It gets a separate floor.
 
-**3. Extraction is cached by content.** Key: `(chunk_id, adapter_id, prompt_version)`. Rebuilds are then cheap and adapter comparisons are like-for-like. A prompt change is a `prompt_version` bump — never an in-place edit, or the cache silently serves results from a prompt that no longer exists.
+**3. Extraction is cached by content.** Key: `(chunk_id, adapter_id, prompt_version)`.
+*Executor's note (2026-08-20):* implemented as `(sha256(section_path + chunk_text), adapter_id, prompt_version)`, following the design spec's `chunk_content_hash` rather than this line's `chunk_id`, on the project owner's decision. A chunk id hashes *where* a chunk sits and deliberately not its text (ADR-012), so keying on it would let a re-chunk reuse an id over different words and be answered from text that no longer exists — the exact staleness this decision exists to prevent. `section_path` stays in the key because it is rendered into the prompt. See [ADR-013](../../specs/adr/ADR-013-extraction-is-a-port-with-a-ratchet.md). Rebuilds are then cheap and adapter comparisons are like-for-like. A prompt change is a `prompt_version` bump — never an in-place edit, or the cache silently serves results from a prompt that no longer exists.
 
 **4. Confidence is recorded, never used to filter here.** Phase 4's review queue decides what a human sees. An extractor that silently drops low-confidence obligations hides its own failures.
 
@@ -59,7 +62,7 @@
 - Produces: `Modality` (StrEnum), `ExtractedObligation` (Pydantic), `obligation_id(version_id, section_path, statement) -> str`, and the `ObligationExtractor` protocol:
   `extract(chunk_text: str, *, section_path: list[str]) -> list[ExtractedObligation]`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_extraction_schema.py`:
 
@@ -131,12 +134,12 @@ def test_identity_distinguishes_versions():
     assert a != b
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd backend && uv run pytest tests/test_extraction_schema.py -v`
 Expected: FAIL — `ModuleNotFoundError`
 
-- [ ] **Step 3: Implement the schema**
+- [x] **Step 3: Implement the schema**
 
 Create `backend/src/policy_grapher/extraction/schema.py`:
 
@@ -225,7 +228,7 @@ class ObligationExtractor(Protocol):
     ) -> list[ExtractedObligation]: ...
 ```
 
-- [ ] **Step 4: Run tests, then commit**
+- [x] **Step 4: Run tests, then commit**
 
 Run: `cd backend && uv run pytest tests/test_extraction_schema.py -v`
 Expected: PASS (8 tests)
@@ -246,7 +249,7 @@ git commit -m "feat: an obligation has a schema and a permanent identity"
 **Interfaces:**
 - Produces: `NullExtractor` (`adapter_id = "null"`), `LocalExtractor(base_url, model)` (`adapter_id = f"local:{model}"`), `EXTRACTION_PROMPT`, `PROMPT_VERSION`, and `build_extractor(settings) -> ObligationExtractor`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_extraction_adapters.py`:
 
@@ -338,17 +341,17 @@ def test_the_adapter_id_names_the_model():
     assert LocalExtractor(base_url="http://m", model="qwen3:8b").adapter_id == "local:qwen3:8b"
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd backend && uv run pytest tests/test_extraction_adapters.py -v`
 Expected: FAIL — `ModuleNotFoundError`
 
-- [ ] **Step 3: Promote `httpx` to a runtime dependency**
+- [x] **Step 3: Promote `httpx` to a runtime dependency**
 
 In `backend/pyproject.toml`, move `httpx>=0.28` from the dev group into `dependencies`.
 It is now used by shipped code, so its dev-only placement would be wrong.
 
-- [ ] **Step 4: Write the prompt**
+- [x] **Step 4: Write the prompt**
 
 Create `backend/src/policy_grapher/extraction/prompt.py`:
 
@@ -391,7 +394,7 @@ Respond with JSON only, matching this shape:
 """
 ```
 
-- [ ] **Step 5: Implement both adapters**
+- [x] **Step 5: Implement both adapters**
 
 Create `backend/src/policy_grapher/extraction/null.py`:
 
@@ -485,7 +488,7 @@ class LocalExtractor:
             ) from exc
 ```
 
-- [ ] **Step 6: Add settings and the factory**
+- [x] **Step 6: Add settings and the factory**
 
 In `config.py`, inside `Settings`:
 
@@ -512,7 +515,7 @@ def build_extractor(settings: "Settings") -> ObligationExtractor:
     raise ValueError(f"unknown extractor adapter: {settings.extractor_adapter!r}")
 ```
 
-- [ ] **Step 7: Run tests and commit**
+- [x] **Step 7: Run tests and commit**
 
 Run: `cd backend && uv run pytest tests/test_extraction_adapters.py -v` then the full suite.
 Expected: PASS
@@ -534,7 +537,7 @@ git commit -m "feat: extraction has a port, a null default and a local adapter"
 **Interfaces:**
 - Produces: `cache_key(chunk_id, adapter_id, prompt_version) -> str`, `CachedExtractor(inner, store)`, `write_obligations(tx, *, version_id, chunk_id, section_path, obligations) -> int`, `drop_obligations(tx, *, version_id) -> int`
 
-- [ ] **Step 1: Add the constraint**
+- [x] **Step 1: Add the constraint**
 
 In `db.py`, append to `CONSTRAINTS`:
 
@@ -545,7 +548,7 @@ In `db.py`, append to `CONSTRAINTS`:
     ),
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Create `backend/tests/test_obligations.py` covering:
 - `cache_key` changes when the adapter changes, when the prompt version changes, and when the chunk changes — three separate tests, because a key that ignores any one of them serves stale results silently
@@ -557,7 +560,7 @@ Create `backend/tests/test_obligations.py` covering:
 
 Write each as a real test with assertions, following the shape used in `test_chunks.py`.
 
-- [ ] **Step 3: Run to verify failure, then implement**
+- [x] **Step 3: Run to verify failure, then implement**
 
 `cache.py` wraps any `ObligationExtractor` and memoises by `cache_key`. Back it with a
 simple table in Neo4j (`:ExtractionCache {key, payload_json}`) rather than an in-process
@@ -567,7 +570,7 @@ dict, so a rebuild across process restarts is still cheap.
 `MANDATES` from the version, `ANCHORED_IN` to the chunk, and a `DETACH DELETE` drop scoped
 to one version.
 
-- [ ] **Step 4: Run tests, full suite, commit**
+- [x] **Step 4: Run tests, full suite, commit**
 
 ```bash
 git add backend/src/policy_grapher backend/tests/test_obligations.py
@@ -587,7 +590,7 @@ git commit -m "feat: obligations land in the graph, anchored to their chunk"
 
 This task is the reason the phase is trustworthy. Without it, an adapter swap is a hope.
 
-- [ ] **Step 1: Build the gold set**
+- [x] **Step 1: Build the gold set**
 
 Hand-label obligations for **three** passages drawn from `data/samples/` PDFs — one dense
 in `SHALL`, one mostly definitional (so the correct answer is nearly empty), and one mixing
@@ -597,7 +600,7 @@ obligations a careful reader would extract.
 Labelling is the work here. Do it by reading the passage, not by running an extractor and
 correcting it — a gold set derived from a model's output cannot measure that model.
 
-- [ ] **Step 2: Write the scorer and its tests**
+- [x] **Step 2: Write the scorer and its tests**
 
 Matching is on `normalize(statement)`, so wording is compared the way identity is.
 `modality_accuracy` is computed **only over matched pairs** — it answers "when we found the
@@ -605,7 +608,7 @@ obligation, did we get its force right?", which is the question that matters. Te
 scorer itself against hand-built cases: perfect match, a miss, a false positive, and a
 correct statement with the wrong modality.
 
-- [ ] **Step 3: Write the ratchet test**
+- [x] **Step 3: Write the ratchet test**
 
 ```python
 FLOORS = {
@@ -622,7 +625,7 @@ a configured adapter scores below its floor. Mark it `@pytest.mark.integration` 
 when the model server is unreachable — but make the skip message say plainly that the gate
 did not run, so a green suite is never mistaken for a passed gate.
 
-- [ ] **Step 4: Write ADR-013**
+- [x] **Step 4: Write ADR-013**
 
 Must state: the LLM is a port, not a dependency; validation lives in our code on every
 adapter and why; the cache key includes adapter and prompt version, and a prompt change is
@@ -630,7 +633,7 @@ a version bump; `modality` gets its own floor because an aggregate hides the err
 matters; and the ratchet is the swap gate — "swappable" is a tested property, and floors
 ratchet up only.
 
-- [ ] **Step 5: Run everything and commit**
+- [x] **Step 5: Run everything and commit**
 
 ```bash
 git add backend/tests docs/specs/adr/ADR-013-extraction-is-a-port-with-a-ratchet.md

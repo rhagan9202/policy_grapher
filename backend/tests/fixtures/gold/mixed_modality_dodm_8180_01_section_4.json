@@ -1,0 +1,30 @@
+{
+  "note": "One MUST and one SHOULD, against two 'may's that are predictions rather than permissions \u2014 'may result in new categories' and 'may be identified in the future'. A keyword matcher reports four obligations here and scores badly on precision, which is the discrimination this fixture exists to make. Leading truncated fragment removed at the section split; the rest is verbatim.",
+  "source": {
+    "file": "818001m.pdf",
+    "page": 24,
+    "document": "DoDM 8180.01"
+  },
+  "section_path": [
+    "SECTION 4"
+  ],
+  "chunk_text": "Changes to mission or business processes or to the law may result in new categories \nof records that do not have an approved retention period.  As the retention planning process \nworks though approvals, these records must be clearly marked, not destroyed, and treated as \npermanent until NARA approves a retention.  At that point, they are rescheduled.  This can take \nseveral years, as the process includes a public review and approval of all destruction proposals. \nh.  Undeclared Records. \nThe intent of retention planning activities is to minimize the risk of having significant data \ngroupings of undeclared records that have not been identified as records or potential records.  \nEnd-point user or shared space should be examined to ensure that all records are identified.  It is \nlikely that undeclared records related to the IT system or service may be identified in the future. \n  \nDoDM 8180.01, August 4, 2023",
+  "obligations": [
+    {
+      "statement": "As the retention planning process works though approvals, these records must be clearly marked, not destroyed, and treated as permanent until NARA approves a retention.",
+      "modality": "MUST",
+      "actor": null,
+      "deadline": null,
+      "conditions": "while the retention planning process works through approvals, until NARA approves a retention",
+      "confidence": 1.0
+    },
+    {
+      "statement": "End-point user or shared space should be examined to ensure that all records are identified.",
+      "modality": "SHOULD",
+      "actor": null,
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    }
+  ]
+}

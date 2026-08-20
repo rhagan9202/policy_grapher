@@ -68,6 +68,9 @@ for the reasoning behind each stage.
 | `DocumentVersion` | `version_id: str`, `effective_date: str \| null`, `checksum: str`, `source_uri: str`, `ingested_at: datetime` | `version_id` unique |
 | `Authority` | `slug: str`, `name: str` | `slug` unique |
 | `Entity` | `slug: str`, `name: str`, `kind: str` | `slug` unique |
+| `Chunk` *(derived)* | `chunk_id: str`, `text: str`, `page: int`, `section_path: list[str]`, `ordinal: int` | `chunk_id` unique; full-text index `chunk_text` on `text` |
+| `Obligation` *(derived)* | `obligation_id: str`, `statement: str`, `modality: str`, `actor: str \| null`, `deadline: str \| null`, `conditions: str \| null`, `confidence: float`, `section_path: list[str]` | `obligation_id` unique |
+| `ExtractionCache` *(derived)* | `key: str`, `payload_json: str` | `key` unique |
 
 | Type | Direction | Meaning |
 | --- | --- | --- |
@@ -76,9 +79,22 @@ for the reasoning behind each stage.
 | `HAS_VERSION` | `(:Document)-[:HAS_VERSION]->(:DocumentVersion)` | One edition of the instrument |
 | `SUPERSEDES` | `(:DocumentVersion)-[:SUPERSEDES]->(:DocumentVersion)` | The newer edition replaces the older |
 | `ISSUED_BY` | `(:DocumentVersion)-[:ISSUED_BY]->(:Authority)` | Who issued that edition |
+| `HAS_CHUNK` | `(:DocumentVersion)-[:HAS_CHUNK]->(:Chunk)` | A passage of that edition's text |
+| `MANDATES` | `(:DocumentVersion)-[:MANDATES]->(:Obligation)` | A duty that edition places on someone |
+| `ANCHORED_IN` | `(:Obligation)-[:ANCHORED_IN]->(:Chunk)` | The passage the duty was read from |
 
 Nodes and relationships are created with `MERGE`, making ingestion idempotent — re-running
 `/ingest` on the same file creates nothing new. Self-loops are never created.
+
+**The labels marked *derived* are droppable and rebuildable; the rest are canonical.** A
+canonical node records something an ingest read directly off a source. A derived one exists
+because an algorithm — the chunker, or an extraction model — decided it should, so a better
+algorithm landing later must be able to replace the whole layer without anyone treating the old
+nodes as facts being revised. Both carry a content- or structure-derived identity so a rebuild
+reproduces the same ids and anything anchored to them survives, and both are dropped before
+being rewritten inside the same transaction as the rest of the ingest. See
+[ADR-012](adr/ADR-012-chunks-follow-sections.md) and
+[ADR-013](adr/ADR-013-extraction-is-a-port-with-a-ratchet.md).
 
 **A `Document` is the instrument; a `DocumentVersion` is one edition of it.** A single-PDF
 ingest records one edition (`versions.py`); the manifest path records none, since a CSV row

@@ -5,8 +5,9 @@ from fastapi.testclient import TestClient
 from neo4j import RoutingControl
 
 from policy_grapher import main
-from policy_grapher.config import get_settings
+from policy_grapher.config import Settings, get_settings
 from policy_grapher.db import clear_graph
+from policy_grapher.extraction import build_extractor
 from policy_grapher.ingest import ingest_file
 from policy_grapher.main import maybe_autoingest
 
@@ -95,3 +96,16 @@ def test_a_graph_emptied_at_runtime_stays_empty_on_the_next_request(
         assert node_count(driver, database) == 0
 
     get_settings.cache_clear()
+
+
+def test_a_misconfigured_extractor_stops_startup():
+    """An unknown adapter name must fail at boot, not on the first document that
+    reaches an extractor. `lifespan` builds the configured extractor for exactly
+    this reason — a typo in EXTRACTOR_ADAPTER is cheap to find here and expensive
+    to find halfway through an ingest that has already written nodes."""
+    with pytest.raises(ValueError, match="unknown extractor adapter"):
+        build_extractor(Settings(_env_file=None, extractor_adapter="gpt-9"))
+
+
+def test_the_default_configuration_builds_an_extractor_that_needs_nothing():
+    assert build_extractor(Settings(_env_file=None)).adapter_id == "null"

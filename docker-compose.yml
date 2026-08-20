@@ -48,6 +48,14 @@ services:
       ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
       QUERY_ROW_CAP: ${QUERY_ROW_CAP}
       QUERY_TIMEOUT_SECONDS: ${QUERY_TIMEOUT_SECONDS}
+      # Defaulted for the same reason ENABLE_API_DOCS is: a .env generated before
+      # these existed would otherwise pass empty strings, and an empty
+      # EXTRACTOR_ADAPTER is not a valid adapter name — lifespan builds the
+      # configured extractor at boot and would raise. The default extracts nothing
+      # and needs no model server, so the stack still comes up on one command.
+      EXTRACTOR_ADAPTER: ${EXTRACTOR_ADAPTER:-null}
+      EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-qwen3:8b}
+      EXTRACTOR_BASE_URL: ${EXTRACTOR_BASE_URL:-http://localhost:11434}
     volumes:
       # :Z relabels the host directory for exclusive container access under SELinux
       # (enforcing on Fedora/RHEL hosts); harmless no-op where SELinux is disabled.

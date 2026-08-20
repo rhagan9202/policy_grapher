@@ -48,7 +48,15 @@ chunk's place in the document's structure so a chunker improvement only moves th
 sections it actually changes. See
 [ADR-012](../specs/adr/ADR-012-chunks-follow-sections.md). Phase 3
 ([obligation extraction port](../superpowers/plans/2026-08-20-di-2-phase-3-extraction-port.md))
-Phase 4
+has landed: obligations are extracted from chunk text behind a provider-agnostic
+`ObligationExtractor` port and written as `:Obligation` nodes that hang off the edition
+mandating them and anchor to the chunk they were read from. The default adapter extracts
+nothing and needs no model server, so a fresh clone still passes `uv run pytest`; a local
+HTTP adapter is the development option. Schema validation lives in our code on every adapter,
+results are cached on chunk *content* rather than chunk id, and a hand-labelled gold set
+ratchets precision, recall and modality accuracy per adapter — so a provider swap is a tested
+property rather than a hope. The gate announces loudly when it did not run. See
+[ADR-013](../specs/adr/ADR-013-extraction-is-a-port-with-a-ratchet.md). Phase 4
 ([typed links and the review queue](../superpowers/plans/2026-08-20-di-2-phase-4-links-and-review.md)),
 Phase 5
 ([change detection and propagation](../superpowers/plans/2026-08-20-di-2-phase-5-diff-and-propagation.md))

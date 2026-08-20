@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from policy_grapher.config import Settings, get_settings
 from policy_grapher.db import apply_schema, create_driver, is_graph_empty
+from policy_grapher.extraction import build_extractor
 from policy_grapher.ingest import ingest_file
 from policy_grapher.models import IngestResult
 from policy_grapher.routers import admin, documents, graph
@@ -51,10 +52,16 @@ async def lifespan(app: FastAPI):
     driver = create_driver(settings)
     driver.verify_connectivity()
     apply_schema(driver, settings.neo4j_database)
+    # Built here for its side effect of validating the configuration: an unknown
+    # EXTRACTOR_ADAPTER raises, and boot is where that is cheap to notice. Nothing
+    # drives extraction yet — phase 4's rebuild is the caller — so the instance is
+    # held on app.state rather than used, and the null default touches no network.
+    extractor = build_extractor(settings)
     maybe_autoingest(driver, settings)
 
     app.state.driver = driver
     app.state.settings = settings
+    app.state.extractor = extractor
     try:
         yield
     finally:
