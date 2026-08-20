@@ -172,8 +172,10 @@ read by the backend.
 
 **(gap review)** A `.env` file with a development default is **committed**, so a clean clone
 runs with `docker compose up` and no manual step. The password is therefore public by
-construction. This is acceptable only because DI-1 is local-only and unauthenticated; the
-README must say so plainly, and it must change before any shared deployment.
+construction. This is acceptable only because the deployment target is local only — the API
+itself is no longer unauthenticated (see *Authentication* below), but the database password
+grants direct Neo4j access that bypasses the API entirely. The README must say so plainly,
+and it must change before any shared deployment.
 
 ### Startup behavior **(gap review)**
 On boot the backend checks whether the graph is empty. If it is, it ingests the sample corpus

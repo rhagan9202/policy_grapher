@@ -23,9 +23,17 @@ docker compose up --build
 Then open http://localhost:5173. The API is at http://localhost:8000, the Neo4j browser at
 http://localhost:7474.
 
-**This stack is local-only and unauthenticated by design** — the Neo4j password is committed
-in `.env`, CORS is open, and DI-1 has no auth. Do not expose it on a shared network.
-See [ADR-004](docs/specs/adr/ADR-004-unrestricted-cypher-in-di-1.md).
+**Every route but `/health` requires a bearer token.** A request needs an `Authorization:
+Bearer <token>` header whose SHA-256 digest matches one of the `name:sha256hex` pairs in
+`API_TOKENS`; `API_TOKENS` ships **empty** in the committed `.env`, so a clean clone
+authenticates nobody and every route but `/health` answers `401` until an operator puts a
+digest there — the failure mode is universal denial, not universal access. CORS is limited
+to the origins `CORS_ALLOW_ORIGINS` lists (`http://localhost:5173` by default), with
+credentials permitted. See
+[ADR-008](docs/specs/adr/ADR-008-authenticated-non-cypher-audience.md).
+
+**The Neo4j password is still committed in `.env` and this stack is still local-only by
+design.** Do not expose it on a shared network.
 
 ## Stack
 

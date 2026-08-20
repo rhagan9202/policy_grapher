@@ -58,6 +58,11 @@ PROTECTED = [
     ("post", "/query", {"cypher": "RETURN 1"}),
     ("post", "/documents", {"name": "X"}),
     ("delete", "/documents/some-slug", None),
+    ("get", "/graph", None),
+    ("get", "/documents", None),
+    ("get", "/documents/some-slug", None),
+    ("post", "/documents/some-slug/references/other-slug", None),
+    ("delete", "/documents/some-slug/references/other-slug", None),
 ]
 
 
