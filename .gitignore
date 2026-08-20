@@ -8,6 +8,10 @@
 .superpowers/
 .claude/worktrees/
 
+# Personal Claude Code overrides. `.claude/settings.json` IS committed — it carries the
+# pre-commit docs-sync hook the whole repo shares. This file is per-machine only.
+.claude/settings.local.json
+
 # OS
 .DS_Store
 Thumbs.db
