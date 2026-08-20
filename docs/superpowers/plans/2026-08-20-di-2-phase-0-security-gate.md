@@ -610,10 +610,17 @@ In `docker-compose.yml`, under `services.backend.environment`, after `AUTO_INGES
 ```yaml
       API_TOKENS: ${API_TOKENS}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
+      QUERY_ROW_CAP: ${QUERY_ROW_CAP}
+      QUERY_TIMEOUT_SECONDS: ${QUERY_TIMEOUT_SECONDS}
 ```
 
-Add both to the repository's `.env` as well, so the stack still runs before Task 4 replaces
-that file — `API_TOKENS=` may be empty for now, and `CORS_ALLOW_ORIGINS=http://localhost:5173`.
+Task 1's two settings are included because compose passes an allow-list, so they are unreachable
+from `.env` today too. Only `API_TOKENS` is load-bearing — its `""` default fails closed — but an
+operator who cannot tune the other three from `.env` will reasonably conclude they are broken.
+
+Add all four to the repository's `.env` as well, so the stack still runs before Task 4 replaces
+that file: `API_TOKENS=` may be empty for now, `CORS_ALLOW_ORIGINS=http://localhost:5173`,
+`QUERY_ROW_CAP=1000`, `QUERY_TIMEOUT_SECONDS=10.0`.
 
 - [ ] **Step 10: Run everything and commit**
 
