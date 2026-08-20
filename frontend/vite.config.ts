@@ -4,11 +4,23 @@ import react from '@vitejs/plugin-react'
 // vitest's config shape and type-checking fails otherwise.
 import { defineConfig } from 'vitest/config'
 
+const defaultAllowedHosts = [
+  '5173--main--hopes-and-dreams--rhagan.coder.sand.uskgc.com',
+]
+
+const extraAllowedHosts = (process.env.VITE_ALLOWED_HOSTS ?? '')
+  .split(',')
+  .map((host) => host.trim())
+  .filter((host) => host.length > 0)
+
+const allowedHosts = [...new Set([...defaultAllowedHosts, ...extraAllowedHosts])]
+
 export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
     port: 5173,
+    allowedHosts,
     proxy: {
       '/api': {
         target: process.env.BACKEND_URL ?? 'http://backend:8000',
