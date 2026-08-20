@@ -208,9 +208,20 @@ def _cover_page(full: str) -> str:
     Shared by `document_name` and `effective_date` for the same reason: both
     read facts that are only reliable on the cover, and both would otherwise
     risk matching a body mention (a cited predecessor's own date, e.g.) instead.
+
+    Always at most `_COVER_PAGE_FALLBACK`, even when a references heading exists
+    further out. DoD's modern layout puts REFERENCES near the *end* of the
+    document — the heading alone bounded almost nothing in practice (measured at
+    73-98% of the full document across the sample fixtures), which made
+    `effective_date`'s "latest labelled date" scan a whole-document search, free
+    to pick up a citation's own date deep in the body. The cost is real: a
+    genuine header or date pushed past the fallback by unusually long front
+    matter goes unfound. That is the honest failure mode this project prefers —
+    see `document_name`'s and `effective_date`'s own docstrings.
     """
     heading = _HEADING.search(full)
-    return full[: heading.start()] if heading else full[:_COVER_PAGE_FALLBACK]
+    bound = min(heading.start(), _COVER_PAGE_FALLBACK) if heading else _COVER_PAGE_FALLBACK
+    return full[:bound]
 
 
 def document_name(full: str) -> str | None:
@@ -224,42 +235,72 @@ def document_name(full: str) -> str | None:
     return None
 
 
-# DoD issuances state the date near the designator, in forms such as
-# "April 1, 2026" and "1 April 2026".
-DATE_PATTERNS = (
-    re.compile(
-        r"\b(?P<month>January|February|March|April|May|June|July|August|September|"
-        r"October|November|December)\s+(?P<day>\d{1,2}),?\s+(?P<year>\d{4})\b"
-    ),
-    re.compile(
-        r"\b(?P<day>\d{1,2})\s+(?P<month>January|February|March|April|May|June|July|"
-        r"August|September|October|November|December)\s+(?P<year>\d{4})\b"
-    ),
+# A bare date, in either of the two forms DoD issuances use: "April 1, 2026" and
+# "1 April 2026". Not matched on its own — see DATE_PATTERNS below. A cover page
+# states three kinds of date, and only two of them are the edition's own: a
+# labelled effective date ("Effective: September 9, 2020"), a labelled change date
+# ("Change 1 Effective: July 28, 2022", or the bare "Incorporating Change 2,
+# April 6, 2020" — no word "Effective" at all) — and, indistinguishable by shape
+# alone, an unlabelled date inside a citation of some *other* issuance ("Reissues
+# and Cancels: DoD Directive 5000.01, "The Defense Acquisition System," May 12,
+# 2003"). Matching a bare date and taking whichever comes first is exactly how
+# that citation date wins by position — typography, not a rule. So the date
+# patterns are never searched for on their own; they are only ever matched
+# anchored to a label (below), which a citation's restated date never carries.
+_MONTH = (
+    r"(?:January|February|March|April|May|June|July|August|September|"
+    r"October|November|December)"
+)
+_DATE_MDY = rf"(?P<month>{_MONTH})\s+(?P<day>\d{{1,2}}),?\s+(?P<year>\d{{4}})"
+_DATE_DMY = rf"(?P<day>\d{{1,2}})\s+(?P<month>{_MONTH})\s+(?P<year>\d{{4}})"
+
+# Each entry anchors one of the two date shapes above to a label DoD covers
+# actually use. "Effective:?\s+" covers both "Effective: <date>" and the
+# colon-less "Incorporating Change 1, Effective <date>"; it also covers
+# "Change 1 Effective: <date>" without a separate pattern, since it matches
+# wherever "Effective" is immediately followed by a date, regardless of what
+# precedes it. The third form carries no word "Effective" at all ("Incorporating
+# Change 2, April 6, 2020") and needs its own anchor.
+DATE_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for date_shape in (_DATE_MDY, _DATE_DMY)
+    for pattern in (
+        rf"Effective:?\s+{date_shape}",
+        rf"Incorporating\s+Change\s+\d+,\s*{date_shape}",
+    )
 )
 
 
 def effective_date(cover_text: str) -> date | None:
-    """The date the cover page states, or None.
+    """The latest labelled date the cover page states, or None.
 
     None is a correct and common answer. Guessing a date would put a wrong
     edition boundary into the graph, which is worse than an undated edition —
     version identity falls back to a checksum, which is honest about what we
     could not read.
+
+    "Latest" because the file on disk is whatever the cover page's last change
+    says it is: 500001p.pdf's cover carries both the original "Effective:
+    September 9, 2020" and "Change 1 Effective: July 28, 2022," and the text
+    extracted from it is the Change-1-incorporated edition, not the 2020 base.
+    An unlabelled date is never a candidate at all — see DATE_PATTERNS.
     """
+    found: list[date] = []
     for pattern in DATE_PATTERNS:
-        match = pattern.search(cover_text)
-        if match:
+        for match in pattern.finditer(cover_text):
             try:
                 # Only the calendar date is kept (`.date()`); a cover page states no
                 # timezone, and inventing one would be no more honest than guessing
                 # the date itself. DTZ007 flags naive datetimes as a rule of thumb,
                 # not because a wall-clock instant is wanted here.
-                return datetime.strptime(  # noqa: DTZ007
-                    f"{match['day']} {match['month']} {match['year']}", "%d %B %Y"
-                ).date()
+                found.append(
+                    datetime.strptime(  # noqa: DTZ007
+                        f"{match['day']} {match['month']} {match['year']}", "%d %B %Y"
+                    ).date()
+                )
             except ValueError:
                 continue
-    return None
+    return max(found) if found else None
 
 
 def normalise(name: str) -> str:

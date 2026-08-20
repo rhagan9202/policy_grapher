@@ -197,10 +197,6 @@ def _write_document(
         DESCRIBES,
         {"id": source_id(DOCUMENT, filename), "slugs": [slug]},
     ).consume()
-    tx.run(
-        REFRESH_EXTERNAL,
-        {"slugs": [slug, *(entry["slug"] for entry in cited)]},
-    ).consume()
 
     merge_version(
         tx,
@@ -210,6 +206,11 @@ def _write_document(
         source_uri=f"file://{path}",
     )
     link_supersession(tx, slug)
+
+    tx.run(
+        REFRESH_EXTERNAL,
+        {"slugs": [slug, *(entry["slug"] for entry in cited)]},
+    ).consume()
 
     return nodes_created, relationships_created
 

@@ -326,6 +326,10 @@ def test_ingesting_a_pdf_records_a_version(client_with_auth, tmp_path):
     assert len(body) == 1
     assert body[0]["checksum"]
     assert body[0]["supersedes"] is None
+    # 500001p.pdf's cover states both "Effective: September 9, 2020" and "Change 1
+    # Effective: July 28, 2022" — the file on disk is the Change-1-incorporated
+    # edition, so the extracted date must be the latter, not the base date.
+    assert body[0]["effective_date"] == "2022-07-28"
 
 
 @pytest.mark.integration

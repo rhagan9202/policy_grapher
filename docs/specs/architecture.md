@@ -82,7 +82,10 @@ Nodes and relationships are created with `MERGE`, making ingestion idempotent �
 ingest records one edition (`versions.py`); the manifest path records none, since a CSV row
 states no text, date or checksum. A version's id is `slug@discriminator` — the effective date
 the cover page states, or a checksum prefix when it states none — so re-ingesting the same
-file resolves to the edition it already made rather than duplicating it. Two files claiming
+file resolves to the edition it already made rather than duplicating it. A cover typically
+states several dates, so only a *labelled* one counts (`Effective: …`, `Incorporating Change
+N, …`) and the latest of those wins: the file on disk is whatever its last change made it,
+and an unlabelled date is usually a cited predecessor's, not this edition's. Two files claiming
 one date under different checksums raise `VersionConflictError` instead of overwriting.
 `SUPERSEDES` is derived from the editions' dates and rebuilt from scratch on every ingest of
 that instrument — the one place ingest is not purely additive, safe only because no human

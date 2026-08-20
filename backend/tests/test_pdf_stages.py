@@ -1,6 +1,7 @@
 """The five extraction stages. No database, so this stays outside the integration mark."""
 
 import re
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -193,11 +194,98 @@ def test_a_heading_with_no_citations_beneath_it_is_not_a_references_section():
     assert pdf.locate_references(contents) == ("unknown", None)
 
 
-def test_the_cover_page_bound_adapts_to_a_long_front_matter():
-    """The identity bound must not be a fixed character count: a long classification
-    banner or distribution statement can push a real header past it."""
+def test_the_cover_page_bound_adapts_to_a_moderate_front_matter():
+    """The identity bound must not be a fixed character count *below* the fallback:
+    a classification banner or distribution statement that pushes a real header
+    past a naively short bound (but still within `_COVER_PAGE_FALLBACK`) must not
+    defeat header detection."""
+    padding = "DISTRIBUTION STATEMENT A. Approved for public release. " * 20
+    full = f"{padding}\nDepartment of Defense\nDIRECTIVE\nNUMBER 5143.01\n\nREFERENCES\n(a) x\n"
+    assert 500 < len(padding) < 2000
+
+    assert pdf.document_name(full) == "DoDD 5143.01"
+
+
+def test_the_cover_page_bound_gives_up_past_the_fallback_rather_than_scanning_the_body():
+    """Past `_COVER_PAGE_FALLBACK`, `_cover_page` stops at the fallback even when a
+    references heading exists further out — `min(heading.start(),
+    _COVER_PAGE_FALLBACK)`, not `heading.start()` alone. This is a real trade-off,
+    not an oversight: DoD's modern layout puts REFERENCES near the *end* of the
+    document (500001p.pdf's cover-to-full ratio was 96% before this bound existed),
+    so bounding by the heading alone made `effective_date` a whole-document scan in
+    practice, free to pick up a citation's own unlabelled date deep in the body. An
+    honest `None` here — like an unread date — beats a header found by accident far
+    past where a cover page plausibly ends."""
     padding = "DISTRIBUTION STATEMENT A. Approved for public release. " * 60
     full = f"{padding}\nDepartment of Defense\nDIRECTIVE\nNUMBER 5143.01\n\nREFERENCES\n(a) x\n"
     assert len(padding) > 2000
 
-    assert pdf.document_name(full) == "DoDD 5143.01"
+    assert pdf.document_name(full) is None
+
+
+# effective_date: a cover states three kinds of date (labelled effective, labelled
+# change, and an unlabelled date inside a citation of some other issuance), and only
+# the first two are candidates. Real fixtures cover the first two forms and the
+# "latest wins" rule directly; the third case below — an unlabelled date that is
+# *later* than the labelled one — has no real fixture (DoD boilerplate happens to
+# always restate an *older* date unlabelled), so it is built by hand.
+
+
+def test_effective_date_reads_a_plain_effective_label():
+    """500088p.pdf's cover carries exactly one date, plainly labelled."""
+    cover = pdf._cover_page(pdf.text_of(SAMPLES / "500088p.pdf"))
+
+    assert pdf.effective_date(cover) == date(2020, 11, 18)
+
+
+def test_effective_date_prefers_a_change_effective_label_over_the_base_date():
+    """500001p.pdf's cover carries both "Effective: September 9, 2020" and "Change 1
+    Effective: July 28, 2022" — the file on disk is the Change-1-incorporated
+    edition, so the later, change-labelled date must win, not the first one found."""
+    cover = pdf._cover_page(pdf.text_of(SAMPLES / "500001p.pdf"))
+
+    assert pdf.effective_date(cover) == date(2022, 7, 28)
+
+
+def test_effective_date_reads_a_bare_incorporating_change_label():
+    """514301p.pdf's "Incorporating Change 2, April 6, 2020" carries no word
+    "Effective" at all — it must still count as labelled."""
+    cover = pdf._cover_page(pdf.text_of(SAMPLES / "514301p.pdf"))
+
+    assert pdf.effective_date(cover) == date(2020, 4, 6)
+
+
+def test_effective_date_reads_a_colon_less_effective_label():
+    """850001_2014.pdf's "Incorporating Change 1, Effective October 7, 2019" has no
+    colon after "Effective" — the label still anchors the date."""
+    cover = pdf._cover_page(pdf.text_of(SAMPLES / "850001_2014.pdf"))
+
+    assert pdf.effective_date(cover) == date(2019, 10, 7)
+
+
+def test_effective_date_ignores_an_unlabelled_date_even_when_it_is_later():
+    """The case with no real fixture: a cover carrying an unlabelled date from a
+    citation of some *other* issuance, later than the labelled effective date, must
+    not win. Only a labelled date is ever a candidate — this is the defect the
+    original "first regex hit" implementation had (500001p's cover offers an
+    unlabelled "May 12, 2003" that only lost by coming after the labelled date in
+    the text; this pins the rule, not the position, as what decides it)."""
+    cover = (
+        "Effective: September 9, 2020\n"
+        'Reissues and Cancels: DoD Directive 9999.99, "Some Other Issuance," '
+        "December 31, 2099\n"
+    )
+
+    assert pdf.effective_date(cover) == date(2020, 9, 9)
+
+
+def test_effective_date_is_none_with_no_date_at_all():
+    assert pdf.effective_date("A cover page mentioning no date at all.") is None
+
+
+def test_effective_date_is_none_when_every_date_present_is_unlabelled():
+    """A date exists in the text, but none of it is anchored to a label — the
+    honest answer is None, not a guess at which unlabelled date might be it."""
+    cover = 'Reissues DoD Directive 1234.56, "Some Issuance," May 12, 2003\n'
+
+    assert pdf.effective_date(cover) is None
