@@ -289,3 +289,55 @@ def test_effective_date_is_none_when_every_date_present_is_unlabelled():
     cover = 'Reissues DoD Directive 1234.56, "Some Issuance," May 12, 2003\n'
 
     assert pdf.effective_date(cover) is None
+
+
+def test_effective_date_prefers_the_calendar_latest_over_the_positionally_last_date():
+    """"Latest" must mean latest by calendar value, not by text position — real DoD
+    covers sometimes list change history most-recent-first. If this cover's dates
+    were taken in text order (`found[-1]`) rather than by calendar comparison
+    (`max(found)`), the answer would be the *earlier* date, 2019-10-07, because it
+    comes last in the text. Every other fixture and synthetic cover in this suite
+    happens to list its latest date last, so only this ordering distinguishes the
+    two implementations."""
+    cover = (
+        "Incorporating Change 2, April 6, 2020\n"
+        "Incorporating Change 1, October 7, 2019\n"
+    )
+
+    assert pdf.effective_date(cover) == date(2020, 4, 6)
+
+
+def test_the_cover_page_bound_is_the_heading_when_it_is_smaller_than_the_fallback():
+    """The other side of `_cover_page`'s `min(heading.start(), _COVER_PAGE_FALLBACK)`:
+    when the heading sits *before* the fallback, the bound must be the heading, not
+    a flat `full[:_COVER_PAGE_FALLBACK]` that happens to reach the same place. None
+    of the five sample fixtures exercises this side — every real heading sits well
+    past 2000 characters (see
+    `test_the_cover_page_bound_gives_up_past_the_fallback_rather_than_scanning_the_body`)
+    — so this is assembled from 850001_2014.pdf's own real text: its true legacy
+    header, its real (non-matching, colon-broken) "References: See Enclosure 1"
+    body mention, a real heading-shaped line drawn from its own enclosure list
+    ("1. References"), and its real cancelled predecessor citation ("(a) DoD
+    Directive 8500.01, ...", the exact citation the pre-existing comment on
+    `_COVER_PAGE_FALLBACK` names as the risk this bound exists to prevent).
+
+    `document_name` tries `_MODERN_HEADER` before `_LEGACY_HEADER`, so a
+    modern-shaped match anywhere in the cover wins regardless of position — and
+    "(a) DoD Directive 8500.01" is exactly modern-shaped. If the bound reached even
+    one character past the heading here, that citation would be included and
+    `_MODERN_HEADER` would misname this DoDI a DoDD.
+    """
+    full = (
+        "Department of Defense \nINSTRUCTION \n \n \n \nNUMBER 8500.01 \nMarch 14, 2014 \n"
+        "Incorporating Change 1, Effective October 7, 2019 \n \nDoD CIO \n \n"
+        "SUBJECT: Cybersecurity \n \nReferences: See Enclosure 1 \n \n \n"
+        "1. References\n2. Responsibilities\n\n"
+        '(a) DoD Directive 8500.01, "Information Assurance (IA)," October 4, 2002 '
+        "(hereby cancelled)\n"
+    )
+    heading = pdf._HEADING.search(full)
+    assert heading is not None
+    assert heading.start() < pdf._COVER_PAGE_FALLBACK, "the test must exercise the heading side"
+    assert len(full) < pdf._COVER_PAGE_FALLBACK, "so a flat fallback slice would still see the citation"
+
+    assert pdf.document_name(full) == "DoDI 8500.01"
