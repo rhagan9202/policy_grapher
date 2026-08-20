@@ -73,7 +73,11 @@ corrupts the citation the next paragraph depends on.
 nests a heading under its numeric ancestors (`"3.2.1"` nests under `["3","3.2"]`), so a stored
 chunk carries `["3", "3.2", "3.2.1"]`, not merely `"3.2.1"`. A reviewer citing a passage needs
 to know it lives under Section 3.2, which lives under Section 3 — the leaf number alone is not
-self-describing outside the document it came from.
+self-describing outside the document it came from. A path is not, however, *unique* within a
+document: `850001_2014.pdf` opens 9 of its paths more than once (`["ENCLOSURE 3","1"]` four
+separate times), because a numbered list restarting at 1 inside an enclosure re-opens the same
+path — see the known limitation below. A path therefore locates a passage only together with
+which opening of it is meant, which is why the occurrence counter is part of a chunk's identity.
 
 **Text is stored verbatim.** `write_chunks` sets `c.text` to exactly what `chunk_pages`
 produced — no whitespace normalisation, no re-flowing. A citation has to be able to quote the
@@ -94,12 +98,20 @@ ingest read directly off a source, and nothing about it is invented by the chunk
 own judgement calls. A `:Chunk` is different: it exists because `chunk_pages` decided where to
 draw a boundary, and a better chunker landing later must be able to replace every chunk without
 anyone treating the old ones as a fact that was true and is now being revised. Two properties
-make that safe. First, **chunk ids are deterministic** — `_chunk_id` hashes
-`(version_id, section_path, ordinal)`, not any database-assigned sequence — so a rebuild that
-produces the same sections and the same ordinals reproduces the same ids, and anything a later
-phase anchors to a chunk id (an extracted obligation, an approved link) survives a rebuild that
-does not actually change that chunk. Second, **ingest drops before it writes, inside the same
-transaction that writes the version's other state.** `_write_document` calls `drop_chunks` then
+make that safe. First, **chunk ids are stable, not merely deterministic** — `_chunk_id` hashes
+`(version_id, section_path, section_occurrence, ordinal_within_section)`, not any
+database-assigned sequence and deliberately not the document-global reading-order counter. A
+chunk's identity therefore depends only on where it sits in the document's *own* structure:
+which section, which opening of that section, and how far into that opening. Adding a paragraph
+to section 5 renumbers section 5 and nothing else. An id keyed on a document-global ordinal
+would be reproducible on byte-identical input and worthless on anything else — measured against
+this branch's own earlier scheme, inserting one paragraph into page 20 of `850001_2014.pdf`
+orphaned 40 of the 125 ids that scheme produced when the paragraph was appended at the foot of
+the page, and 74 of 125 when it was inserted mid-page; under the current key, the same two edits
+orphan none. Reproducibility on identical input was never the property worth having: the case
+that matters is an unrelated edit, or exactly the chunker improvement this ADR defers below.
+Second, **ingest drops before it writes, inside the same transaction that writes the version's
+other state.** `_write_document` calls `drop_chunks` then
 `write_chunks` after `merge_version` and `link_supersession`, both under the one
 `session.execute_write` the rest of the ingest already used — so a chunker change (or simply
 re-running the same chunker) replaces a version's chunk set atomically rather than leaving the
@@ -113,21 +125,45 @@ the current one; a caller who does can pin an explicit `version_id` even while a
 exists in the same graph. Results are ordered by `ordinal`, the field that makes a rebuilt
 chunk set's reading order reproducible.
 
-**Known limitation: `section_heading` treats a numbered list item as a section heading, not only
-a genuine one.** The regex that recognises `"3.2.1. "` at the start of a line cannot tell a
-genuine subsection heading from an ordinary numbered list entry — both are a number, a dot, and
-text. `850001_2014.pdf`, a legacy-format sample, shows exactly this: 36 of its 48 distinct
-section paths are numbered items nested directly under `ENCLOSURE 2` or `ENCLOSURE 3` alone —
-each enclosure's own numbered list misread as a fresh subsection every time a new number opens a
-line. The effect is over-segmentation — inventing section boundaries that split text which
-should have stayed together — which risks the same failure this ADR exists to prevent, an
-obligation separated from its conditions, reached from the opposite direction to a fixed window:
-instead of a window cutting across a section, a false section boundary cuts *within* what should
-have been one section. It is accepted for now because changing heading detection moves chunk
-boundaries for every document and invalidates every chunk id already written; that decision
-needs evidence about what granularity retrieval actually wants, which nothing before Phase 6 can
-supply. The derived layer being droppable and rebuildable is precisely what makes deferring it
-safe.
+**Two classes of line are filtered out of heading detection: contents rows and page furniture.**
+A table-of-contents row opens with a genuine-looking heading and is indistinguishable from one by
+prefix alone; the dot leader running to a page number is what gives it away, so `DOT_LEADER`
+rejects any candidate carrying four or more leader dots. Read as headings, those rows bound a
+section path to the contents page rather than to the body — in `850001_2014.pdf`
+`["ENCLOSURE 3","1"]` bound to a contents row on page 7 instead of to `1. INTRODUCTION` on
+page 26 — and chunked a page of dot leaders as document text. Measured over the seven samples,
+the filter removes 5 detections of 67 in `850001_2014.pdf`, 15 of 44 in `500001p.pdf`, 14 of 39
+in `500001p_2020.pdf`, 17 of 94 in `500088p.pdf`, 63 of 214 in `818001m.pdf`, and none in the
+two samples with no contents page. Every removed line was a contents row; no genuine heading in
+the corpus carries a dot leader. Separately, `_page_furniture` refuses to read a heading out of a
+line that repeats verbatim on three or more pages, because a running header or footer
+(`ENCLOSURE 2` standing alone at the foot of every page of an enclosure) matches the heading
+patterns exactly and would re-open its section once per page. In these seven samples that rule
+fires zero times — their footers carry a `Change 1, 10/07/2019  15` prefix, so they never matched
+at the line anchor in the first place — and it is kept as a guard on a failure mode the pattern
+plainly admits, pinned by a test rather than by corpus evidence. Neither filter touches the
+genuine-heading path: a line is still a heading if and only if it matches the same two patterns.
+
+**Known limitation: `section_heading` still cannot tell a numbered subsection heading from a
+numbered list item.** Both are a number, a dot, and text at the start of a line. After the two
+filters above, `850001_2014.pdf` produces 62 section-open events, of which **47 are genuine
+headings and 15 are not**. The genuine ones include the whole of Enclosure 2, whose real
+structure *is* one numbered paragraph per responsible official (`1. DoD CIO.`,
+`2. DIRECTOR, DISA`, `13. DoD COMPONENT HEADS.`) — reading those as subsections is correct, not a
+defect. The 15 misdetections are ordinary numbered lists sitting inside a section: 3 on page 5
+(the signature page's `Enclosures: 1. References / 2. Responsibilities / 3. Procedures`), 2 on
+page 37, 6 on page 39 (`1. PIT systems are analogous to enclaves…`), and 4 on page 40
+(`1. Ensure that interagency agreements…`). Their effect is not, as an earlier draft of this ADR
+claimed, a finer grain: chunks under `ENCLOSURE 2`/`ENCLOSURE 3` have a **median length of 1646
+characters against 1358 elsewhere in the same document**, so the enclosures chunk *coarser* than
+the rest of it. The real effect is that a section path is opened more than once — 9 paths, 15
+redundant re-opens, down from 12 and 20 before the contents-row filter — so `section_path` alone
+does not locate a passage, and a handful of list items each get a small chunk of their own
+instead of staying with the lead-in sentence that governs them. It is accepted for now because
+distinguishing the two cases needs either layout information `pypdf`'s text extraction discards
+or evidence about what granularity retrieval actually wants, which nothing before Phase 6 can
+supply — and because the occurrence counter in a chunk's identity makes the ambiguity survivable
+in the meantime: a duplicate path is disambiguated, not collided.
 
 ## Consequences
 
@@ -135,22 +171,28 @@ safe.
 document's own section boundaries, instead of first having to work out where one obligation
 ends and another begins. A citation returned to a reviewer carries a real page number and a
 real section path, not a guess. A future chunker improvement — better sentence-boundary
-detection, a fix to the legacy over-segmentation named above — can replace the whole derived
-layer in one ingest without anyone needing to reconcile old chunks against new ones by hand.
+detection, teaching `section_heading` to tell a heading from a numbered list item — can replace
+the whole derived layer in one ingest, and because identity is keyed on document structure
+rather than on how much text precedes a chunk, only the sections the improvement actually moves
+lose their anchors. Everything else reconciles by equality, with nothing to fix up by hand.
 
-**Makes hard.** A legacy-format issuance's enclosures — numbered lists, not subsections — chunk
-at a finer, noisier grain than the rest of the document until `section_heading` is taught to
-tell a heading from a numbered list entry, a fix this ADR deliberately defers (see the known
-limitation above). Any consumer of chunk text before that fix lands should expect a legacy
-document's enclosures specifically to arrive in more, smaller pieces than the source material's
-actual structure calls for.
+**Makes hard.** Until `section_heading` can tell a heading from a numbered list item, a document
+whose sections contain numbered lists will open some section paths more than once — 9 paths in
+`850001_2014.pdf` — so a consumer cannot treat `section_path` as a unique locator within a
+document, and a list item that should have stayed with its lead-in sentence can arrive as its own
+small chunk. Anything that needs to point at one passage must carry the chunk id, not the path.
 
 **Commits us to.** `:Chunk` is this codebase's first derived-and-rebuildable label; the pattern
 `:DocumentVersion`'s `SUPERSEDES` edge started in ADR-011 — deterministic identity, drop before
 write inside one transaction, safe to discard because nothing about it is a human decision — is
 now the shape every future derived layer should follow, most immediately whatever phase 3
-attaches to a chunk. Deterministic chunk ids being a hash of `(version_id, section_path,
-ordinal)` also commits this codebase to treating a section's position, not its content alone,
-as part of a chunk's identity: two sections with identical text at different ordinals get
-different chunk ids, which is the correct behaviour for a rebuild but means a chunk id is not by
-itself a fingerprint of the text it holds.
+attaches to a chunk. Chunk ids being a hash of `(version_id, section_path, section_occurrence,
+ordinal_within_section)` also commits this codebase to treating a chunk's *position in the
+document's structure*, not its content, as its identity: two sections with identical text get
+different chunk ids, and — the other side of the same coin — editing a chunk's text in place
+leaves its id unchanged. A chunk id is not a fingerprint of the text it holds. What it does
+promise is that an unrelated edit elsewhere in the document will not move it, which is the
+promise Phase 3's anchors depend on. It also means the structural reading is load-bearing: if a
+future chunker splits a section into two sections, or stops opening a spurious one, the
+occurrence numbers after that point in the document shift and those ids do change. That is the
+intended blast radius — the section that actually changed — rather than everything downstream.

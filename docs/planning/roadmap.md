@@ -40,8 +40,13 @@ edition and `GET /documents/{slug}/versions` serves the chain; the manifest path
 none, because a CSV row describes no edition. See
 [ADR-011](../specs/adr/ADR-011-instruments-have-versions.md). Phase 2
 ([text storage and section-aware chunking](../superpowers/plans/2026-08-20-di-2-phase-2-text-and-chunking.md))
-is under way: the section-aware chunker exists as a pure module, but nothing calls it yet —
-no chunk reaches the graph and no route serves one. Phase 3
+has landed: a PDF ingest now keeps the page text it used to discard, chunks it along the
+document's own section hierarchy, and writes the result as `:Chunk` nodes hanging off the
+edition they came from. `GET /documents/{slug}/chunks` serves them, newest edition by default.
+`:Chunk` is the first *derived* label — droppable and rebuildable, with an identity keyed on a
+chunk's place in the document's structure so a chunker improvement only moves the ids of the
+sections it actually changes. See
+[ADR-012](../specs/adr/ADR-012-chunks-follow-sections.md). Phase 3
 ([obligation extraction port](../superpowers/plans/2026-08-20-di-2-phase-3-extraction-port.md))
 Phase 4
 ([typed links and the review queue](../superpowers/plans/2026-08-20-di-2-phase-4-links-and-review.md)),
