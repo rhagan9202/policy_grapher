@@ -33,6 +33,18 @@ CONSTRAINTS: tuple[str, ...] = (
         "CREATE CONSTRAINT chunk_id_unique IF NOT EXISTS "
         "FOR (c:Chunk) REQUIRE c.chunk_id IS UNIQUE"
     ),
+    (
+        "CREATE CONSTRAINT obligation_id_unique IF NOT EXISTS "
+        "FOR (o:Obligation) REQUIRE o.obligation_id IS UNIQUE"
+    ),
+    # The cache is MERGEd on `key` on every extraction. Without uniqueness a
+    # concurrent ingest can create a second node under the same key, and the
+    # reader then picks one of two rows arbitrarily — a cache that is sometimes
+    # right is worse than no cache.
+    (
+        "CREATE CONSTRAINT extraction_cache_key_unique IF NOT EXISTS "
+        "FOR (e:ExtractionCache) REQUIRE e.key IS UNIQUE"
+    ),
 )
 
 INDEXES: tuple[str, ...] = (
