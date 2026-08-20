@@ -38,6 +38,14 @@ app assembly, CORS, and lifespan only. Routers reach the driver and settings thr
 them there. Cypher lives beside the router that needs it: `graph.py`, `documents.py`, and
 `query.py` at the package root.
 
+Every route except `GET /health` also depends on `require_principal` from `auth.py`, which
+matches the SHA-256 digest of an `Authorization: Bearer` token against the `name:sha256hex`
+pairs in `API_TOKENS` and returns a `Principal`, or `401`. Comparison is constant-time and
+scans every configured entry; an empty `API_TOKENS` admits nobody. `/health` stays open
+because the container healthcheck calls it. See
+[ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md), superseding
+[ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md).
+
 Ingestion sources live in `sources/`: `__init__.py` dispatches on file extension,
 `manifest.py` reads a CSV into many documents, `document.py` holds the shared
 `ExtractedDocument`/`ExtractionReport` types, and `pdf.py` runs the five deterministic stages
@@ -134,9 +142,10 @@ Because a `Document` now has no mutable field — renaming is delete-and-recreat
 
 Docker Compose with three services: `neo4j`, `backend`, `frontend`. Configuration reaches
 the backend through `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`,
-`GRAPH_RENDER_CAP`, `QUERY_ROW_CAP`, `QUERY_TIMEOUT_SECONDS`, `SAMPLE_CSV`, and `AUTO_INGEST`,
-all supplied by the committed `.env`.
-CORS allows all origins; there is no authentication. `backend` waits on Neo4j's HTTP
+`GRAPH_RENDER_CAP`, `QUERY_ROW_CAP`, `QUERY_TIMEOUT_SECONDS`, `API_TOKENS`,
+`CORS_ALLOW_ORIGINS`, `SAMPLE_CSV`, and `AUTO_INGEST`, all supplied by the committed `.env`.
+CORS allows only the origins `CORS_ALLOW_ORIGINS` lists — `http://localhost:5173`, the Vite
+dev server, by default — with credentials permitted. `backend` waits on Neo4j's HTTP
 healthcheck before starting. `./data` is bind-mounted into `backend` read-only with an
 SELinux private label (`:Z`) since only one container consumes it, and `DATA_DIR` points at
 `/data/samples` inside it; `./frontend/src` is
@@ -185,19 +194,22 @@ turns a surprise outage into a planned piece of work.
   manifest citing that name demotes it, so it vanishes from the default graph view with no
   error anywhere. STORY-038.
 
-- **`POST /query` is unauthenticated, behind open CORS.** The query itself is now bounded —
-  read routing, a transaction timeout and a row cap
+- **A bearer token is all or nothing.** Authentication answers *whether* a caller is known,
+  not *what* it may do: every valid token drives every route, and the `Principal` a route
+  receives is not read, logged, or used to scope results. `POST /query` is bounded in what it
+  can do — read routing, a transaction timeout and a row cap
   ([ADR-009](adr/ADR-009-query-is-read-only-and-bounded.md), superseding
-  [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md)), so a caller can read the whole graph
-  but cannot corrupt it or hang a worker indefinitely. What remains open is *who* may call:
-  any page in any browser that can reach the backend can read everything in the graph, and
-  there is no authenticated path for the ad hoc mutation this endpoint used to provide.
-  STORY-019 closes both halves. The endpoint is also the demo's entire query interface
+  [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md)) — and now in who may call it
+  ([ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md)), but one leaked token still
+  reads the whole graph and there is no attribution afterward. The endpoint is also the
+  demo's entire query interface
   ([ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md)) and the eventual target of
   LLM-constructed queries, so its contract outlives the assumption that a trusted human is
   typing into it.
 - **The committed `.env` makes the Neo4j password public by construction.** Accepted so a
-  clean clone runs with one command. Same boundary as above: local-only.
+  clean clone runs with one command; the deployment target is still local only. That file now
+  also carries `API_TOKENS`, which ships **empty** — so a clean clone authenticates nobody and
+  every route but `/health` answers `401` until an operator puts a digest there.
 - **Graph size grows with citation breadth, not corpus size.** One 23-row CSV yields 438
   nodes. The 300-node figure is a configurable render cap (`GRAPH_RENDER_CAP`), not a
   storage limit, so this is bounded rather than dangerous — but it means corpus size is a

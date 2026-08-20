@@ -28,7 +28,6 @@ Understood well enough to discuss, not yet ready to start.
 
 | ID | Item | Epic | Notes |
 | --- | --- | --- | --- |
-| STORY-019 | Authentication on the API | — | In progress — DI-2 phase 0. The mechanism has landed: `auth.py` gives a `Principal`, a SHA-256 token digest, a constant-time `verify_token` that fails closed on empty configuration, and a `require_principal` FastAPI dependency, configured through `Settings.api_tokens` ([ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md), superseding [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md)). Not closed: `require_principal` is wired into no route, so the API is still unauthenticated. Route protection and the CORS lockdown are the remaining half |
 | ~~STORY-013~~ | ~~Referenced documents that aren't in the corpus are distinguishable~~ | — | **Superseded by STORY-026.** Resolved by [ADR-002](../specs/adr/ADR-002-external-references-and-corpus-first-graph.md); ID retained per [CONVENTIONS](../CONVENTIONS.md) |
 | STORY-038 | Creating a document through the API is one transaction | — | `create_document` runs four separate auto-commit statements — `CREATE_DOCUMENT`, then `MERGE_SOURCE`, `DESCRIBES` and `REFRESH_EXTERNAL` — where both ingest paths run their writes inside one `session.execute_write`. A crash after the first leaves a document with no provenance **and** no `:External` label, which nothing re-refreshes; the next manifest that cites that name then silently demotes it, so it disappears from the default `/graph` view. Found by STORY-037's final review and deferred there. The fix follows `ingest_document`'s shape: resolve the slug and the name check first (both are reads, and `driver.execute_query` cannot run inside a write transaction), then commit the four writes together. Needs a `session.execute_write` helper `documents.py` does not have yet |
 | STORY-014 | A user can search for a document by name or ID from anywhere in the UI | — | MVP DoD item; broader than STORY-010's table filter. "ID" is the slug from STORY-025 |
@@ -45,7 +44,7 @@ Unrefined. No commitment implied.
 | --- | --- | --- |
 | STORY-020 | Model policy points as nodes rather than whole documents | The Policy Concierge direction in the [vision](../planning/vision.md); a schema migration |
 | STORY-021 | Capture applicable entities and enforcement ownership as graph relationships | Same — new labels and relationship types |
-| STORY-023 | A user can ask a question in natural language and get graph results | LLM constructs the Cypher and calls `POST /query`. Gated on the schema settling and on STORY-019 (auth) — see [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md) |
+| STORY-023 | A user can ask a question in natural language and get graph results | LLM constructs the Cypher and calls `POST /query`. The two gates it carried are now half-cleared: STORY-019 (auth) and STORY-024 (query constraints) have landed, so only the schema settling remains — see [ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md), superseding [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md) |
 
 ## Done
 
@@ -54,6 +53,7 @@ sprint reviews.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-019 | Authentication on the API | — |
 | STORY-024 | `POST /query` constrains what a generated query may do | — |
 | STORY-037 | A CSV re-ingest stops demoting a PDF-ingested document to `:External` | 3 |
 | STORY-016 | Ingestion accepts a PDF issuance and extracts its references | 3 |

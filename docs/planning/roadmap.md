@@ -63,10 +63,12 @@ document and one relationship type (`REFERENCES`); the program intent needs cons
 - **LLM-constructed queries.** The demo assumes users write Cypher
   ([ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md)); as development
   matures, queries get constructed via LLM instead. This is what opens the system to the
-  non-technical audience the corpus implies. Two things gate it: the graph schema settling
-  (a natural-language layer over a schema still in migration is wasted work), and
-  authentication landing — arbitrary generated Cypher against an unauthenticated `POST /query`
-  is a materially different risk from a human typing at a demo.
+  non-technical audience the corpus implies. Two things gated it. The security half is
+  closed: `POST /query` is authenticated, read-only, timed and row-capped
+  ([ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md),
+  [ADR-009](../specs/adr/ADR-009-query-is-read-only-and-bounded.md)), so generated Cypher no
+  longer runs anonymously against an unbounded endpoint. What still gates it is the graph
+  schema settling — a natural-language layer over a schema still in migration is wasted work.
 
 ## Not in the initial surge
 

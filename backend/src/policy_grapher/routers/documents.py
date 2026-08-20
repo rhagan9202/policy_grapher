@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
 from neo4j import Driver
 
+from policy_grapher.auth import Principal, require_principal
 from policy_grapher.config import Settings
 from policy_grapher.dependencies import get_app_settings, get_driver
 from policy_grapher.documents import (
@@ -27,6 +28,7 @@ def _not_found(slug: str) -> HTTPException:
 def list_all(
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
 ) -> list[DocumentOut]:
     return list_documents(driver, settings.neo4j_database)
 
@@ -36,6 +38,7 @@ def read_one(
     slug: str,
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
 ) -> DocumentOut:
     try:
         return get_document(driver, settings.neo4j_database, slug)
@@ -48,6 +51,7 @@ def create(
     body: DocumentIn,
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
 ) -> DocumentOut:
     try:
         return create_document(
@@ -64,6 +68,7 @@ def delete(
     slug: str,
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
 ) -> Response:
     try:
         delete_document(driver, settings.neo4j_database, slug)
@@ -78,6 +83,7 @@ def add_ref(
     target_slug: str,
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
 ) -> Response:
     try:
         add_reference(driver, settings.neo4j_database, slug, target_slug)
@@ -96,6 +102,7 @@ def remove_ref(
     target_slug: str,
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
 ) -> Response:
     try:
         remove_reference(driver, settings.neo4j_database, slug, target_slug)

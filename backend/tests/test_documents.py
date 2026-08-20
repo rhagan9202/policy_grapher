@@ -13,9 +13,9 @@ MIL_BASE = "military-standard-882e"
 
 
 @pytest.fixture
-def loaded(client_with_graph):
-    client_with_graph.post("/ingest", json={"filename": SAMPLE})
-    return client_with_graph
+def loaded(client_with_auth):
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    return client_with_auth
 
 
 def test_list_returns_every_document_ordered_by_slug(loaded):
@@ -66,8 +66,8 @@ def test_unknown_slug_is_404(loaded):
     assert loaded.get("/documents/no-such-document").status_code == 404
 
 
-def test_create_returns_201_with_a_generated_slug(client_with_graph):
-    response = client_with_graph.post(
+def test_create_returns_201_with_a_generated_slug(client_with_auth):
+    response = client_with_auth.post(
         "/documents", json={"name": "DoDD 9999.01"}
     )
 
@@ -79,21 +79,21 @@ def test_create_returns_201_with_a_generated_slug(client_with_graph):
     assert body["referenced_by"] == []
 
 
-def test_create_rejects_a_duplicate_name_with_409(client_with_graph):
+def test_create_rejects_a_duplicate_name_with_409(client_with_auth):
     payload = {"name": "DoDD 9999.01"}
-    client_with_graph.post("/documents", json=payload)
+    client_with_auth.post("/documents", json=payload)
 
-    response = client_with_graph.post("/documents", json=payload)
+    response = client_with_auth.post("/documents", json=payload)
 
     assert response.status_code == 409
 
 
-def test_a_contested_slug_suffixes_the_newcomer_and_leaves_the_incumbent(client_with_graph):
+def test_a_contested_slug_suffixes_the_newcomer_and_leaves_the_incumbent(client_with_auth):
     """ADR-005: the incumbent keeps its bare slug."""
-    first = client_with_graph.post(
+    first = client_with_auth.post(
         "/documents", json={"name": "Military Standard 882E"}
     ).json()
-    second = client_with_graph.post(
+    second = client_with_auth.post(
         "/documents", json={"name": "Military-Standard 882E"}
     ).json()
 
@@ -101,13 +101,13 @@ def test_a_contested_slug_suffixes_the_newcomer_and_leaves_the_incumbent(client_
     assert second["slug"].startswith("military-standard-882e-")
     assert second["slug"] != first["slug"]
     # The incumbent is untouched.
-    assert client_with_graph.get("/documents/military-standard-882e").json()["name"] == (
+    assert client_with_auth.get("/documents/military-standard-882e").json()["name"] == (
         "Military Standard 882E"
     )
 
 
-def test_create_rejects_an_empty_name(client_with_graph):
-    response = client_with_graph.post(
+def test_create_rejects_an_empty_name(client_with_auth):
+    response = client_with_auth.post(
         "/documents", json={"name": ""}
     )
     assert response.status_code == 422
@@ -238,11 +238,11 @@ def test_documents_no_longer_carry_a_reference_role(loaded):
     assert external["is_external"] is True
 
 
-def test_a_created_document_is_described_by_the_api(client_with_graph, driver, database):
+def test_a_created_document_is_described_by_the_api(client_with_auth, driver, database):
     """ADR-007: a user asserting a document exists is provenance."""
     from neo4j import RoutingControl
 
-    created = client_with_graph.post("/documents", json={"name": "Hand Made Doc"}).json()
+    created = client_with_auth.post("/documents", json={"name": "Hand Made Doc"}).json()
 
     records, _, _ = driver.execute_query(
         "MATCH (s:Source)-[:DESCRIBES]->(d:Document {slug: $slug}) RETURN s.id AS id, s.kind AS kind",
@@ -254,18 +254,18 @@ def test_a_created_document_is_described_by_the_api(client_with_graph, driver, d
     assert records[0]["kind"] == "api"
 
 
-def test_a_created_document_is_not_external(client_with_graph):
-    created = client_with_graph.post("/documents", json={"name": "Hand Made Doc"}).json()
+def test_a_created_document_is_not_external(client_with_auth):
+    created = client_with_auth.post("/documents", json={"name": "Hand Made Doc"}).json()
 
     assert created["is_external"] is False
-    assert client_with_graph.get(f"/documents/{created['slug']}").json()["is_external"] is False
+    assert client_with_auth.get(f"/documents/{created['slug']}").json()["is_external"] is False
 
 
-def test_every_created_document_shares_one_api_source(client_with_graph, driver, database):
+def test_every_created_document_shares_one_api_source(client_with_auth, driver, database):
     from neo4j import RoutingControl
 
-    client_with_graph.post("/documents", json={"name": "First Hand Made"})
-    client_with_graph.post("/documents", json={"name": "Second Hand Made"})
+    client_with_auth.post("/documents", json={"name": "First Hand Made"})
+    client_with_auth.post("/documents", json={"name": "Second Hand Made"})
 
     records, _, _ = driver.execute_query(
         "MATCH (s:Source {kind: 'api'}) RETURN count(s) AS total",

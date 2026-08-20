@@ -63,11 +63,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Policy Grapher", version="0.1.0", lifespan=lifespan)
 
-# DI-1 is local-only and unauthenticated. See SPEC-001 (CORS).
+# Middleware is registered at import time, but app.state.settings is only populated
+# inside lifespan, which runs later — read settings via get_settings() here instead.
+settings = get_settings()
+_origins = [o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

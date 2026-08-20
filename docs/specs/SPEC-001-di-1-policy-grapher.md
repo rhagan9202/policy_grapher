@@ -161,6 +161,8 @@ suffix is appended after truncation, so a slug can reach **89 characters**, not 
 | `GRAPH_RENDER_CAP` | **(gap review)** Maximum nodes returned by `GET /graph`. Default `300` |
 | `QUERY_ROW_CAP` | Maximum rows returned by `POST /query`. Default `1000` — see [ADR-009](adr/ADR-009-query-is-read-only-and-bounded.md) |
 | `QUERY_TIMEOUT_SECONDS` | Transaction timeout applied to each `POST /query`. Default `10.0` |
+| `API_TOKENS` | Comma-separated `name:sha256hex` pairs accepted as bearer tokens. Default empty, which authenticates nobody — see [ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md) |
+| `CORS_ALLOW_ORIGINS` | Comma-separated browser origins allowed to call the API. Default `http://localhost:5173` |
 | `DATA_DIR` | Directory `POST /ingest` resolves filenames under. Default `/data/samples` |
 | `SAMPLE_CSV` | Corpus file auto-ingest loads. Default `dod_policy_references_08122026.csv` |
 | `AUTO_INGEST` | Whether an empty graph self-loads at startup. Default `true` |
@@ -256,8 +258,18 @@ because node count tracks citation breadth rather than corpus size.
 **Silent truncation is the failure mode to avoid**: a user who doesn't know the view is
 partial will draw conclusions about a citation graph from missing edges.
 
+### Authentication
+Every endpoint except `GET /health` requires an `Authorization: Bearer <token>` header;
+`/health` stays open because the container healthcheck calls it. A token is admitted when its
+SHA-256 digest matches one of the comma-separated `name:sha256hex` pairs in `API_TOKENS`,
+yielding a `Principal`. A missing, malformed or unmatched credential is `401`. An empty
+`API_TOKENS` authenticates nobody — the failure mode is universal denial, not universal
+access. See [ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md), which supersedes
+[ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md).
+
 ### CORS
-Allow all origins (no auth required for DI-1).
+Only the origins `CORS_ALLOW_ORIGINS` lists are allowed, with credentials — by default
+`http://localhost:5173`, the Vite dev server.
 
 ---
 

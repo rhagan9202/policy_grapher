@@ -242,9 +242,9 @@ def test_edges_never_dangle(loaded):
         assert edge.target in ids
 
 
-def test_graph_endpoint_serves_the_default_view(client_with_graph):
-    client_with_graph.post("/ingest", json={"filename": SAMPLE})
-    response = client_with_graph.get("/graph")
+def test_graph_endpoint_serves_the_default_view(client_with_auth):
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    response = client_with_auth.get("/graph")
 
     assert response.status_code == 200
     body = response.json()
@@ -252,9 +252,9 @@ def test_graph_endpoint_serves_the_default_view(client_with_graph):
     assert body["truncated"] is False
 
 
-def test_graph_endpoint_honours_query_parameters(client_with_graph):
-    client_with_graph.post("/ingest", json={"filename": SAMPLE})
-    response = client_with_graph.get(
+def test_graph_endpoint_honours_query_parameters(client_with_auth):
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    response = client_with_auth.get(
         "/graph", params={"include_external": "true", "limit": 300}
     )
 
@@ -264,15 +264,15 @@ def test_graph_endpoint_honours_query_parameters(client_with_graph):
     assert body["truncated"] is True
 
 
-def test_graph_endpoint_returns_404_for_an_unknown_expand_slug(client_with_graph):
-    client_with_graph.post("/ingest", json={"filename": SAMPLE})
-    response = client_with_graph.get("/graph", params={"expand": "no-such-document"})
+def test_graph_endpoint_returns_404_for_an_unknown_expand_slug(client_with_auth):
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    response = client_with_auth.get("/graph", params={"expand": "no-such-document"})
     assert response.status_code == 404
 
 
-def test_graph_endpoint_honours_a_valid_expand_slug(client_with_graph):
-    client_with_graph.post("/ingest", json={"filename": SAMPLE})
-    response = client_with_graph.get("/graph", params={"expand": "dodi-3115-14"})
+def test_graph_endpoint_honours_a_valid_expand_slug(client_with_auth):
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    response = client_with_auth.get("/graph", params={"expand": "dodi-3115-14"})
 
     assert response.status_code == 200
     body = response.json()
@@ -284,11 +284,11 @@ def test_graph_endpoint_honours_a_valid_expand_slug(client_with_graph):
 
 
 def test_graph_endpoint_404s_for_an_unknown_expand_slug_regardless_of_include_external(
-    client_with_graph,
+    client_with_auth,
 ):
     """B3 regression: include_external must not let an unknown expand slug validate."""
-    client_with_graph.post("/ingest", json={"filename": SAMPLE})
-    response = client_with_graph.get(
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    response = client_with_auth.get(
         "/graph", params={"include_external": "true", "expand": "no-such-document"}
     )
     assert response.status_code == 404

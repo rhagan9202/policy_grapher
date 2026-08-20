@@ -1,3 +1,5 @@
+import pytest
+
 from policy_grapher import auth
 from policy_grapher.auth import Principal, token_digest, verify_token
 
@@ -48,3 +50,36 @@ def test_every_entry_is_compared_even_after_a_match(monkeypatch):
     configured = f"alice:{token_digest('a')},bob:{token_digest('b')}"
     assert verify_token("a", configured) == Principal(name="alice")
     assert len(calls) == 2
+
+
+PROTECTED = [
+    ("post", "/ingest", {"filename": "x.csv"}),
+    ("post", "/reset", None),
+    ("post", "/query", {"cypher": "RETURN 1"}),
+    ("post", "/documents", {"name": "X"}),
+    ("delete", "/documents/some-slug", None),
+]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("method,path,body", PROTECTED)
+def test_protected_routes_reject_an_unauthenticated_caller(
+    client_with_graph, method, path, body
+):
+    response = getattr(client_with_graph, method)(
+        path, **({"json": body} if body is not None else {})
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.integration
+def test_health_stays_open(client_with_graph):
+    """/health must not require a token — it is what the container healthcheck calls."""
+    assert client_with_graph.get("/health").status_code == 200
+
+
+@pytest.mark.integration
+def test_a_valid_token_is_admitted(client_with_auth):
+    response = client_with_auth.post("/query", json={"cypher": "RETURN 1 AS n"})
+    assert response.status_code == 200
+    assert response.json()["rows"] == [{"n": 1}]

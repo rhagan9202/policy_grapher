@@ -7,9 +7,9 @@ SAMPLE = "dod_policy_references_08122026.csv"
 
 
 @pytest.fixture
-def loaded(client_with_graph):
-    client_with_graph.post("/ingest", json={"filename": SAMPLE})
-    return client_with_graph
+def loaded(client_with_auth):
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    return client_with_auth
 
 
 def relationship_count(driver, database, source: str, target: str) -> int:

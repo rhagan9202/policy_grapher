@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # "name:sha256hex" pairs, comma-separated. Empty means nobody can authenticate.
     api_tokens: str = ""
 
+    # Comma-separated origins. Empty means no cross-origin browser access.
+    cors_allow_origins: str = "http://localhost:5173"
+
     data_dir: Path = Path("/data/samples")
     sample_csv: str = "dod_policy_references_08122026.csv"
     auto_ingest: bool = True

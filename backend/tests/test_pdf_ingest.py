@@ -108,8 +108,8 @@ def test_two_cited_names_contesting_a_base_slug_stay_distinct(clean_graph, datab
     assert next(iter(suffixed)).startswith("military-standard-882e-")
 
 
-def test_posting_a_pdf_filename_ingests_it(client_with_graph):
-    response = client_with_graph.post("/ingest", json={"filename": "500001p.pdf"})
+def test_posting_a_pdf_filename_ingests_it(client_with_auth):
+    response = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
 
     assert response.status_code == 200
     body = response.json()
@@ -120,8 +120,8 @@ def test_posting_a_pdf_filename_ingests_it(client_with_graph):
     assert isinstance(body["references_unattributed"], list)
 
 
-def test_the_csv_response_still_says_manifest(client_with_graph):
-    response = client_with_graph.post(
+def test_the_csv_response_still_says_manifest(client_with_auth):
+    response = client_with_auth.post(
         "/ingest", json={"filename": "dod_policy_references_08122026.csv"}
     )
 
@@ -131,7 +131,7 @@ def test_the_csv_response_still_says_manifest(client_with_graph):
     assert body["relationships_created"] == 672
 
 
-def test_an_unreadable_pdf_is_a_400(client_with_graph, tmp_path, monkeypatch):
+def test_an_unreadable_pdf_is_a_400(client_with_auth, tmp_path, monkeypatch):
     """A PDF with no issuance header is a client error, not a 500."""
     from policy_grapher import ingest as ingest_module
     from policy_grapher.sources.document import DocumentSourceError
@@ -141,7 +141,7 @@ def test_an_unreadable_pdf_is_a_400(client_with_graph, tmp_path, monkeypatch):
 
     monkeypatch.setattr(ingest_module.pdf, "extract_document", refuse)
 
-    response = client_with_graph.post("/ingest", json={"filename": "500001p.pdf"})
+    response = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
 
     assert response.status_code == 400
     assert "header" in response.json()["detail"]
@@ -185,7 +185,7 @@ def test_a_document_the_manifest_only_cites_is_not_demoted_by_reingest(
     assert records[0]["is_external"] is False
 
 
-def test_a_csv_reingest_does_not_demote_a_pdf_ingested_document(client_with_graph):
+def test_a_csv_reingest_does_not_demote_a_pdf_ingested_document(client_with_auth):
     """STORY-037, smoke coverage at the HTTP level.
 
     Every sample PDF is also a corpus row in the sample CSV, so this does not
@@ -193,23 +193,23 @@ def test_a_csv_reingest_does_not_demote_a_pdf_ingested_document(client_with_grap
     above) — it just confirms the endpoint still holds the invariant end to
     end. Before ADR-007 that demoted the PDF-ingested node to :External, hiding
     it from the default graph view."""
-    client_with_graph.post("/ingest", json={"filename": "500001p.pdf"})
+    client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
 
-    client_with_graph.post(
+    client_with_auth.post(
         "/ingest", json={"filename": "dod_policy_references_08122026.csv"}
     )
 
-    body = client_with_graph.get("/documents/dodd-5000-01").json()
+    body = client_with_auth.get("/documents/dodd-5000-01").json()
     assert body["is_external"] is False
 
-    graph = client_with_graph.get("/graph").json()
+    graph = client_with_auth.get("/graph").json()
     assert "dodd-5000-01" in {node["id"] for node in graph["nodes"]}
 
 
-def test_a_pdf_records_itself_as_the_source_of_its_document(client_with_graph, driver, database):
+def test_a_pdf_records_itself_as_the_source_of_its_document(client_with_auth, driver, database):
     from neo4j import RoutingControl
 
-    client_with_graph.post("/ingest", json={"filename": "500001p.pdf"})
+    client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
 
     records, _, _ = driver.execute_query(
         "MATCH (s:Source)-[:DESCRIBES]->(d:Document {slug: 'dodd-5000-01'}) "
@@ -221,9 +221,9 @@ def test_a_pdf_records_itself_as_the_source_of_its_document(client_with_graph, d
     assert records[0]["kind"] == "document"
 
 
-def test_a_cited_document_a_pdf_introduces_is_still_external(client_with_graph):
+def test_a_cited_document_a_pdf_introduces_is_still_external(client_with_auth):
     """Only the PDF's own subject is described; what it cites is not."""
-    client_with_graph.post("/ingest", json={"filename": "500001p.pdf"})
+    client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
 
-    body = client_with_graph.get("/documents/dodd-1322-18").json()
+    body = client_with_auth.get("/documents/dodd-1322-18").json()
     assert body["is_external"] is True

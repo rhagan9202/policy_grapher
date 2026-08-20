@@ -288,8 +288,8 @@ def test_the_manifest_is_still_ingestable_after_a_second_pdf(clean_graph, databa
     assert len(set(after.values())) == len(after)
 
 
-def test_ingest_endpoint_returns_the_result(client_with_graph):
-    response = client_with_graph.post("/ingest", json={"filename": SAMPLE})
+def test_ingest_endpoint_returns_the_result(client_with_auth):
+    response = client_with_auth.post("/ingest", json={"filename": SAMPLE})
     assert response.status_code == 200
     body = response.json()
     assert body["nodes_created"] == 438

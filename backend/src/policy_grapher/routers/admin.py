@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from neo4j import Driver
 from pydantic import Field
 
+from policy_grapher.auth import Principal, require_principal
 from policy_grapher.config import Settings
 from policy_grapher.db import clear_graph
 from policy_grapher.dependencies import get_app_settings, get_driver
@@ -37,6 +38,7 @@ def ingest(
     body: IngestRequest,
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
 ) -> IngestResult | DocumentIngestResult:
     try:
         return ingest_file(
@@ -50,6 +52,7 @@ def ingest(
 def reset(
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
 ) -> ResetResult:
     nodes, relationships = clear_graph(driver, settings.neo4j_database)
     return ResetResult(nodes_deleted=nodes, relationships_deleted=relationships)
