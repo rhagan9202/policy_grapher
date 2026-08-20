@@ -201,3 +201,40 @@ def test_a_single_edition_has_no_supersession(clean_graph, database):
 
     with clean_graph.session(database=database) as session:
         assert session.execute_write(link_supersession, "d") == 0
+
+
+@pytest.mark.integration
+def test_rebuilding_one_document_leaves_another_chain_untouched(clean_graph, database):
+    """REBUILD_SUPERSESSION is the only place this codebase deletes relationships.
+    It must delete only the rebuilt document's own chain."""
+    clean_graph.execute_query(
+        "CREATE (:Document {slug: 'd', name: 'D'}), "
+        "(:Document {slug: 'other', name: 'Other'})",
+        database_=database,
+    )
+    _add(clean_graph, database, "d", date(2024, 1, 1), "a")
+    _add(clean_graph, database, "d", date(2026, 1, 1), "c")
+    _add(clean_graph, database, "other", date(2024, 1, 1), "x")
+    _add(clean_graph, database, "other", date(2026, 1, 1), "y")
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(link_supersession, "d")
+        session.execute_write(link_supersession, "other")
+
+    # A mid-chain edition arrives for d only. Rebuilding d must not touch other's chain.
+    _add(clean_graph, database, "d", date(2025, 1, 1), "b")
+    with clean_graph.session(database=database) as session:
+        edges = session.execute_write(link_supersession, "d")
+
+    assert edges == 2
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (newer:DocumentVersion)-[:SUPERSEDES]->(older:DocumentVersion) "
+        "RETURN newer.version_id AS newer, older.version_id AS older "
+        "ORDER BY newer.version_id",
+        database_=database,
+    )
+    assert [(r["newer"], r["older"]) for r in records] == [
+        ("d@2025-01-01", "d@2024-01-01"),
+        ("d@2026-01-01", "d@2025-01-01"),
+        ("other@2026-01-01", "other@2024-01-01"),
+    ]
