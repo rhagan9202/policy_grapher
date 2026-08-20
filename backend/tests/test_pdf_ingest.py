@@ -85,6 +85,10 @@ def test_two_cited_names_contesting_a_base_slug_stay_distinct(clean_graph, datab
             attributed=("Military Standard 882E", "Military-Standard 882E"),
             unattributed=(),
         ),
+        # A hand-built document still has to carry text: an ingest that produces
+        # no chunks is refused, because the drop-then-write order would otherwise
+        # let it delete a previous ingest's chunks silently.
+        pages=["1. PURPOSE\nThis directive establishes policy.\n"],
     )
 
     slug, nodes, relationships = ingest_document(
@@ -240,6 +244,10 @@ def _extracted(name, effective_date):
             format="modern", section_found=True, attributed=(), unattributed=()
         ),
         effective_date=effective_date,
+        # Text, not because these tests care about it, but because an ingest that
+        # yields no chunks is now refused outright — see
+        # `test_a_pdf_with_no_extractable_text_fails_instead_of_wiping_its_chunks`.
+        pages=[f"1. PURPOSE\nThe body of {name}.\n"],
     )
 
 
@@ -312,3 +320,49 @@ def test_checksum_reflects_file_bytes_not_filename(clean_graph, database, tmp_pa
     checksum_diff_name_b = checksum_for("Diff Name Doc B", diff_name_b)
     assert checksum_diff_name_a == checksum_diff_name_b
     assert checksum_diff_name_a == hashlib.sha256(b"shared bytes").hexdigest()
+
+
+def test_a_pdf_with_no_extractable_text_fails_instead_of_wiping_its_chunks(
+    client_with_auth, monkeypatch
+):
+    """The reachable half of "a document ingests successfully with no text".
+
+    `drop_chunks` runs before `write_chunks`, so a scanned PDF with no text
+    layer, a pypdf regression, or a refactor that forgets to pass `pages` would
+    delete the chunk set a previous ingest built and return 200 with a
+    healthy-looking node count. Nothing downstream asserts that a document ended
+    up with any text at all, so the loss is silent. A document source that
+    produces no chunks must fail the whole ingest instead.
+    """
+    from dataclasses import replace
+
+    from policy_grapher import ingest as ingest_module
+
+    first = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    assert first.status_code == 200
+    slug = first.json()["document"]["slug"]
+    before = client_with_auth.get(f"/documents/{slug}/chunks").json()
+    assert len(before) > 1, "positive control: the first ingest must store text"
+
+    real = ingest_module.pdf.extract_document
+    monkeypatch.setattr(
+        ingest_module.pdf, "extract_document", lambda path: replace(real(path), pages=[])
+    )
+
+    second = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+
+    assert second.status_code == 400
+    assert "no text" in second.json()["detail"]
+    after = client_with_auth.get(f"/documents/{slug}/chunks").json()
+    assert [c["chunk_id"] for c in after] == [c["chunk_id"] for c in before]
+
+
+def test_a_manifest_ingest_is_unaffected_by_the_no_text_guard(client_with_auth):
+    """A CSV legitimately carries names and edges, not text, and so legitimately
+    produces no chunks. The guard is on the document path only."""
+    response = client_with_auth.post(
+        "/ingest", json={"filename": "dod_policy_references_08122026.csv"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "manifest"

@@ -11,7 +11,7 @@ from policy_grapher.chunks import drop_chunks, write_chunks
 from policy_grapher.documents import allocate_slugs, reconcile_slugs
 from policy_grapher.models import DocumentIngestResult, DocumentRef, IngestResult
 from policy_grapher.sources import is_document_source, pdf, resolve_source_path
-from policy_grapher.sources.document import ExtractedDocument
+from policy_grapher.sources.document import DocumentSourceError, ExtractedDocument
 from policy_grapher.sources.manifest import ParsedCorpus, parse_corpus
 from policy_grapher.sources.provenance import (
     DESCRIBES,
@@ -217,11 +217,23 @@ def _write_document(
     # not recomputed, since it is the same resolution `chunk_pages` and
     # `write_chunks` need to attach against.
     drop_chunks(tx, version_id=version)
-    write_chunks(
+    written = write_chunks(
         tx,
         version_id=version,
         chunks=chunk_pages(pages, version_id=version),
     )
+    # Because the drop runs first, a document that yields no text does not merely
+    # store nothing — it *deletes* whatever a previous ingest stored, and returns
+    # 200 with a healthy-looking node count. A scanned PDF with no text layer, a
+    # pypdf regression, or a caller that forgets to pass `pages` all reach here.
+    # Failing rolls the whole transaction back, so the previous chunk set
+    # survives. This is the document path only: a manifest legitimately produces
+    # no chunks and never runs this function.
+    if written == 0:
+        raise DocumentSourceError(
+            f"{filename!r} produced no text to chunk — a scanned PDF with no text layer, "
+            "or an extraction failure. Nothing was written; the previous chunks are unchanged."
+        )
 
     tx.run(
         REFRESH_EXTERNAL,
