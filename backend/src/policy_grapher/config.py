@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     # enumerate every route. Turning this on is an explicit, documented opt-out.
     enable_api_docs: bool = False
 
+    # Obligation extraction (DI-2 phase 3). The default adapter runs no model at
+    # all, so a fresh clone and CI both pass without a model server; "local"
+    # points at an Ollama-compatible HTTP endpoint. `extractor_model` is part of
+    # the cache key via the adapter id — changing it must not reuse cached
+    # results from a different model.
+    extractor_adapter: str = "null"          # "null" | "local"
+    extractor_model: str = "qwen3:8b"
+    extractor_base_url: str = "http://localhost:11434"
+
     data_dir: Path = Path("/data/samples")
     sample_csv: str = "dod_policy_references_08122026.csv"
     auto_ingest: bool = True
