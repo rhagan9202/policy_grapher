@@ -75,6 +75,14 @@ class DocumentOut(BaseModel):
     referenced_by: list[str] = Field(default_factory=list)
 
 
+class DocumentVersionOut(BaseModel):
+    version_id: str
+    effective_date: str | None
+    checksum: str
+    source_uri: str
+    supersedes: str | None
+
+
 class DocumentIn(BaseModel):
     name: str = Field(min_length=1)
 
