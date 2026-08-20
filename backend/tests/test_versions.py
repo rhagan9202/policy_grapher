@@ -5,6 +5,7 @@ import pytest
 from policy_grapher.versions import (
     UnknownDocumentError,
     VersionConflictError,
+    link_supersession,
     merge_version,
     version_id,
 )
@@ -129,3 +130,74 @@ def test_merge_version_raises_on_a_same_date_checksum_conflict(clean_graph, data
         database_=database,
     )
     assert [r["checksum"] for r in records] == ["original-checksum"]
+
+
+def _add(driver, database, slug, effective_date, checksum):
+    with driver.session(database=database) as session:
+        session.execute_write(
+            merge_version,
+            document_slug=slug,
+            effective_date=effective_date,
+            checksum=checksum,
+            source_uri=f"file:///{checksum}.pdf",
+        )
+
+
+@pytest.mark.integration
+def test_a_newer_edition_supersedes_the_older_one(clean_graph, database):
+    clean_graph.execute_query(
+        "CREATE (:Document {slug: 'd', name: 'D'})", database_=database
+    )
+    _add(clean_graph, database, "d", date(2024, 1, 1), "old")
+    _add(clean_graph, database, "d", date(2026, 1, 1), "new")
+
+    with clean_graph.session(database=database) as session:
+        edges = session.execute_write(link_supersession, "d")
+
+    assert edges == 1
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (newer:DocumentVersion)-[:SUPERSEDES]->(older:DocumentVersion) "
+        "RETURN newer.version_id AS newer, older.version_id AS older",
+        database_=database,
+    )
+    assert [(r["newer"], r["older"]) for r in records] == [("d@2026-01-01", "d@2024-01-01")]
+
+
+@pytest.mark.integration
+def test_the_chain_is_rebuilt_not_appended(clean_graph, database):
+    """An edition ingested out of order must not leave a wrong chain behind."""
+    clean_graph.execute_query(
+        "CREATE (:Document {slug: 'd', name: 'D'})", database_=database
+    )
+    _add(clean_graph, database, "d", date(2024, 1, 1), "a")
+    _add(clean_graph, database, "d", date(2026, 1, 1), "c")
+    with clean_graph.session(database=database) as session:
+        session.execute_write(link_supersession, "d")
+
+    # The 2025 edition arrives last but belongs in the middle.
+    _add(clean_graph, database, "d", date(2025, 1, 1), "b")
+    with clean_graph.session(database=database) as session:
+        edges = session.execute_write(link_supersession, "d")
+
+    assert edges == 2
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (newer:DocumentVersion)-[:SUPERSEDES]->(older:DocumentVersion) "
+        "RETURN newer.version_id AS newer, older.version_id AS older "
+        "ORDER BY newer.version_id",
+        database_=database,
+    )
+    assert [(r["newer"], r["older"]) for r in records] == [
+        ("d@2025-01-01", "d@2024-01-01"),
+        ("d@2026-01-01", "d@2025-01-01"),
+    ]
+
+
+@pytest.mark.integration
+def test_a_single_edition_has_no_supersession(clean_graph, database):
+    clean_graph.execute_query(
+        "CREATE (:Document {slug: 'd', name: 'D'})", database_=database
+    )
+    _add(clean_graph, database, "d", date(2026, 1, 1), "only")
+
+    with clean_graph.session(database=database) as session:
+        assert session.execute_write(link_supersession, "d") == 0

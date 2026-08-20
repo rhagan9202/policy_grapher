@@ -104,3 +104,39 @@ def merge_version(
             "files claim the same edition"
         )
     return resolved
+
+
+REBUILD_SUPERSESSION = """
+MATCH (d:Document {slug: $document_slug})-[:HAS_VERSION]->(v:DocumentVersion)
+WITH v ORDER BY coalesce(v.effective_date, '') ASC, v.ingested_at ASC
+WITH collect(v) AS ordered
+CALL {
+    WITH ordered
+    UNWIND range(0, size(ordered) - 1) AS i
+    WITH ordered[i] AS v
+    MATCH (v)-[old:SUPERSEDES]->()
+    DELETE old
+}
+WITH ordered
+UNWIND range(1, size(ordered) - 1) AS i
+WITH ordered[i] AS newer, ordered[i - 1] AS older
+MERGE (newer)-[:SUPERSEDES]->(older)
+RETURN count(*) AS edges
+"""
+
+
+def link_supersession(tx: ManagedTransaction, document_slug: str) -> int:
+    """Rebuild one instrument's supersession chain from scratch.
+
+    Rebuilt rather than appended because editions do not arrive in order. A
+    2025 edition ingested after the 2026 one belongs in the middle, and an
+    append-only chain would record that 2026 supersedes 2024 forever.
+
+    This deletes and recreates SUPERSEDES edges, which is the one place ingest
+    is not purely additive. It is safe because the chain is *derived* from the
+    versions' own dates — no human decision lives on these edges. Do not extend
+    this pattern to edges that carry a judgement.
+    """
+    records = tx.run(REBUILD_SUPERSESSION, {"document_slug": document_slug})
+    row = records.single()
+    return row["edges"] if row else 0
