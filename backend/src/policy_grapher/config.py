@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     query_row_cap: int = 1000
     query_timeout_seconds: float = 10.0
 
+    # "name:sha256hex" pairs, comma-separated. Empty means nobody can authenticate.
+    api_tokens: str = ""
+
     data_dir: Path = Path("/data/samples")
     sample_csv: str = "dod_policy_references_08122026.csv"
     auto_ingest: bool = True

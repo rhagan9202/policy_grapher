@@ -1,8 +1,13 @@
 # ADR-001: The initial demo assumes Cypher-fluent users
 
-**Status:** Accepted · **Date:** 2026-08-12 · **Deciders:** Project owner
+**Status:** Superseded by [ADR-008](ADR-008-authenticated-non-cypher-audience.md) · **Date:** 2026-08-12 · **Deciders:** Project owner
 
 *Frozen once accepted. To change this decision, write a new ADR and mark this one superseded.*
+
+**Superseded by [ADR-008](ADR-008-authenticated-non-cypher-audience.md).** This ADR's own
+revisit trigger — "Revisit when LLM query construction starts" — is DI-2. ADR-008 introduces
+bearer-token authentication for a no-longer-trusted, no-longer-necessarily-Cypher-fluent
+audience.
 
 ## Context
 
