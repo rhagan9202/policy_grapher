@@ -140,3 +140,34 @@ def link_supersession(tx: ManagedTransaction, document_slug: str) -> int:
     records = tx.run(REBUILD_SUPERSESSION, {"document_slug": document_slug})
     row = records.single()
     return row["edges"] if row else 0
+
+
+MERGE_AUTHORITY = """
+MERGE (a:Authority {slug: $slug})
+ON CREATE SET a.name = $name
+"""
+
+ATTACH_AUTHORITY = """
+MATCH (v:DocumentVersion {version_id: $version_id})
+MATCH (a:Authority {slug: $authority_slug})
+MERGE (v)-[:ISSUED_BY]->(a)
+"""
+
+MERGE_ENTITY = """
+MERGE (e:Entity {slug: $slug})
+ON CREATE SET e.name = $name, e.kind = $kind
+"""
+
+
+def merge_authority(tx: ManagedTransaction, *, slug: str, name: str) -> None:
+    tx.run(MERGE_AUTHORITY, {"slug": slug, "name": name}).consume()
+
+
+def attach_authority(tx: ManagedTransaction, *, version_id: str, authority_slug: str) -> None:
+    tx.run(
+        ATTACH_AUTHORITY, {"version_id": version_id, "authority_slug": authority_slug}
+    ).consume()
+
+
+def merge_entity(tx: ManagedTransaction, *, slug: str, name: str, kind: str) -> None:
+    tx.run(MERGE_ENTITY, {"slug": slug, "name": name, "kind": kind}).consume()

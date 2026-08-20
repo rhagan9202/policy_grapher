@@ -21,6 +21,14 @@ CONSTRAINTS: tuple[str, ...] = (
         "CREATE CONSTRAINT document_version_id_unique IF NOT EXISTS "
         "FOR (v:DocumentVersion) REQUIRE v.version_id IS UNIQUE"
     ),
+    (
+        "CREATE CONSTRAINT authority_slug_unique IF NOT EXISTS "
+        "FOR (a:Authority) REQUIRE a.slug IS UNIQUE"
+    ),
+    (
+        "CREATE CONSTRAINT entity_slug_unique IF NOT EXISTS "
+        "FOR (e:Entity) REQUIRE e.slug IS UNIQUE"
+    ),
 )
 
 

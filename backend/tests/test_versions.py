@@ -5,7 +5,10 @@ import pytest
 from policy_grapher.versions import (
     UnknownDocumentError,
     VersionConflictError,
+    attach_authority,
     link_supersession,
+    merge_authority,
+    merge_entity,
     merge_version,
     version_id,
 )
@@ -238,3 +241,37 @@ def test_rebuilding_one_document_leaves_another_chain_untouched(clean_graph, dat
         ("d@2026-01-01", "d@2025-01-01"),
         ("other@2026-01-01", "other@2024-01-01"),
     ]
+
+
+@pytest.mark.integration
+def test_an_authority_issues_a_version(clean_graph, database):
+    clean_graph.execute_query(
+        "CREATE (:Document {slug: 'd', name: 'D'})", database_=database
+    )
+    _add(clean_graph, database, "d", date(2026, 1, 1), "x")
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(merge_authority, slug="usd-c", name="Under Secretary of Defense (Comptroller)")
+        session.execute_write(attach_authority, version_id="d@2026-01-01", authority_slug="usd-c")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (:DocumentVersion {version_id: 'd@2026-01-01'})-[:ISSUED_BY]->(a:Authority) "
+        "RETURN a.name AS name",
+        database_=database,
+    )
+    assert [r["name"] for r in records] == ["Under Secretary of Defense (Comptroller)"]
+
+
+@pytest.mark.integration
+def test_reference_nodes_are_idempotent(clean_graph, database):
+    with clean_graph.session(database=database) as session:
+        for _ in range(2):
+            session.execute_write(merge_authority, slug="dla", name="Defense Logistics Agency")
+            session.execute_write(merge_entity, slug="dla-j8", name="DLA J8", kind="directorate")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (a:Authority) WITH count(a) AS authorities "
+        "MATCH (e:Entity) RETURN authorities, count(e) AS entities",
+        database_=database,
+    )
+    assert (records[0]["authorities"], records[0]["entities"]) == (1, 1)
