@@ -1,8 +1,14 @@
 # ADR-004: POST /query stays unrestricted in DI-1
 
-**Status:** Accepted · **Date:** 2026-08-12 · **Deciders:** Project owner
+**Status:** Superseded by [ADR-009](ADR-009-query-is-read-only-and-bounded.md) · **Date:** 2026-08-12 · **Deciders:** Project owner
 
 *Frozen once accepted. To change this decision, write a new ADR and mark this one superseded.*
+
+**Superseded by [ADR-009](ADR-009-query-is-read-only-and-bounded.md).** The three conditions
+this ADR named as bounding the risk — local-only, disposable data, trusted Cypher-fluent
+audience — stop holding once DI-2 targets a hosted deployment. ADR-009 makes `POST /query`
+read-only, time-bounded, and row-capped; mutation moves to authenticated routes rather than
+disappearing. This document is kept for the reasoning that justified the original acceptance.
 
 ## Context
 

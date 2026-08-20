@@ -78,7 +78,7 @@ def test_is_graph_empty_reflects_content(clean_graph, database):
 
 
 def test_a_graph_holding_only_an_orphan_source_is_empty(
-    client_with_graph, driver, database
+    client_with_auth, driver, database
 ):
     """Deleting the last document leaves the shared `api` :Source behind.
 
@@ -87,10 +87,10 @@ def test_a_graph_holding_only_an_orphan_source_is_empty(
     Counting every node would let a provenance node the user cannot see block
     the load, and the UI would come up empty until someone called POST /reset.
     """
-    created = client_with_graph.post("/documents", json={"name": "Temporary"})
+    created = client_with_auth.post("/documents", json={"name": "Temporary"})
     assert created.status_code == 201
     slug = created.json()["slug"]
-    assert client_with_graph.delete(f"/documents/{slug}").status_code == 204
+    assert client_with_auth.delete(f"/documents/{slug}").status_code == 204
 
     records, _, _ = driver.execute_query(
         "MATCH (d:Document) RETURN count(d) AS documents",

@@ -8,11 +8,17 @@ Sequencing and intent, not commitments with dates. Individual work items live in
 ## Now
 
 **DI-1 is complete** — 18 of 18 stories, closed on 2026-08-13 — and PDF ingestion
-(STORY-016) has since landed on top of it. `docker compose up` ingests
-`data/samples/dod_policy_references_08122026.csv` and renders its 23 documents as a navigable
-graph at `/`, with the full 438-document corpus listed and searchable at `/documents`.
+(STORY-016) has since landed on top of it. `./scripts/init-env.sh && docker compose up`
+ingests `data/samples/dod_policy_references_08122026.csv` and renders its 23 documents as a
+navigable graph at `/`, with the full 438-document corpus listed and searchable at `/documents`.
 `POST /ingest` now also accepts a DoD issuance PDF, extracting the document and the
 references it cites.
+
+Every route but `/health` requires a bearer token, and the browser app sends one: the vite dev
+proxy injects the token `./scripts/init-env.sh` generates, so a clean clone loads both views
+after `./scripts/init-env.sh && docker compose up`. See
+[ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md) and
+[ADR-010](../specs/adr/ADR-010-secrets-leave-the-repository.md).
 
 The feasibility question DI-1 existed to answer is answered: the pipeline holds end to end at
 sample-corpus scale, and prose extraction works at 78–100% per document against the corpus as
@@ -22,14 +28,16 @@ documents and one 23-row manifest.
 ## Next
 
 **Development Increment 2 is designed and approved** — see the
-[DI-2 design](../superpowers/specs/2026-08-20-di-2-design.md), approved 2026-08-20. Phase 0's
-[implementation plan](../superpowers/plans/2026-08-20-di-2-phase-0-security-gate.md) is written;
-the remaining phases and a `SPEC-002` are not. It builds the semantic substrate that turns DI-1's
-bibliographic graph into a policy knowledge graph — document text, the obligations inside that
-text, and version supersession — proven by one deliverable, **impact triage**: *a higher-level
-policy changed; which of our policies are affected, and how urgently?* Several items in
-[Later](#later) fall inside that scope, notably policy point extraction and richer metadata and
-relationships. Nothing is implemented yet.
+[DI-2 design](../superpowers/specs/2026-08-20-di-2-design.md), approved 2026-08-20. Phase 0, the
+[security gate](../superpowers/plans/2026-08-20-di-2-phase-0-security-gate.md), has landed:
+bounded `POST /query` (STORY-024), bearer-token authentication (STORY-019), and locally
+generated secrets. The remaining phases and a `SPEC-002` are not yet written. DI-2 builds the
+semantic substrate that turns DI-1's bibliographic graph into a policy knowledge graph —
+document text, the obligations inside that text, and version supersession — proven by one
+deliverable, **impact triage**: *a higher-level policy changed; which of our policies are
+affected, and how urgently?* Several items in [Later](#later) fall inside that scope, notably
+policy point extraction and richer metadata and relationships. Phase 1 (schema migration and
+versioning) is next.
 
 Closing the gap between DI-1 and the MVP definition of done in the [vision](vision.md):
 
@@ -63,16 +71,19 @@ document and one relationship type (`REFERENCES`); the program intent needs cons
 - **LLM-constructed queries.** The demo assumes users write Cypher
   ([ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md)); as development
   matures, queries get constructed via LLM instead. This is what opens the system to the
-  non-technical audience the corpus implies. Two things gate it: the graph schema settling
-  (a natural-language layer over a schema still in migration is wasted work), and
-  authentication landing — arbitrary generated Cypher against an unauthenticated `POST /query`
-  is a materially different risk from a human typing at a demo.
+  non-technical audience the corpus implies. Two things gated it. The security half is
+  closed: `POST /query` is authenticated, read-only, timed and row-capped
+  ([ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md),
+  [ADR-009](../specs/adr/ADR-009-query-is-read-only-and-bounded.md)), so generated Cypher no
+  longer runs anonymously against an unbounded endpoint. What still gates it is the graph
+  schema settling — a natural-language layer over a schema still in migration is wasted work.
 
 ## Not in the initial surge
 
 Carried from the [vision](vision.md#explicit-non-goals): RAG, vector embeddings, LLM calls,
-auth, multi-stage Docker builds, and pagination are all out of scope while the demo
-definition of done is the target.
+multi-stage Docker builds, and pagination are all out of scope while the demo definition of
+done is the target. Auth has since left this list — DI-2's security gate landed it (see
+[Now](#now)), because a hosted target made it a prerequisite rather than a nicety.
 
 Every one of these is deferred, not excluded. This section is a statement about *now*, not
 about the life of the project — LLM-constructed queries already have a place in

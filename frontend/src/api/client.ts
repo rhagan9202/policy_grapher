@@ -1,4 +1,11 @@
-import type { DocumentIn, DocumentOut, GraphOut, IngestResult, ResetResult } from './types'
+import type {
+  DocumentIn,
+  DocumentOut,
+  GraphOut,
+  IngestResult,
+  QueryResult,
+  ResetResult,
+} from './types'
 
 const BASE = '/api'
 
@@ -93,8 +100,8 @@ export function reset(): Promise<ResetResult> {
   return request<ResetResult>('/reset', { method: 'POST' })
 }
 
-export function runQuery(cypher: string): Promise<Record<string, unknown>[]> {
-  return request<Record<string, unknown>[]>('/query', {
+export function runQuery(cypher: string): Promise<QueryResult> {
+  return request<QueryResult>('/query', {
     method: 'POST',
     body: JSON.stringify({ cypher }),
   })

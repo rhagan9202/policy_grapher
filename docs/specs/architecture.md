@@ -12,8 +12,10 @@ the [roadmap](../planning/roadmap.md); the reasoning behind past choices belongs
 merged into a Neo4j graph, and served to a React UI as both a force-directed graph and a
 searchable document table. Documents and reference edges can be created, edited and deleted
 through the API, the graph can be emptied and reloaded, and raw Cypher can be run against
-it. The full stack comes up with `docker compose up` and self-loads the sample corpus on
-first run — see the [README](../../README.md) for the quickstart.
+it. The full stack comes up with `./scripts/init-env.sh && docker compose up` and self-loads
+the sample corpus on first run — two commands rather than one since secrets stopped being
+committed ([ADR-010](adr/ADR-010-secrets-leave-the-repository.md)). See the
+[README](../../README.md) for the quickstart.
 
 ```
 CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (React/Vite)
@@ -24,8 +26,8 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 
 | Component | Responsibility |
 | --- | --- |
-| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes raw Cypher. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
-| **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the committed `.env`. Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
+| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes read-only Cypher under a transaction timeout and a row cap. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
+| **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the generated `.env` — written by `./scripts/init-env.sh`, never committed ([ADR-010](adr/ADR-010-secrets-leave-the-repository.md)). Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
 | **Frontend** (React + Vite, port 5173) | Two routes. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`; clicking a node shows its name and whether it is a corpus or external document, and clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. `/documents` renders every document from `GET /documents` as a table — name, how many documents cite it, and outgoing references with slugs resolved to names from the same payload — filtered client-side by name as the user types. Vite dev server proxies `/api` to the backend. |
 
 Typed fetch wrappers covering every endpoint live in `src/api/client.ts`. `request()`
@@ -37,6 +39,14 @@ app assembly, CORS, and lifespan only. Routers reach the driver and settings thr
 `dependencies.py`, which resolves both from `request.app.state`; the lifespan is what puts
 them there. Cypher lives beside the router that needs it: `graph.py`, `documents.py`, and
 `query.py` at the package root.
+
+Every route except `GET /health` also depends on `require_principal` from `auth.py`, which
+matches the SHA-256 digest of an `Authorization: Bearer` token against the `name:sha256hex`
+pairs in `API_TOKENS` and returns a `Principal`, or `401`. Comparison is constant-time and
+scans every configured entry; an empty `API_TOKENS` admits nobody. `/health` stays open
+because the container healthcheck calls it. See
+[ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md), superseding
+[ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md).
 
 Ingestion sources live in `sources/`: `__init__.py` dispatches on file extension,
 `manifest.py` reads a CSV into many documents, `document.py` holds the shared
@@ -134,9 +144,16 @@ Because a `Document` now has no mutable field — renaming is delete-and-recreat
 
 Docker Compose with three services: `neo4j`, `backend`, `frontend`. Configuration reaches
 the backend through `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`,
-`GRAPH_RENDER_CAP`, `SAMPLE_CSV`, and `AUTO_INGEST`, all supplied by the committed `.env`.
-CORS allows all origins; there is no authentication. `backend` waits on Neo4j's HTTP
-healthcheck before starting. `./data` is bind-mounted into `backend` read-only with an
+`GRAPH_RENDER_CAP`, `QUERY_ROW_CAP`, `QUERY_TIMEOUT_SECONDS`, `API_TOKENS`,
+`CORS_ALLOW_ORIGINS`, `ENABLE_API_DOCS`, `SAMPLE_CSV`, and `AUTO_INGEST`; the `frontend`
+service additionally takes `API_TOKEN`, the plaintext half of the same token, which only the
+vite dev proxy reads. All of them come from the generated `.env` — `./scripts/init-env.sh`
+writes it and it is not committed ([ADR-010](adr/ADR-010-secrets-leave-the-repository.md)).
+CORS allows only the origins `CORS_ALLOW_ORIGINS` lists — `http://localhost:5173`, the Vite
+dev server, by default — without credentials, since the credential is an `Authorization`
+header rather than a cookie. `ENABLE_API_DOCS` is `false` by default, so `/openapi.json`,
+`/docs` and `/redoc` are not published: they carry no authentication of their own.
+`backend` waits on Neo4j's HTTP healthcheck before starting. `./data` is bind-mounted into `backend` read-only with an
 SELinux private label (`:Z`) since only one container consumes it, and `DATA_DIR` points at
 `/data/samples` inside it; `./frontend/src` is
 bind-mounted into `frontend` with the shared label (`:z`) instead, because tooling
@@ -184,18 +201,35 @@ turns a surprise outage into a planned piece of work.
   manifest citing that name demotes it, so it vanishes from the default graph view with no
   error anywhere. STORY-038.
 
-- **`POST /query` executes arbitrary Cypher** with no authentication, no read-only
-  enforcement, no timeout, no row cap, and open CORS — any page in any browser that can
-  reach the backend can drop the database. That is a deliberate, bounded risk acceptance:
-  [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md) records the conditions that make it
-  defensible (local-only, disposable data, trusted audience), all three confirmed to hold
-  when the endpoint shipped, and it must not reach a shared environment in this form. The
-  endpoint is also the demo's entire query interface
+- **Anything that reaches port 5173 reads the corpus as the dev principal.** The vite
+  dev proxy adds `Authorization: Bearer $API_TOKEN` to the GET requests it forwards, so a
+  reader needs no credential of its own — the port *is* the credential. Injection is
+  restricted to GET (`frontend/vite.config.ts`), which keeps a stray cross-origin `POST
+  /api/reset` from wiping the graph, and the published port is bound to `127.0.0.1` so the
+  door is not open to the rest of the network; neither makes the reads authenticated. This
+  is a development affordance, and it is the piece that a real login flow replaces first.
+
+- **A bearer token is all or nothing.** Authentication answers *whether* a caller is known,
+  not *what* it may do: every valid token drives every route, and the `Principal` a route
+  receives is not read, logged, or used to scope results. `POST /query` is bounded in what it
+  can do — read routing, a transaction timeout and a row cap
+  ([ADR-009](adr/ADR-009-query-is-read-only-and-bounded.md), superseding
+  [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md)) — and now in who may call it
+  ([ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md)), but one leaked token still
+  reads the whole graph and there is no attribution afterward. The endpoint is also the
+  demo's entire query interface
   ([ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md)) and the eventual target of
   LLM-constructed queries, so its contract outlives the assumption that a trusted human is
   typing into it.
-- **The committed `.env` makes the Neo4j password public by construction.** Accepted so a
-  clean clone runs with one command. Same boundary as above: local-only.
+- **Secrets are generated locally, not committed.** `scripts/init-env.sh` writes a fresh
+  Neo4j password and API token into an untracked `.env`; nothing in the repository grants
+  access to anything. The previously committed password remains in git history and is
+  treated as compromised — harmless, since it protected only a local development database.
+  The vite dev proxy (`frontend/vite.config.ts`) injects the generated token server-side, so
+  a clean `./scripts/init-env.sh && docker compose up` loads the UI rather than erroring on
+  every view. An existing stack needs `docker compose down -v` first: `NEO4J_AUTH` sets the
+  Neo4j password when the data volume is created and never re-keys an existing one. See
+  [ADR-010](adr/ADR-010-secrets-leave-the-repository.md).
 - **Graph size grows with citation breadth, not corpus size.** One 23-row CSV yields 438
   nodes. The 300-node figure is a configurable render cap (`GRAPH_RENDER_CAP`), not a
   storage limit, so this is bounded rather than dangerous — but it means corpus size is a
@@ -205,9 +239,10 @@ turns a surprise outage into a planned piece of work.
   different tool won't parse.
 - **No pagination anywhere**, by design. `GET /graph` is bounded by the render cap instead,
   and reports `truncated` so a partial view is never presented as the whole graph.
-  `GET /documents` and `POST /query` are unbounded: the first returns all 438 documents on
-  every call, the second returns whatever the query produces. At DI-1's corpus size that is
-  fine, and it will stop being fine well before the corpus reaches its MVP target. The
+  `POST /query` is bounded by its own row cap (`QUERY_ROW_CAP`) and reports `truncated` the
+  same way. `GET /documents` is the one that stays unbounded — it returns all 438 documents
+  on every call. At DI-1's corpus size that is fine, and it will stop being fine well before
+  the corpus reaches its MVP target. The
   document table compounds it by rendering every row and filtering in the browser.
 - **One node label, one relationship type.** The Policy Concierge capabilities in the
   [vision](../planning/vision.md) — policy points, applicable entities, enforcement

@@ -149,14 +149,14 @@ describe('documents', () => {
 
 describe('runQuery', () => {
   it('posts the cypher string', async () => {
-    const fetchMock = mockJson([{ total: 438 }])
+    const fetchMock = mockJson({ rows: [], returned_rows: 0, truncated: false })
     vi.stubGlobal('fetch', fetchMock)
 
-    const rows = await runQuery('MATCH (d:Document) RETURN count(d) AS total')
+    const result = await runQuery('MATCH (d:Document) RETURN count(d) AS total')
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       cypher: 'MATCH (d:Document) RETURN count(d) AS total',
     })
-    expect(rows).toEqual([{ total: 438 }])
+    expect(result.rows).toEqual([])
   })
 })

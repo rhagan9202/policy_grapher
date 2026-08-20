@@ -16,10 +16,27 @@ class Settings(BaseSettings):
 
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
-    neo4j_password: str = "policygrapher"
+    # Deliberately non-functional: the password that used to live here was committed
+    # to a public repository and is compromised (ADR-010 Decision 3). A default that
+    # cannot authenticate fails loudly at startup instead of quietly working for the
+    # one person who still has the old volume.
+    neo4j_password: str = "set-me-run-scripts-init-env-sh"
     neo4j_database: str = "neo4j"
 
     graph_render_cap: int = 300
+    query_row_cap: int = 1000
+    query_timeout_seconds: float = 10.0
+
+    # "name:sha256hex" pairs, comma-separated. Empty means nobody can authenticate.
+    api_tokens: str = ""
+
+    # Comma-separated origins. Empty means no cross-origin browser access.
+    cors_allow_origins: str = "http://localhost:5173"
+
+    # /openapi.json, /docs and /redoc carry no authentication of their own, so they
+    # are off by default: publishing them would let an unauthenticated caller
+    # enumerate every route. Turning this on is an explicit, documented opt-out.
+    enable_api_docs: bool = False
 
     data_dir: Path = Path("/data/samples")
     sample_csv: str = "dod_policy_references_08122026.csv"

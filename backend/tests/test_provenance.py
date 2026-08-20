@@ -101,16 +101,16 @@ SAMPLE = "dod_policy_references_08122026.csv"
 
 
 @pytest.mark.integration
-def test_no_document_disagrees_with_its_provenance(client_with_graph, driver, database):
+def test_no_document_disagrees_with_its_provenance(client_with_auth, driver, database):
     """:External is a view. If a write path forgets to refresh it, this is what says so.
 
     All three write paths run, POST /documents included: its statements are the
     only ones not wrapped in a single transaction, which makes it the likeliest
     place for the view to drift from the provenance it is derived from.
     """
-    client_with_graph.post("/ingest", json={"filename": SAMPLE})
-    client_with_graph.post("/ingest", json={"filename": "500001p.pdf"})
-    client_with_graph.post("/documents", json={"name": "Hand-Created Policy"})
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    client_with_auth.post("/documents", json={"name": "Hand-Created Policy"})
 
     records, _, _ = driver.execute_query(
         "MATCH (d:Document) "

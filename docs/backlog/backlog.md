@@ -1,6 +1,6 @@
 # Backlog
 
-*Living document — edit in place. Last reviewed: 2026-08-13*
+*Living document — edit in place. Last reviewed: 2026-08-20*
 
 Ordered by priority: the top row is the next thing to pick up. See
 [README](README.md) for how items move through this list, and
@@ -42,11 +42,9 @@ Unrefined. No commitment implied.
 
 | ID | Item | Notes |
 | --- | --- | --- |
-| STORY-019 | Authentication on the API | Explicitly out of DI-1 scope; a prerequisite for any shared deployment |
 | STORY-020 | Model policy points as nodes rather than whole documents | The Policy Concierge direction in the [vision](../planning/vision.md); a schema migration |
 | STORY-021 | Capture applicable entities and enforcement ownership as graph relationships | Same — new labels and relationship types |
-| STORY-023 | A user can ask a question in natural language and get graph results | LLM constructs the Cypher and calls `POST /query`. Gated on the schema settling and on STORY-019 (auth) — see [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md) |
-| STORY-024 | `POST /query` constrains what a generated query may do | Read-only enforcement, timeouts, result caps. A human at a demo is a benign caller; a generator isn't |
+| STORY-023 | A user can ask a question in natural language and get graph results | LLM constructs the Cypher and calls `POST /query`. The two gates it carried are now half-cleared: STORY-019 (auth) and STORY-024 (query constraints) have landed, so only the schema settling remains — see [ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md), superseding [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md) |
 
 ## Done
 
@@ -55,6 +53,8 @@ sprint reviews.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-019 | Authentication on the API | — |
+| STORY-024 | `POST /query` constrains what a generated query may do | — |
 | STORY-037 | A CSV re-ingest stops demoting a PDF-ingested document to `:External` | 3 |
 | STORY-016 | Ingestion accepts a PDF issuance and extracts its references | 3 |
 | STORY-034 | Relational facts move off `Document` and onto typed edges | 3 |

@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from neo4j import Driver
 from neo4j.exceptions import Neo4jError
 
+from policy_grapher.auth import Principal, require_principal
 from policy_grapher.config import Settings
 from policy_grapher.dependencies import get_app_settings, get_driver
 from policy_grapher.graph import UnknownDocumentError, build_graph
-from policy_grapher.models import GraphOut, QueryRequest
+from policy_grapher.models import GraphOut, QueryRequest, QueryResult
 from policy_grapher.query import run_cypher
 
 router = APIRouter(tags=["graph"])
@@ -18,6 +19,7 @@ def graph(
     limit: int | None = Query(default=None, ge=0),
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
 ) -> GraphOut:
     effective_limit = settings.graph_render_cap if limit is None else limit
     try:
@@ -34,13 +36,20 @@ def graph(
         ) from exc
 
 
-@router.post("/query")
+@router.post("/query", response_model=QueryResult)
 def query(
     body: QueryRequest,
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
-) -> list[dict]:
+    principal: Principal = Depends(require_principal),
+) -> QueryResult:
     try:
-        return run_cypher(driver, settings.neo4j_database, body.cypher)
+        return run_cypher(
+            driver,
+            settings.neo4j_database,
+            body.cypher,
+            row_cap=settings.query_row_cap,
+            timeout_seconds=settings.query_timeout_seconds,
+        )
     except Neo4jError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

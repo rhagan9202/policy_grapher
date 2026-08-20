@@ -560,8 +560,9 @@ Expected: PASS
 - [ ] **Step 7: Repair the rest of the suite**
 
 Every existing integration test that calls a now-protected route needs the authenticated
-client. Run the full suite, then change each failing test's fixture from `client_with_graph`
-to `client_with_auth`:
+client. `tests/test_query.py` (including the tests Task 1 added) and `tests/test_di1_complete.py`
+are known to need it; others will surface. Run the full suite, then change each failing test's
+fixture from `client_with_graph` to `client_with_auth`:
 
 Run: `cd backend && uv run pytest`
 Expected: initially many 401 failures; after the fixture swap, PASS.
@@ -588,17 +589,46 @@ app.add_middleware(
 )
 ```
 
-`settings` must be read at module scope the same way the app already obtains it; if the app
-only has settings on `app.state`, call `get_settings()` from `policy_grapher.config` here
-instead — middleware is registered once at import time, not per request.
+Read settings via `get_settings()`, which `main.py` already imports — **not**
+`app.state.settings`. Middleware is registered at import time; `app.state.settings` is
+populated inside `lifespan`, which runs later, so reading `app.state` here raises
+`AttributeError` on import. Add above the `app.add_middleware` call:
 
-- [ ] **Step 9: Run everything and commit**
+```python
+settings = get_settings()
+```
+
+- [ ] **Step 9: Pass the new settings through docker compose**
+
+`docker-compose.yml` enumerates every environment variable explicitly rather than using
+`env_file`, so a setting absent from that list never reaches the container. Without this the
+stack starts with `api_tokens=""`, fails closed, and returns 401 on every route — which reads
+as a broken app rather than a misconfigured one.
+
+In `docker-compose.yml`, under `services.backend.environment`, after `AUTO_INGEST`:
+
+```yaml
+      API_TOKENS: ${API_TOKENS}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
+      QUERY_ROW_CAP: ${QUERY_ROW_CAP}
+      QUERY_TIMEOUT_SECONDS: ${QUERY_TIMEOUT_SECONDS}
+```
+
+Task 1's two settings are included because compose passes an allow-list, so they are unreachable
+from `.env` today too. Only `API_TOKENS` is load-bearing — its `""` default fails closed — but an
+operator who cannot tune the other three from `.env` will reasonably conclude they are broken.
+
+Add all four to the repository's `.env` as well, so the stack still runs before Task 4 replaces
+that file: `API_TOKENS=` may be empty for now, `CORS_ALLOW_ORIGINS=http://localhost:5173`,
+`QUERY_ROW_CAP=1000`, `QUERY_TIMEOUT_SECONDS=10.0`.
+
+- [ ] **Step 10: Run everything and commit**
 
 Run: `cd backend && uv run pytest` and `cd ../frontend && npm test`
 Expected: PASS
 
 ```bash
-git add backend/src/policy_grapher backend/tests
+git add backend/src/policy_grapher backend/tests docker-compose.yml .env
 git commit -m "feat: every route but /health requires a principal; CORS is configured"
 ```
 
@@ -655,16 +685,26 @@ placeholders and `NEO4J_AUTH` using the same password:
 ```
 NEO4J_AUTH=neo4j/__NEO4J_PASSWORD__
 NEO4J_URI=bolt://neo4j:7687
+NEO4J_USER=neo4j
 NEO4J_PASSWORD=__NEO4J_PASSWORD__
 NEO4J_DATABASE=neo4j
+DATA_DIR=/data/samples
 GRAPH_RENDER_CAP=300
 SAMPLE_CSV=dod_policy_references_08122026.csv
 AUTO_INGEST=true
 API_TOKENS=__API_TOKENS__
+API_TOKEN=__API_TOKEN__
 CORS_ALLOW_ORIGINS=http://localhost:5173
+QUERY_ROW_CAP=1000
+QUERY_TIMEOUT_SECONDS=10.0
 ```
 
-Copy any other variable the current `.env` sets that is not listed here, verbatim.
+`API_TOKENS` (plural) is the backend's `name:digest` allow-list; `API_TOKEN` (singular) is the
+same token in plaintext, which Step 5 gives the vite dev proxy. They are not interchangeable and
+both come from the one token `init-env.sh` generates.
+
+Diff this against the repository's current `.env` before moving on and copy anything else it
+sets, verbatim — Task 3 added variables after this plan was written.
 
 - [ ] **Step 3: Stop tracking `.env`**
 
@@ -686,7 +726,32 @@ docker compose down
 Expected: `{"status":"ok"}`. If the backend cannot reach Neo4j, the password did not propagate
 to both `NEO4J_AUTH` and `NEO4J_PASSWORD` — they must match.
 
-- [ ] **Step 5: Update the README**
+- [ ] **Step 5: Let the browser app authenticate**
+
+Without this, `docker compose up` produces a UI where every view errors: the frontend sends no
+`Authorization` header and nothing supplies one. That fails the Definition of Done's
+"clean-checkout `docker compose up` working".
+
+The token is injected **server-side by the vite dev proxy**, so it never enters browser
+JavaScript. In `frontend/vite.config.ts`, the existing `/api` proxy gains a `headers` entry —
+keep whatever `target` and `rewrite` the file already has:
+
+```ts
+        headers: process.env.API_TOKEN
+          ? { Authorization: `Bearer ${process.env.API_TOKEN}` }
+          : {},
+```
+
+In `docker-compose.yml`, under `services.frontend.environment`, add `API_TOKEN: ${API_TOKEN}`.
+Add `API_TOKEN=__API_TOKEN__` to `.env.example`, and have `scripts/init-env.sh` substitute the
+same plaintext token it prints (it already generates it — reuse `$token`, do not mint a second).
+
+**This is a development affordance, not frontend authentication.** One shared token, injected by
+a dev proxy, with no login, no per-user identity and no logout. It exists so a clean clone is
+usable; a real login flow replaces it when multi-user lands. Put exactly that in a comment above
+the `headers` line so nobody mistakes it for the real thing.
+
+- [ ] **Step 6: Update the README**
 
 Replace the quickstart's single `docker compose up --build` with:
 
@@ -701,7 +766,7 @@ requires a bearer token. Do the same for the equivalent paragraph in
 [`docs/specs/architecture.md`](../../specs/architecture.md) *Known weak points* and in
 [SPEC-001](../../specs/SPEC-001-di-1-policy-grapher.md) *Environment Variables*.
 
-- [ ] **Step 6: Write ADR-010**
+- [ ] **Step 7: Write ADR-010**
 
 Create `docs/specs/adr/ADR-010-secrets-leave-the-repository.md` from the template. It must
 state: the decision (`.env` generated, not committed); the cost being accepted — SPEC-001
@@ -711,7 +776,7 @@ in git history and is to be treated as compromised, which is harmless only becau
 nothing but a local development database; and that generated tokens are a deliberate stop short
 of an identity provider, per ADR-008.
 
-- [ ] **Step 7: Run everything and commit**
+- [ ] **Step 8: Run everything and commit**
 
 Run: `cd backend && uv run pytest` and `cd ../frontend && npm test`
 Expected: PASS
@@ -729,7 +794,8 @@ git commit -m "feat: secrets are generated locally, not committed"
 
 - `POST /query` cannot write, cannot run unbounded, and reports truncation
 - Every route but `/health` returns 401 without a valid bearer token
-- A clean clone runs via `./scripts/init-env.sh && docker compose up --build`
+- A clean clone runs via `./scripts/init-env.sh && docker compose up --build`, and the UI at
+  `localhost:5173` loads the graph rather than erroring on every view
 - ADR-008, ADR-009 and ADR-010 exist; ADR-001 and ADR-004 carry amendment banners
 - `uv run pytest` and `npm test` both pass
 

@@ -55,6 +55,18 @@ class GraphOut(BaseModel):
     truncated: bool
 
 
+type JSONScalar = str | int | float | bool
+type JSONValue = JSONScalar | None | list[JSONValue] | dict[str, JSONValue]
+
+JSON_SCALARS = (str, int, float, bool)
+
+
+class QueryResult(BaseModel):
+    rows: list[dict[str, JSONValue]]
+    returned_rows: int
+    truncated: bool
+
+
 class DocumentOut(BaseModel):
     slug: str
     name: str

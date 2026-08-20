@@ -69,3 +69,16 @@ def client_with_graph(clean_graph, settings_for_container, database, monkeypatch
         yield client
 
     get_settings.cache_clear()
+
+
+TEST_TOKEN = "test-token"
+
+
+@pytest.fixture
+def client_with_auth(client_with_graph):
+    """A client that presents a valid bearer token on every request."""
+    from policy_grapher.auth import token_digest
+
+    client_with_graph.app.state.settings.api_tokens = f"tester:{token_digest(TEST_TOKEN)}"
+    client_with_graph.headers.update({"Authorization": f"Bearer {TEST_TOKEN}"})
+    return client_with_graph
