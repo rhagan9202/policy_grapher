@@ -27,6 +27,48 @@ def test_a_decimal_in_prose_is_not_a_heading():
     assert section_heading("3.2. Rates above 3.2 percent require approval.") == "3.2"
 
 
+def test_a_table_of_contents_row_does_not_open_a_section():
+    """A contents row is a pointer to a section, not the section itself. Read as
+    a heading it binds the path to the contents page — in `850001_2014.pdf`,
+    ["ENCLOSURE 3", "1"] bound to a dot-leader row on page 7 rather than to
+    `1. INTRODUCTION` on page 26 — and chunks a page of dot leaders as body text.
+    """
+    assert section_heading("ENCLOSURE 2:  RESPONSIBILITIES .........................14") is None
+    assert section_heading("1.  Three-Tiered Approach to Risk Management ..........27") is None
+    assert section_heading("1.1.  Applicability. ..................................1") is None
+    # Positive control: the genuine heading the contents row points at.
+    assert section_heading("1.  INTRODUCTION") == "1"
+    # An ellipsis in prose is three dots, not a leader, and must survive.
+    assert section_heading("1.  The Director shall... act.") == "1"
+
+
+def test_a_running_page_header_does_not_open_a_section():
+    """`ENCLOSURE 2` printed on every page of an enclosure is furniture. Read as
+    a heading it re-opens the same section once per page, each time closing the
+    section actually being read.
+    """
+    pages = [
+        "1. INTRODUCTION\nBody of the first page.\nENCLOSURE 2",
+        "Body of the second page.\nENCLOSURE 2",
+        "Body of the third page.\nENCLOSURE 2",
+        "Body of the fourth page.\nENCLOSURE 2",
+    ]
+    chunks = chunk_pages(pages, version_id="v")
+
+    assert chunks, "positive control: the body must still be chunked"
+    assert all(c.section_path == ["1"] for c in chunks), [c.section_path for c in chunks]
+
+
+def test_a_heading_that_happens_to_repeat_twice_is_still_a_heading():
+    """Furniture is what repeats across *many* pages. Two pages is a document
+    that opens two sections with the same number, not a running header — the
+    occurrence counter handles that, suppression must not.
+    """
+    pages = ["ENCLOSURE 2\nFirst body.", "Other text.", "ENCLOSURE 2\nSecond body."]
+    chunks = chunk_pages(pages, version_id="v")
+    assert [c.section_path for c in chunks].count(["ENCLOSURE 2"]) == 2
+
+
 def test_chunks_never_span_a_section():
     pages = ["3.1. FIRST.\nAlpha text.\n3.2. SECOND.\nBravo text.\n"]
     chunks = chunk_pages(pages, version_id="v")
@@ -323,3 +365,65 @@ def test_frozen_dataclass_cannot_be_hashed():
         ordinal=0,
     )
     assert chunk == chunk2
+
+
+# --- Identity survives an unrelated edit ----------------------------------
+
+
+def _three_sections(alpha_body: str) -> list[str]:
+    """One document, three section openings, one page each. Section "1" opens
+    twice — the shape `850001_2014.pdf` shows 12 times over, where
+    ["ENCLOSURE 3", "1"] opens on five separate pages.
+    """
+    return [
+        "1. ALPHA\n" + alpha_body,
+        "2. BRAVO\n" + "Bravo body. " * 40,
+        "1. ALPHA\n" + "Section one opens a second time. " * 12,
+    ]
+
+
+def test_inserting_a_paragraph_early_does_not_renumber_later_chunk_ids():
+    """The whole promise of a deterministic chunk id: a chunker improvement, or
+    an edited page, must not renumber the identity of text it did not touch.
+
+    A document-global ordinal in the id makes every chunk's identity depend on
+    how much text precedes it — inserting one paragraph on page 20 of
+    `850001_2014.pdf` orphaned 40 of its 125 chunk ids. Under a
+    (section_path, occurrence, ordinal-within-section) key it orphans none
+    outside the section that actually changed.
+    """
+    original = "Alpha body. " * 40
+    grown = original + "\n\nA paragraph the earlier edition did not carry.\n"
+
+    before = chunk_pages(
+        _three_sections(original), version_id="v", max_chars=200, overlap_chars=40
+    )
+    after = chunk_pages(_three_sections(grown), version_id="v", max_chars=200, overlap_chars=40)
+
+    # Positive control: the edit has to be material, or this test proves nothing.
+    assert len(after) > len(before), "the inserted paragraph must add a chunk"
+
+    untouched_before = [c for c in before if c.page > 1]
+    untouched_after = [c for c in after if c.page > 1]
+    assert len(untouched_before) > 1, "need later chunks for this to mean anything"
+    assert [c.chunk_id for c in untouched_before] == [c.chunk_id for c in untouched_after]
+
+
+def test_a_section_path_that_opens_twice_gets_two_identities():
+    """`section_path` is not unique within a document, so it cannot be the whole
+    key. Dropping the occurrence counter collides the first chunk of each
+    opening: both are ordinal 0 of path ["1"].
+    """
+    chunks = chunk_pages(_three_sections("Alpha body."), version_id="v")
+    ones = [c for c in chunks if c.section_path == ["1"]]
+
+    assert len(ones) == 2, "section 1 opens twice"
+    assert ones[0].chunk_id != ones[1].chunk_id
+
+
+def test_ordinal_stays_document_wide_reading_order():
+    """Identity is per-section; `ordinal` is not. It is the reading order the
+    /chunks route sorts by, so it must keep counting across section boundaries.
+    """
+    chunks = chunk_pages(_three_sections("Alpha body."), version_id="v")
+    assert [c.ordinal for c in chunks] == list(range(len(chunks)))
