@@ -12,7 +12,8 @@ services:
       # HTTP check rather than cypher-shell: cypher-shell would need NEO4J_USER /
       # NEO4J_PASSWORD set inside this container, which nothing here provides, so it
       # would fail closed and block `backend` forever on service_healthy.
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:7474 || exit 1"]
+      test:
+        ["CMD-SHELL", "wget -q -O /dev/null http://localhost:7474 || exit 1"]
       interval: 5s
       timeout: 10s
       retries: 30
