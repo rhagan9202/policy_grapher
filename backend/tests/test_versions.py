@@ -275,3 +275,39 @@ def test_reference_nodes_are_idempotent(clean_graph, database):
         database_=database,
     )
     assert (records[0]["authorities"], records[0]["entities"]) == (1, 1)
+
+
+@pytest.mark.integration
+def test_a_re_merge_does_not_rewrite_a_recorded_name(clean_graph, database):
+    """ON CREATE SET protects against silent rewrites on re-ingest.
+
+    A re-ingest correcting a name is a decision a human should make, not a
+    side effect. This test verifies that a second ingest with a different name
+    leaves the original name untouched — ON CREATE SET is not bare SET.
+    """
+    with clean_graph.session(database=database) as session:
+        # First ingest: authority with original name
+        session.execute_write(merge_authority, slug="usd-c", name="Under Secretary of Defense (Comptroller)")
+        # Re-ingest: same slug, different name (e.g., a corrected abbreviation)
+        session.execute_write(merge_authority, slug="usd-c", name="USD(C)")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (a:Authority {slug: 'usd-c'}) RETURN a.name AS name",
+        database_=database,
+    )
+    # The original name should be preserved, not overwritten
+    assert [r["name"] for r in records] == ["Under Secretary of Defense (Comptroller)"]
+
+    # Same test for Entity, varying both name and kind
+    with clean_graph.session(database=database) as session:
+        # First ingest: entity with original name and kind
+        session.execute_write(merge_entity, slug="j8", name="DLA J8", kind="directorate")
+        # Re-ingest: same slug, different name and kind
+        session.execute_write(merge_entity, slug="j8", name="Joint Logistics", kind="division")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (e:Entity {slug: 'j8'}) RETURN e.name AS name, e.kind AS kind",
+        database_=database,
+    )
+    # Original attributes should be preserved
+    assert [(r["name"], r["kind"]) for r in records] == [("DLA J8", "directorate")]
