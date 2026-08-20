@@ -1,7 +1,7 @@
 import pytest
 
-from policy_grapher.chunking import chunk_pages
-from policy_grapher.chunks import drop_chunks, write_chunks
+from policy_grapher.chunking import Chunk, chunk_pages
+from policy_grapher.chunks import UnknownVersionError, drop_chunks, write_chunks
 
 
 def _seed_version(driver, database):
@@ -201,3 +201,104 @@ def test_write_chunks_returns_zero_for_an_empty_list(clean_graph, database):
         "MATCH (c:Chunk) RETURN count(c) AS total", database_=database
     )
     assert records[0]["total"] == 0
+
+
+@pytest.mark.integration
+def test_chunk_text_is_stored_verbatim(clean_graph, database):
+    """`c.text` is what the document actually says, byte for byte — a citation
+    has to quote it exactly. Constructed directly rather than via chunk_pages
+    so the exact bytes are under this test's control: leading and trailing
+    whitespace, an internal double space, and an embedded newline. This must
+    fail against `.strip()` (removes the leading/trailing spaces), against
+    `" ".join(text.split())` (collapses the internal newline and double space),
+    and against `text + " "` (adds a trailing byte) — any of the three changes
+    what comes back from this exact-equality read.
+    """
+    _seed_version(clean_graph, database)
+    text = "  Leading space,\ninternal  double  space,\nand trailing space.  "
+    chunk = Chunk(
+        chunk_id="verbatim-text-test-chunk",
+        text=text,
+        page=1,
+        section_path=["1.1"],
+        ordinal=0,
+    )
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(write_chunks, version_id="v", chunks=[chunk])
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (c:Chunk {chunk_id: $chunk_id}) RETURN c.text AS text",
+        chunk_id=chunk.chunk_id,
+        database_=database,
+    )
+    assert records[0]["text"] == text
+
+
+@pytest.mark.integration
+def test_ordinal_round_trips(clean_graph, database):
+    """Ordinal is what makes chunk order reproducible after a rebuild — assert
+    each chunk's stored ordinal matches the one it was written with, keyed by
+    chunk_id so this doesn't depend on any particular read-back order.
+    """
+    _seed_version(clean_graph, database)
+    chunks = chunk_pages(["1.1. A.\nAlpha.\n1.2. B.\nBravo.\n"], version_id="v")
+    assert len(chunks) >= 2, "need more than one chunk for this to mean anything"
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(write_chunks, version_id="v", chunks=chunks)
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (c:Chunk) RETURN c.chunk_id AS chunk_id, c.ordinal AS ordinal",
+        database_=database,
+    )
+    stored = {r["chunk_id"]: r["ordinal"] for r in records}
+    for chunk in chunks:
+        assert stored[chunk.chunk_id] == chunk.ordinal
+
+
+@pytest.mark.integration
+def test_write_chunks_raises_for_an_unknown_version(clean_graph, database):
+    """A version_id that names no :DocumentVersion must not silently no-op.
+
+    The leading `MATCH (v:DocumentVersion {version_id: $version_id})` would
+    otherwise match nothing, `UNWIND` would never execute, and a caller
+    trusting the old `len(chunks)` return value would believe every chunk was
+    written when zero were. No :DocumentVersion is seeded here at all.
+    """
+    chunks = chunk_pages(["1.1. A.\nAlpha.\n"], version_id="ghost")
+
+    with (
+        clean_graph.session(database=database) as session,
+        pytest.raises(UnknownVersionError, match="ghost"),
+    ):
+        session.execute_write(write_chunks, version_id="ghost", chunks=chunks)
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (c:Chunk) RETURN count(c) AS total", database_=database
+    )
+    assert records[0]["total"] == 0
+
+
+@pytest.mark.integration
+def test_write_chunks_return_value_reflects_what_was_actually_written(clean_graph, database):
+    """The return value must come from the query result, not from
+    `len(chunks)`: two distinct Chunk objects that happen to share a
+    chunk_id merge onto the same node, so the true count is 1, not 2. A
+    write_chunks that returned `len(chunks)` unconditionally would report 2
+    here and fail this assertion.
+    """
+    _seed_version(clean_graph, database)
+    shared_id = "shared-chunk-id-for-this-test"
+    first = Chunk(chunk_id=shared_id, text="A", page=1, section_path=["1.1"], ordinal=0)
+    second = Chunk(chunk_id=shared_id, text="A", page=1, section_path=["1.1"], ordinal=1)
+
+    with clean_graph.session(database=database) as session:
+        written = session.execute_write(write_chunks, version_id="v", chunks=[first, second])
+
+    assert written == 1, "two inputs sharing a chunk_id merge onto one node"
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (c:Chunk) RETURN count(c) AS total", database_=database
+    )
+    assert records[0]["total"] == 1
