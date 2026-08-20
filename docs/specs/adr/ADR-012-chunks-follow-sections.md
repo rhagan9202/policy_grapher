@@ -113,20 +113,21 @@ the current one; a caller who does can pin an explicit `version_id` even while a
 exists in the same graph. Results are ordered by `ordinal`, the field that makes a rebuilt
 chunk set's reading order reproducible.
 
-**Known limitation: `section_heading` treats legacy numbered *paragraphs* as section headings,
-not only headings.** The regex that recognises `"3.2.1. "` at the start of a line cannot tell a
-genuine subsection heading from an ordinary numbered paragraph in a legacy-format issuance —
-both are a number, a dot, and text. Measured against `850001_2014.pdf`, a legacy-format sample:
-125 chunks across 48 distinct section paths, roughly a fifth of them under 300 characters —
-noticeably finer-grained than a modern-format issuance of comparable length (`500001p.pdf`, 17
-pages, produces 52 chunks across 17 sections). The effect is over-segmentation on legacy-format
-issuances — which risks the same failure this ADR exists to prevent, an obligation separated
-from its conditions, reached from the opposite direction to a fixed window: instead of a window
-cutting across a section, a false section boundary cuts *within* what should have been one
-section. It is accepted for now because changing heading detection moves chunk boundaries for
-every document and invalidates every chunk id already written; that decision needs evidence
-about what granularity retrieval actually wants, which nothing before Phase 6 can supply. The
-derived layer being droppable and rebuildable is precisely what makes deferring it safe.
+**Known limitation: `section_heading` treats a numbered list item as a section heading, not only
+a genuine one.** The regex that recognises `"3.2.1. "` at the start of a line cannot tell a
+genuine subsection heading from an ordinary numbered list entry — both are a number, a dot, and
+text. `850001_2014.pdf`, a legacy-format sample, shows exactly this: 36 of its 48 distinct
+section paths are numbered items nested directly under `ENCLOSURE 2` or `ENCLOSURE 3` alone —
+each enclosure's own numbered list misread as a fresh subsection every time a new number opens a
+line. The effect is over-segmentation — inventing section boundaries that split text which
+should have stayed together — which risks the same failure this ADR exists to prevent, an
+obligation separated from its conditions, reached from the opposite direction to a fixed window:
+instead of a window cutting across a section, a false section boundary cuts *within* what should
+have been one section. It is accepted for now because changing heading detection moves chunk
+boundaries for every document and invalidates every chunk id already written; that decision
+needs evidence about what granularity retrieval actually wants, which nothing before Phase 6 can
+supply. The derived layer being droppable and rebuildable is precisely what makes deferring it
+safe.
 
 ## Consequences
 
@@ -137,11 +138,12 @@ real section path, not a guess. A future chunker improvement — better sentence
 detection, a fix to the legacy over-segmentation named above — can replace the whole derived
 layer in one ingest without anyone needing to reconcile old chunks against new ones by hand.
 
-**Makes hard.** Legacy-format issuances chunk at a finer, noisier grain than modern ones until
-`section_heading` is taught to tell a heading from a numbered paragraph — a fix this ADR
-deliberately defers (see the known limitation above). Any consumer of chunk text before that fix
-lands should expect legacy documents to arrive in more, smaller pieces than their modern
-counterparts of similar length.
+**Makes hard.** A legacy-format issuance's enclosures — numbered lists, not subsections — chunk
+at a finer, noisier grain than the rest of the document until `section_heading` is taught to
+tell a heading from a numbered list entry, a fix this ADR deliberately defers (see the known
+limitation above). Any consumer of chunk text before that fix lands should expect a legacy
+document's enclosures specifically to arrive in more, smaller pieces than the source material's
+actual structure calls for.
 
 **Commits us to.** `:Chunk` is this codebase's first derived-and-rebuildable label; the pattern
 `:DocumentVersion`'s `SUPERSEDES` edge started in ADR-011 — deterministic identity, drop before

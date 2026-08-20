@@ -433,24 +433,41 @@ def test_a_chunker_change_replaces_rather_than_duplicates_chunks(client_with_aut
 
 @pytest.mark.integration
 def test_chunks_route_orders_by_ordinal(client_with_auth, clean_graph, database):
-    """Written out of order so a passing assertion actually exercises the
-    route's `ORDER BY c.ordinal` rather than getting a free pass from Neo4j
-    happening to return simple MATCH results in insertion order — which is
-    exactly the order `chunk_pages` already produces them in, so writing them
-    unmodified would let a missing ORDER BY pass by accident.
+    """Written in a shuffled order that is neither ascending nor its own
+    reverse, so a passing assertion can only come from the route's explicit
+    `ORDER BY c.ordinal` in `LIST_CHUNKS`.
+
+    A first draft of this test wrote chunks in reverse-of-ordinal order to
+    defeat "Neo4j happens to return a simple, unordered `MATCH` in insertion
+    order" — but for `MATCH (v)-[:HAS_CHUNK]->(c)` specifically, the
+    unordered traversal this driver/server version returns is itself
+    reverse-of-insertion. Writing in reverse order therefore came back out in
+    ascending order with no `ORDER BY` at all: two reversals cancelling out,
+    so the test passed whether or not the clause existed — confirmed by
+    deleting `ORDER BY c.ordinal` from `LIST_CHUNKS` and watching this test
+    still pass. A shuffle that is neither the ascending target nor its
+    reverse defeats both possible natural orders at once, however this
+    Neo4j version happens to traverse an unordered match.
     """
     _seed_version(clean_graph, database)
-    pages = ["1.1. A.\nAlpha.\n1.2. B.\nBravo.\n1.3. C.\nCharlie.\n"]
+    pages = ["1.1. A.\nAlpha.\n1.2. B.\nBravo.\n1.3. C.\nCharlie.\n1.4. D.\nDelta.\n1.5. E.\nEcho.\n"]
     chunks = chunk_pages(pages, version_id="v")
-    assert len(chunks) >= 3, "need more than two chunks for order to mean anything"
+    assert len(chunks) >= 5, "need enough chunks that ascending, descending, and shuffled differ"
+
+    ascending = [c.ordinal for c in chunks]
+    shuffled = [chunks[2], chunks[4], chunks[1], chunks[3], chunks[0], *chunks[5:]]
+    write_order = [c.ordinal for c in shuffled]
+    assert write_order not in (ascending, list(reversed(ascending))), (
+        "the write order itself must be neither ascending nor descending, or this "
+        "test cannot distinguish an explicit ORDER BY from a lucky traversal order"
+    )
 
     with clean_graph.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v", chunks=list(reversed(chunks)))
+        session.execute_write(write_chunks, version_id="v", chunks=shuffled)
 
     body = client_with_auth.get("/documents/d/chunks").json()
     ordinals = [c["ordinal"] for c in body]
-    assert ordinals == sorted(ordinals)
-    assert ordinals == [c.ordinal for c in chunks]
+    assert ordinals == ascending
 
 
 @pytest.mark.integration
