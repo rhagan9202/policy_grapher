@@ -2,7 +2,12 @@ from datetime import date
 
 import pytest
 
-from policy_grapher.versions import merge_version, version_id
+from policy_grapher.versions import (
+    UnknownDocumentError,
+    VersionConflictError,
+    merge_version,
+    version_id,
+)
 
 
 def test_identity_prefers_the_effective_date():
@@ -73,3 +78,54 @@ def test_re_merging_the_same_version_creates_nothing(clean_graph, database):
         "MATCH (v:DocumentVersion) RETURN count(v) AS total", database_=database
     )
     assert records[0]["total"] == 1
+
+
+@pytest.mark.integration
+def test_merge_version_raises_when_the_document_does_not_exist(clean_graph, database):
+    """A confidently-wrong id for a version that was never written would poison
+    every later phase that chunks or extracts against it."""
+    with (
+        clean_graph.session(database=database) as session,
+        pytest.raises(UnknownDocumentError),
+    ):
+        session.execute_write(
+            merge_version,
+            document_slug="missing",
+            effective_date=date(2026, 4, 1),
+            checksum="abc",
+            source_uri="file:///d.pdf",
+        )
+
+
+@pytest.mark.integration
+def test_merge_version_raises_on_a_same_date_checksum_conflict(clean_graph, database):
+    """Same effective date, different content — a corrected reissue ("Change 1")
+    or a distinct edition; the graph can't tell, so it must not guess."""
+    clean_graph.execute_query(
+        "CREATE (:Document {slug: 'd', name: 'D'})", database_=database
+    )
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            merge_version,
+            document_slug="d",
+            effective_date=date(2026, 4, 1),
+            checksum="original-checksum",
+            source_uri="file:///d.pdf",
+        )
+        with pytest.raises(VersionConflictError):
+            session.execute_write(
+                merge_version,
+                document_slug="d",
+                effective_date=date(2026, 4, 1),
+                checksum="different-checksum",
+                source_uri="file:///d-reissue.pdf",
+            )
+
+    # The failed ingest changed nothing: the original checksum is still recorded.
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (v:DocumentVersion {version_id: 'd@2026-04-01'}) "
+        "RETURN v.checksum AS checksum",
+        database_=database,
+    )
+    assert [r["checksum"] for r in records] == ["original-checksum"]
