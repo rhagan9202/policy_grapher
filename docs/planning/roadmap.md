@@ -22,8 +22,9 @@ documents and one 23-row manifest.
 ## Next
 
 **Development Increment 2 is designed and approved** — see the
-[DI-2 design](../superpowers/specs/2026-08-20-di-2-design.md), approved 2026-08-20 and awaiting
-an implementation plan and a `SPEC-002`. It builds the semantic substrate that turns DI-1's
+[DI-2 design](../superpowers/specs/2026-08-20-di-2-design.md), approved 2026-08-20. Phase 0's
+[implementation plan](../superpowers/plans/2026-08-20-di-2-phase-0-security-gate.md) is written;
+the remaining phases and a `SPEC-002` are not. It builds the semantic substrate that turns DI-1's
 bibliographic graph into a policy knowledge graph — document text, the obligations inside that
 text, and version supersession — proven by one deliverable, **impact triage**: *a higher-level
 policy changed; which of our policies are affected, and how urgently?* Several items in
