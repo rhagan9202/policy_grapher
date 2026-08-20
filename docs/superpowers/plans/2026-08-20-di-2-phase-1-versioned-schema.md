@@ -726,6 +726,23 @@ one derived edge ingest rebuilds rather than appends, with the reason — editio
 arrive in order — and the boundary that this must not extend to edges carrying a human
 judgement.
 
+It must **also** record two behaviours added during Task 1's review, which the rest of this
+plan predates:
+
+- **A same-date, different-checksum ingest raises rather than absorbing.** Addressing by date
+  alone keeps the id citable, but a corrected reissue bearing the same nominal date is a real
+  shape, and `ON CREATE SET` would silently discard its content. `merge_version` compares the
+  stored checksum and raises `VersionConflictError`. The operator decides, because the graph
+  cannot tell a better scan of one edition from a distinct reissue, and guessing either way
+  puts a wrong edition boundary in.
+- **An unknown document slug raises `UnknownDocumentError`** rather than returning a
+  plausible id for a version that was never written.
+
+And one known limitation to state plainly rather than leave implicit in a `coalesce`:
+**undated editions sort as oldest.** For an instrument mixing dated and undated editions there
+is no honest ordering — ingest order is not publication order — and this at least gets the
+common shape right: an undated scan of an old issuance, superseded by a dated current one.
+
 - [ ] **Step 8: Run everything and commit**
 
 Run: `cd backend && uv run pytest`
