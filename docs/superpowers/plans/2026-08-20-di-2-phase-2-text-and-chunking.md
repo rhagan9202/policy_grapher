@@ -1,5 +1,7 @@
 # DI-2 Phase 2: Text Storage and Section-Aware Chunking — Implementation Plan
 
+**Status:** Complete. Verified on 2026-08-20 with `uv run pytest tests/test_chunking.py tests/test_chunks.py tests/test_pdf_ingest.py` and `uv run pytest`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Put the documents' actual text into the graph, chunked along the document's own section structure and anchored to page and section path — the substrate every later phase reads from.
@@ -54,7 +56,7 @@
 **Interfaces:**
 - Produces: `Chunk` (a dataclass: `chunk_id`, `text`, `page`, `section_path`, `ordinal`), and `chunk_pages(pages: list[str], *, version_id: str, max_chars: int = 2000, overlap_chars: int = 200) -> list[Chunk]`
 
-- [ ] **Step 1: Write the failing structure tests**
+- [x] **Step 1: Write the failing structure tests**
 
 Create `backend/tests/test_chunking.py`:
 
@@ -141,12 +143,12 @@ def test_text_before_any_heading_is_kept_under_a_preamble_path():
     assert chunks and chunks[0].section_path == ["(preamble)"]
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `cd backend && uv run pytest tests/test_chunking.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'policy_grapher.chunking'`
 
-- [ ] **Step 3: Implement the chunker**
+- [x] **Step 3: Implement the chunker**
 
 Create `backend/src/policy_grapher/chunking.py`:
 
@@ -276,12 +278,12 @@ def chunk_pages(
     return chunks
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `cd backend && uv run pytest tests/test_chunking.py -v`
 Expected: PASS (11 tests). If the hierarchy test fails, check `_push`'s depth rule against the exact headings the test uses before changing the test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/src/policy_grapher/chunking.py backend/tests/test_chunking.py
@@ -300,7 +302,7 @@ git commit -m "feat: chunk policy text along its own section structure"
 - Consumes: `Chunk` from Task 1
 - Produces: `write_chunks(tx, *, version_id, chunks: list[Chunk]) -> int`, `drop_chunks(tx, *, version_id) -> int`
 
-- [ ] **Step 1: Add the constraint and full-text index**
+- [x] **Step 1: Add the constraint and full-text index**
 
 In `backend/src/policy_grapher/db.py`, append to `CONSTRAINTS`:
 
@@ -325,7 +327,7 @@ updating its one caller in `main.py` and the `conftest.py` fixture. Keep a modul
 alias `apply_constraints = apply_schema` **only if** something outside those two references
 it — check first with grep, and delete the alias if nothing does.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Create `backend/tests/test_chunks.py`:
 
@@ -413,12 +415,12 @@ def test_the_fulltext_index_finds_a_designator(clean_graph, database):
     assert records
 ```
 
-- [ ] **Step 3: Run to verify failure**
+- [x] **Step 3: Run to verify failure**
 
 Run: `cd backend && uv run pytest tests/test_chunks.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'policy_grapher.chunks'`
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 Create `backend/src/policy_grapher/chunks.py`:
 
@@ -480,7 +482,7 @@ def drop_chunks(tx: ManagedTransaction, *, version_id: str) -> int:
     return summary.counters.nodes_deleted
 ```
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run: `cd backend && uv run pytest tests/test_chunks.py -v` then the full suite.
 Expected: PASS
@@ -503,7 +505,7 @@ git commit -m "feat: chunks live in the graph, droppable and rebuildable"
 **Interfaces:**
 - Produces: `GET /documents/{slug}/chunks?version_id=` → `list[ChunkOut]`
 
-- [ ] **Step 1: Write the failing end-to-end test**
+- [x] **Step 1: Write the failing end-to-end test**
 
 Append to `backend/tests/test_chunks.py`:
 
@@ -527,18 +529,18 @@ def test_ingesting_a_pdf_stores_its_text(client_with_auth):
 That last assertion is the one that matters: chunking that silently degrades to
 one giant preamble blob would still return chunks, and would be useless.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `cd backend && uv run pytest tests/test_chunks.py -k stores_its_text -v`
 Expected: FAIL — 404, the route does not exist.
 
-- [ ] **Step 3: Carry page text through extraction**
+- [x] **Step 3: Carry page text through extraction**
 
 `sources/pdf.py` already reads pages via `pypdf` and discards them. Add the page list to
 `ExtractedDocument` as `pages: list[str]` so ingest can chunk it. This is the change the
 design calls out — the text was always read, only never kept.
 
-- [ ] **Step 4: Chunk inside the ingest transaction**
+- [x] **Step 4: Chunk inside the ingest transaction**
 
 In `ingest.py`'s `_write_document`, after `merge_version` and `link_supersession`:
 
@@ -556,7 +558,7 @@ run's chunks orphaned beside the new ones. This is the rebuildable-overlay prope
 practice. `version` here is the id `merge_version` returned in Phase 1 — it already returns
 the resolved `version_id` for exactly this reason, so bind it rather than recomputing it.
 
-- [ ] **Step 5: Add the model and route**
+- [x] **Step 5: Add the model and route**
 
 `ChunkOut` in `models.py`:
 
@@ -573,7 +575,7 @@ And in `routers/documents.py`, a `GET /{slug}/chunks` route taking an optional
 `version_id` query parameter (defaulting to the newest version), ordered by `ordinal`,
 carrying `principal: Principal = Depends(require_principal)` like every other route.
 
-- [ ] **Step 6: Write ADR-012**
+- [x] **Step 6: Write ADR-012**
 
 Create `docs/specs/adr/ADR-012-chunks-follow-sections.md`. It must state: chunks follow the
 document's section hierarchy rather than a fixed window, and why — a window splits an
@@ -584,7 +586,7 @@ verbatim so a citation can quote it; and that `:Chunk` is the first **derived** 
 droppable, rebuildable, with deterministic ids so a rebuild preserves anything anchored
 to it.
 
-- [ ] **Step 7: Run everything and commit**
+- [x] **Step 7: Run everything and commit**
 
 Run: `cd backend && uv run pytest`
 Expected: PASS

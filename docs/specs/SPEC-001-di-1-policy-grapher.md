@@ -315,11 +315,11 @@ Minimum coverage for the Definition of Done:
 ### Pages / Views
 | View | Route | Description |
 |---|---|---|
-| Graph Explorer | `/` | Force-directed graph from `GET /graph`. Defaults to the 23 corpus documents. Node click shows name and reference role, and expands that node's external neighbors via `?expand={slug}`. **(gap review)** |
+| Graph Explorer | `/` | Force-directed graph from `GET /graph`. Defaults to the 23 corpus documents. Node click shows name and whether the node is a corpus or external document, and expands corpus nodes' external neighbors via `?expand={slug}`. **(gap review)** |
 | Document Table | `/documents` | Table of all documents from `GET /documents`. Client-side search/filter by name. Each row shows name, how many documents cite it (derived from `referenced_by`), and its outgoing references. |
 
 ### API Client
-- Typed fetch wrappers in `src/api/client.ts` covering all backend endpoints.
+- Typed fetch wrappers in `src/api/client.ts` cover the endpoints the frontend uses today. DI-2's backend-only version and chunk routes are not yet exposed through the frontend client.
 
 ---
 
