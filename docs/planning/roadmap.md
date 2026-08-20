@@ -8,9 +8,9 @@ Sequencing and intent, not commitments with dates. Individual work items live in
 ## Now
 
 **DI-1 is complete** — 18 of 18 stories, closed on 2026-08-13 — and PDF ingestion
-(STORY-016) has since landed on top of it. `docker compose up` ingests
-`data/samples/dod_policy_references_08122026.csv` and renders its 23 documents as a navigable
-graph at `/`, with the full 438-document corpus listed and searchable at `/documents`.
+(STORY-016) has since landed on top of it. `./scripts/init-env.sh && docker compose up`
+ingests `data/samples/dod_policy_references_08122026.csv` and renders its 23 documents as a
+navigable graph at `/`, with the full 438-document corpus listed and searchable at `/documents`.
 `POST /ingest` now also accepts a DoD issuance PDF, extracting the document and the
 references it cites.
 
@@ -81,8 +81,9 @@ document and one relationship type (`REFERENCES`); the program intent needs cons
 ## Not in the initial surge
 
 Carried from the [vision](vision.md#explicit-non-goals): RAG, vector embeddings, LLM calls,
-auth, multi-stage Docker builds, and pagination are all out of scope while the demo
-definition of done is the target.
+multi-stage Docker builds, and pagination are all out of scope while the demo definition of
+done is the target. Auth has since left this list — DI-2's security gate landed it (see
+[Now](#now)), because a hosted target made it a prerequisite rather than a nicety.
 
 Every one of these is deferred, not excluded. This section is a statement about *now*, not
 about the life of the project — LLM-constructed queries already have a place in

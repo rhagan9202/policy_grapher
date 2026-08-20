@@ -105,6 +105,67 @@ def test_a_write_query_is_rejected_and_changes_nothing(client_with_auth):
 
 
 @pytest.mark.integration
+def test_a_runaway_query_stops_at_the_cap_instead_of_being_materialised(
+    client_with_auth, monkeypatch
+):
+    """The cap has to bound the *work*, not just the response.
+
+    A hundred million rows cannot be built in this process inside the transaction
+    timeout, so an implementation that fetches everything before capping answers 400
+    (timed out) here, and a streaming one answers 200 with `row_cap` rows almost
+    immediately. `/query` runs Cypher the caller supplied — the design's motivating
+    threat is a query generated from a prompt-injected document.
+    """
+    monkeypatch.setattr(client_with_auth.app.state.settings, "query_row_cap", 5)
+
+    response = client_with_auth.post(
+        "/query", json={"cypher": "UNWIND range(1, 100000000) AS i RETURN i"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["returned_rows"] == 5
+    assert body["truncated"] is True
+
+
+@pytest.mark.integration
+def test_the_transaction_timeout_still_bounds_a_slow_query(client_with_auth, monkeypatch):
+    """The row cap bounds rows; the timeout bounds work that produces none.
+
+    This aggregates 500 million values into a single row, so streaming cannot cut it
+    short — only `QUERY_TIMEOUT_SECONDS`, sent to the server with the query, can.
+    Pinned here because the cap's implementation moved from `execute_query` to a
+    session, and the timeout travels differently on that path.
+    """
+    monkeypatch.setattr(client_with_auth.app.state.settings, "query_timeout_seconds", 0.5)
+
+    response = client_with_auth.post(
+        "/query", json={"cypher": "UNWIND range(1, 500000000) AS i RETURN count(i)"}
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.integration
+def test_a_row_cap_of_zero_means_no_cap(client_with_auth, monkeypatch):
+    """Same convention as GRAPH_RENDER_CAP, whose `0` SPEC-001 documents as uncapped.
+
+    The alternative reading — `0` rows, always, `truncated: true` — is silent
+    truncation wearing a flag, and the two same-shaped settings would mean opposite
+    things.
+    """
+    monkeypatch.setattr(client_with_auth.app.state.settings, "query_row_cap", 0)
+
+    response = client_with_auth.post(
+        "/query", json={"cypher": "UNWIND range(1, 10) AS i RETURN i"}
+    )
+
+    body = response.json()
+    assert body["returned_rows"] == 10
+    assert body["truncated"] is False
+
+
+@pytest.mark.integration
 def test_the_row_cap_truncates_and_says_so(client_with_auth, monkeypatch):
     monkeypatch.setattr(client_with_auth.app.state.settings, "query_row_cap", 3)
 

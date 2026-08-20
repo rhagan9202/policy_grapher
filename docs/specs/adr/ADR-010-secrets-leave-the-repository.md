@@ -61,7 +61,11 @@ this ADR accepts in exchange for not shipping a public credential.
    in git history and cannot be un-published. This is judged harmless because it never
    protected anything but a local development Neo4j instance behind no other gate; anyone
    who cloned the repository already had it. Anyone still running a stack initialized from
-   that password should re-run `init-env.sh` against a fresh `.env`.
+   that password should re-run `init-env.sh` against a fresh `.env` — and must also
+   `docker compose down -v` first. `NEO4J_AUTH` only initialises a *new* data volume; it
+   does not re-key an existing one, so a generated password against a pre-existing
+   `neo4j-data` volume leaves the backend failing `verify_connectivity()` in a restart
+   loop. Dropping the volume is the whole fix, and the corpus re-ingests from the CSV.
 
 4. **Generated tokens remain a stopgap, not an identity provider.** `init-env.sh` produces
    exactly one principal (`dev`). This is the same deliberate limitation ADR-008 already
@@ -70,8 +74,9 @@ this ADR accepts in exchange for not shipping a public credential.
 
 ## Consequences
 
-**Makes easy.** A clean clone still runs from a public repository with no secret ever
-committed to it. Re-running `init-env.sh` after deleting `.env` produces a fresh password
+**Makes easy.** A clean clone still runs from a public repository with no secret
+committed to it going forward — the password already in git history stays there, per
+Decision 3. Re-running `init-env.sh` after deleting `.env` produces a fresh password
 and token with no code change. The UI works out of the box against a freshly generated
 token, closing the gap ADR-008's introduction opened (an authenticated backend with no way
 for the browser app to authenticate).

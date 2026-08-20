@@ -9,10 +9,12 @@ it through a query API and a lightweight visual explorer.
 
 ## Status
 
-**DI-1 complete** — 18 of 18 stories. `docker compose up` ingests the sample corpus and
-serves it as a navigable graph at http://localhost:5173, with the full 438-document corpus
-listed and searchable at http://localhost:5173/documents. Every endpoint SPEC-001 names is
-built: document CRUD, reference editing, `POST /reset`, and raw Cypher via `POST /query`.
+**DI-1 complete** — 18 of 18 stories. `./scripts/init-env.sh && docker compose up` ingests
+the sample corpus and serves it as a navigable graph at http://localhost:5173, with the full
+438-document corpus listed and searchable at http://localhost:5173/documents. Every endpoint
+SPEC-001 names is built: document CRUD, reference editing, `POST /reset`, and read-only
+Cypher via `POST /query` — read-routed, timed and row-capped since
+[ADR-009](docs/specs/adr/ADR-009-query-is-read-only-and-bounded.md).
 
 ## Quickstart
 
@@ -24,15 +26,24 @@ docker compose up --build
 Then open http://localhost:5173. The API is at http://localhost:8000, the Neo4j browser at
 http://localhost:7474.
 
+**Upgrading a stack that predates the generated `.env`?** Run `docker compose down -v` before
+`init-env.sh`. `NEO4J_AUTH` sets the password when the data volume is *created* and never
+re-keys an existing one, so a fresh password against an old `neo4j-data` volume leaves the
+backend failing to connect in a restart loop. The volume holds nothing but the sample corpus,
+which re-ingests from the CSV.
+
 **Every route but `/health` requires a bearer token.** A request needs an `Authorization:
 Bearer <token>` header whose SHA-256 digest matches one of the `name:sha256hex` pairs in
 `API_TOKENS`. `scripts/init-env.sh` generates one token (principal `dev`) and writes its
 digest to `API_TOKENS`, so a clean clone authenticates that one token and every other
 request gets `401` — the failure mode is universal denial, not universal access. The
 browser app authenticates too: the vite dev proxy injects the same token server-side, so
-the UI works without exposing it to JavaScript. CORS is limited to the origins
-`CORS_ALLOW_ORIGINS` lists (`http://localhost:5173` by default), with credentials
-permitted. See
+the UI works without exposing it to JavaScript. The proxy injects the token on GET
+requests only, so nothing reaching port 5173 can mutate the graph without a token of its own.
+CORS is limited to the origins `CORS_ALLOW_ORIGINS` lists (`http://localhost:5173` by
+default), without credentials — the credential here is a header, not a cookie.
+`/openapi.json`, `/docs` and `/redoc` are not published unless `ENABLE_API_DOCS=true`, since
+they authenticate nobody. See
 [ADR-008](docs/specs/adr/ADR-008-authenticated-non-cypher-audience.md).
 
 **Secrets are generated locally, not committed.** `./scripts/init-env.sh` writes a fresh

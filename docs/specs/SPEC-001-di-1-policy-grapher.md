@@ -159,11 +159,12 @@ suffix is appended after truncation, so a slug can reach **89 characters**, not 
 | `NEO4J_PASSWORD` | Neo4j password |
 | `NEO4J_DATABASE` | Database name. Default `neo4j` |
 | `GRAPH_RENDER_CAP` | **(gap review)** Maximum nodes returned by `GET /graph`. Default `300` |
-| `QUERY_ROW_CAP` | Maximum rows returned by `POST /query`. Default `1000` — see [ADR-009](adr/ADR-009-query-is-read-only-and-bounded.md) |
+| `QUERY_ROW_CAP` | Maximum rows returned by `POST /query`. Default `1000`; `0` means no cap, the same convention as `GRAPH_RENDER_CAP` — see [ADR-009](adr/ADR-009-query-is-read-only-and-bounded.md) |
 | `QUERY_TIMEOUT_SECONDS` | Transaction timeout applied to each `POST /query`. Default `10.0` |
-| `API_TOKENS` | Comma-separated `name:sha256hex` pairs accepted as bearer tokens. Default empty, which authenticates nobody — see [ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md) |
+| `API_TOKENS` | Comma-separated `name:sha256hex` pairs accepted as bearer tokens. Default empty, which authenticates nobody. An entry with no `:`, or whose digest is not 64 hex characters, is skipped silently — a mistyped line disables that one token and leaves the others working — see [ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md) |
 | `API_TOKEN` | The same token as one `API_TOKENS` entry, in plaintext. Not read by the backend — consumed only by the vite dev proxy (`frontend/vite.config.ts`) so the browser app can authenticate. Not interchangeable with `API_TOKENS`; see ADR-010 |
-| `CORS_ALLOW_ORIGINS` | Comma-separated browser origins allowed to call the API. Default `http://localhost:5173` |
+| `CORS_ALLOW_ORIGINS` | Comma-separated browser origins allowed to call the API. Default `http://localhost:5173`. Credentials are not allowed: the credential is an `Authorization` header, not a cookie |
+| `ENABLE_API_DOCS` | Whether `/openapi.json`, `/docs` and `/redoc` are published. Default `false` — they carry no authentication, so publishing them lets an anonymous caller enumerate every route |
 | `DATA_DIR` | Directory `POST /ingest` resolves filenames under. Default `/data/samples` |
 | `SAMPLE_CSV` | Corpus file auto-ingest loads. Default `dod_policy_references_08122026.csv` |
 | `AUTO_INGEST` | Whether an empty graph self-loads at startup. Default `true` |
@@ -246,7 +247,10 @@ because node count tracks citation breadth rather than corpus size.
 - A cap of `0` means no cap, for deliberate large-graph testing.
 - Applies to `GET /graph` only. `GET /documents`, `POST /query`, and ingest are unaffected —
   the cap is about legibility of the rendered view, not response size in general.
-  `POST /query` has its own separate bound, `QUERY_ROW_CAP`, reporting truncation the same way.
+  `POST /query` has its own separate bound, `QUERY_ROW_CAP`, reporting truncation the same
+  way — including `0` meaning uncapped, so the two same-shaped settings do not mean opposite
+  things. `POST /query` reads at most `QUERY_ROW_CAP + 1` rows out of the result and leaves
+  the rest unread, so the cap bounds the work and not just the response.
 
 **Truncation is deterministic**, so the same request always returns the same subgraph:
 
@@ -265,16 +269,19 @@ partial will draw conclusions about a citation graph from missing edges.
 
 ### Authentication
 Every endpoint except `GET /health` requires an `Authorization: Bearer <token>` header;
-`/health` stays open because the container healthcheck calls it. A token is admitted when its
-SHA-256 digest matches one of the comma-separated `name:sha256hex` pairs in `API_TOKENS`,
-yielding a `Principal`. A missing, malformed or unmatched credential is `401`. An empty
+`/health` stays open because the container healthcheck calls it. FastAPI's own
+documentation routes (`/openapi.json`, `/docs`, `/redoc`) would be the exception to that,
+since they carry no dependencies — so they are not published unless `ENABLE_API_DOCS=true`.
+A token is admitted when its SHA-256 digest matches one of the comma-separated
+`name:sha256hex` pairs in `API_TOKENS`, yielding a `Principal`. A missing, malformed or unmatched credential is `401`. An empty
 `API_TOKENS` authenticates nobody — the failure mode is universal denial, not universal
 access. See [ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md), which supersedes
 [ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md).
 
 ### CORS
-Only the origins `CORS_ALLOW_ORIGINS` lists are allowed, with credentials — by default
-`http://localhost:5173`, the Vite dev server.
+Only the origins `CORS_ALLOW_ORIGINS` lists are allowed — by default `http://localhost:5173`,
+the Vite dev server — and without credentials, since the credential is an `Authorization`
+header the dev proxy adds server-side rather than a cookie the browser would attach.
 
 ---
 
@@ -321,7 +328,7 @@ Minimum coverage for the Definition of Done:
 ### docker-compose Services
 | Service | Image | Ports | Notes |
 |---|---|---|---|
-| `neo4j` | `neo4j:2025.10` | 7474, 7687 | Auth enabled via env vars from the committed `.env`. Pinned rather than `latest` so the database version is reproducible (STORY-018). |
+| `neo4j` | `neo4j:2025.10` | 7474, 7687 | Auth enabled via env vars from the generated `.env` (`./scripts/init-env.sh`, [ADR-010](adr/ADR-010-secrets-leave-the-repository.md)). Pinned rather than `latest` so the database version is reproducible (STORY-018). |
 | `backend` | Custom (uv-based) | 8000 | Mounts `./data:/data`; waits for Neo4j to be healthy before starting |
 | `frontend` | Custom (Node/Vite) | 5173 | Proxies `/api` to backend for DI-1 |
 
@@ -329,7 +336,7 @@ Minimum coverage for the Definition of Done:
 
 ## Out of DI-1 Scope
 - DOCX, XLSX ingestion (PDF has landed — see Input above)
-- Authentication or authorisation
+- ~~**Authentication or authorisation**~~ — deferred in DI-1 under [ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md); authentication is now in scope and implemented, see [ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md). Authorisation — what a known caller may *do* — remains out of scope
 - RAG, LLM calls, vector embeddings
 - Production multi-stage Docker builds
 - Corpus management beyond the document table

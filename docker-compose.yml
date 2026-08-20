@@ -42,6 +42,9 @@ services:
       AUTO_INGEST: ${AUTO_INGEST}
       API_TOKENS: ${API_TOKENS}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
+      # Defaulted rather than bare ${...}: a .env generated before this variable
+      # existed would otherwise pass an empty string, which is not a bool.
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
       QUERY_ROW_CAP: ${QUERY_ROW_CAP}
       QUERY_TIMEOUT_SECONDS: ${QUERY_TIMEOUT_SECONDS}
     volumes:
@@ -55,7 +58,11 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "5173:5173"
+      # Bound to loopback, not 0.0.0.0: the dev proxy adds the API token to the GET
+      # requests it forwards, so anything that can reach this port reads the corpus as
+      # the dev principal. On the developer's own machine that is the point; from the
+      # rest of the network it is an open door.
+      - "127.0.0.1:5173:5173"
     environment:
       BACKEND_URL: http://backend:8000
       API_TOKEN: ${API_TOKEN}

@@ -4,6 +4,12 @@
 
 *Frozen once accepted. To change this decision, write a new ADR and mark this one superseded.*
 
+**Amended 2026-08-20 — [route protection policy](#amendment-2026-08-20-which-routes-require-a-principal).**
+This ADR deliberately scoped itself out of deciding which routes carry
+`Depends(require_principal)`. That work has since landed, and the two arguable calls in it
+had nowhere durable to live, so they are recorded in an amendment at the end of this
+document. The amendment adds; it changes nothing decided below.
+
 **Supersedes [ADR-001](ADR-001-demo-assumes-cypher-fluent-users.md).** ADR-001 assumed the
 demo's users were comfortable writing Cypher, and named its own revisit trigger explicitly:
 "Revisit when LLM query construction starts. That work supersedes this ADR's audience
@@ -108,3 +114,39 @@ accident.
 expiry, revocation without a restart) rather than an operator handing out a handful of static
 tokens. At that point `verify_token` is replaced; nothing that calls `require_principal`
 should need to change.
+
+---
+
+## Amendment 2026-08-20: which routes require a principal
+
+*Added after acceptance. This records decisions the ADR above left unscoped ("Applying
+authentication to routes is deliberately out of this ADR's scope"); it does not revise any
+of them.*
+
+`require_principal` is now attached to every route the application defines except one. Two
+of those calls are arguable, and neither had a home outside a task brief and a test
+docstring.
+
+1. **`GET /health` stays open.** It is what the compose healthcheck calls, from inside the
+   container network and with no way to carry a token; requiring one would make the service
+   permanently unhealthy. What it discloses is that a process is answering — liveness, not
+   corpus. A future check that reports version, counts, or dependency state stops being
+   free to leave open, and this decision would need revisiting at that point rather than
+   being inherited.
+
+2. **`GET /graph` and `GET /documents` are protected, because the corpus is the asset.**
+   Reads are not exempt simply for being reads. This project's value is the ingested
+   policy corpus and the reference structure over it, so an anonymous caller who can read
+   the whole graph has taken the thing worth taking, whether or not they can change it.
+   Protecting only mutation would have been the more common default and the wrong one here.
+
+**Enforced as a property, not as a list.** `tests/test_routers.py` walks the registered
+routes and asserts every one but `GET /health` depends on `require_principal`, so a route
+added later arrives covered instead of quietly uncovered — the failure mode a hardcoded list
+of today's ten routes cannot catch.
+
+**FastAPI's own documentation routes are the exception that proves it.** `/openapi.json`,
+`/docs` and `/redoc` take no dependencies and cannot be given any without wrapping them, so
+they would falsify the policy rather than follow it. They are not published unless
+`ENABLE_API_DOCS=true`, which keeps the sentence in SPEC-001 and the README literally true
+in the default configuration.

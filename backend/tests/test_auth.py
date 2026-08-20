@@ -29,6 +29,24 @@ def test_a_malformed_entry_is_ignored_rather_than_crashing():
     assert verify_token("a", configured) == Principal(name="alice")
 
 
+def test_a_non_ascii_digest_does_not_take_down_the_entries_after_it():
+    """ADR-008 Decision 3: one bad line must not disable every valid token.
+
+    `hmac.compare_digest` raises TypeError on a non-ASCII string, which aborted the
+    loop before a later valid entry was reached and surfaced as a 500 on every
+    protected route — authentication down, not bypassed, but down.
+    """
+    configured = f"bad:\u00e9,alice:{token_digest('a')}"
+    assert verify_token("a", configured) == Principal(name="alice")
+
+
+def test_a_digest_that_is_not_sixty_four_hex_characters_is_skipped():
+    """The shape check is on configured data only, never on the presented token."""
+    configured = f"truncated:abc123,alice:{token_digest('a')}"
+    assert verify_token("a", configured) == Principal(name="alice")
+    assert verify_token("abc123", configured) is None
+
+
 def test_every_entry_is_compared_even_after_a_match(monkeypatch):
     """Exhaustive scan: verify_token must not stop comparing once it finds a match.
 
@@ -81,6 +99,36 @@ def test_protected_routes_reject_an_unauthenticated_caller(
 def test_health_stays_open(client_with_graph):
     """/health must not require a token — it is what the container healthcheck calls."""
     assert client_with_graph.get("/health").status_code == 200
+
+
+@pytest.mark.integration
+def test_a_well_formed_but_unknown_token_is_rejected(client_with_auth):
+    """Every PROTECTED case above sends *no* header, so all of them stop at the
+    missing-credential 401 and none reaches the `verify_token` -> None branch. Without
+    this test that branch could be deleted and the suite would stay green while the
+    API admitted any well-formed bearer string.
+    """
+    response = client_with_auth.get("/graph", headers={"Authorization": "Bearer wrong-token"})
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
+@pytest.mark.integration
+def test_a_non_bearer_scheme_is_rejected(client_with_auth):
+    response = client_with_auth.get("/graph", headers={"Authorization": "Basic abc"})
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
+@pytest.mark.integration
+def test_a_missing_credential_challenges_for_bearer(client_with_graph):
+    """ADR-008 Decision 5: the 401 says what would satisfy it."""
+    response = client_with_graph.get("/graph")
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
 
 
 @pytest.mark.integration

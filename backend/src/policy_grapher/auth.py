@@ -25,12 +25,30 @@ def token_digest(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+_DIGEST_LENGTH = 64
+
+
+def _is_digest(candidate: str) -> bool:
+    """Whether a *configured* value has the shape of a SHA-256 hex digest.
+
+    `hmac.compare_digest` raises TypeError on a non-ASCII string, so a single
+    mistyped entry used to abort the scan and 401-turned-500 every route. ADR-008
+    Decision 3 promises the opposite: one bad line must not take down the valid
+    tokens beside it. This looks only at configuration, never at the presented
+    token, so it adds no data-dependent branch an attacker can time.
+    """
+    return len(candidate) == _DIGEST_LENGTH and _HEX_DIGITS.issuperset(candidate)
+
+
 def verify_token(token: str, configured: str) -> Principal | None:
     """Resolve a bearer token to a principal, or None.
 
-    `configured` is `name:digest` pairs, comma-separated. Comparison is constant-time
-    so a timing signal cannot enumerate valid tokens. Every entry is checked even
-    after a match, for the same reason.
+    `configured` is `name:digest` pairs, comma-separated. An entry without a `:`, or
+    whose digest is not 64 hex characters, is skipped: a malformed line disables
+    itself and nothing else (ADR-008 Decision 3). Comparison is constant-time so a
+    timing signal cannot enumerate valid tokens. Every well-formed entry is checked
+    even after a match, for the same reason.
     """
     presented = token_digest(token)
     found: Principal | None = None
@@ -38,7 +56,10 @@ def verify_token(token: str, configured: str) -> Principal | None:
         name, separator, digest = entry.partition(":")
         if not separator:
             continue
-        if hmac.compare_digest(digest.strip(), presented) and found is None:
+        digest = digest.strip()
+        if not _is_digest(digest):
+            continue
+        if hmac.compare_digest(digest, presented) and found is None:
             found = Principal(name=name.strip())
     return found
 

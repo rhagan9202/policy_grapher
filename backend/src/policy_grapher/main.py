@@ -61,16 +61,33 @@ async def lifespan(app: FastAPI):
         driver.close()
 
 
-app = FastAPI(title="Policy Grapher", version="0.1.0", lifespan=lifespan)
-
-# Middleware is registered at import time, but app.state.settings is only populated
+# The app is constructed at import time, but app.state.settings is only populated
 # inside lifespan, which runs later — read settings via get_settings() here instead.
 settings = get_settings()
+
+# FastAPI attaches no dependencies to its own documentation routes, so with them
+# published "every route but /health requires a bearer token" would be false:
+# /openapi.json hands an anonymous caller the whole route inventory. Passing
+# openapi_url=None removes all three (/docs and /redoc are only registered when the
+# schema is). ENABLE_API_DOCS puts them back for a deployment that wants them.
+_docs = settings.enable_api_docs
+app = FastAPI(
+    title="Policy Grapher",
+    version="0.1.0",
+    lifespan=lifespan,
+    openapi_url="/openapi.json" if _docs else None,
+    docs_url="/docs" if _docs else None,
+    redoc_url="/redoc" if _docs else None,
+)
+
 _origins = [o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
-    allow_credentials=True,
+    # False on purpose: the credential is an Authorization header the dev proxy adds
+    # server-side, never a cookie, so allow_credentials buys nothing — and it is what
+    # would turn a future CORS_ALLOW_ORIGINS=* into "any origin, with credentials".
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
