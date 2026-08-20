@@ -1,7 +1,11 @@
+import hashlib
 from datetime import date
+from pathlib import Path
 
 import pytest
 
+from policy_grapher import ingest as ingest_module
+from policy_grapher.sources.document import ExtractedDocument, ExtractionReport
 from policy_grapher.versions import (
     UnknownDocumentError,
     VersionConflictError,
@@ -12,6 +16,8 @@ from policy_grapher.versions import (
     merge_version,
     version_id,
 )
+
+SAMPLES = Path(__file__).resolve().parents[2] / "data" / "samples"
 
 
 def test_identity_prefers_the_effective_date():
@@ -353,3 +359,117 @@ def test_the_manifest_path_creates_no_versions(client_with_auth):
 
     versions = client_with_auth.get(f"/documents/{documents[0]['slug']}/versions").json()
     assert versions == []
+
+
+@pytest.mark.integration
+def test_a_version_conflict_is_a_409_at_the_ingest_boundary(client_with_auth, monkeypatch):
+    """ADR-011: the operator decides between a better scan and a genuine reissue —
+    but only if the API surfaces the conflict instead of discarding it as a 500.
+
+    The second ingest is forced (via a patched `extract_document`) to resolve to
+    the same instrument name and the same effective date as the first, so it
+    collides on version identity; only the underlying file's bytes — and hence
+    the checksum computed from them — actually differ.
+    """
+    first = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    assert first.status_code == 200
+    assert first.json()["document"]["slug"] == "dodd-5000-01"
+
+    def same_edition_different_file(path):
+        return ExtractedDocument(
+            name="DoDD 5000.01",
+            references=(),
+            self_references_skipped=0,
+            report=ExtractionReport(
+                format="modern", section_found=True, attributed=(), unattributed=()
+            ),
+            effective_date=date(2022, 7, 28),
+        )
+
+    monkeypatch.setattr(ingest_module.pdf, "extract_document", same_edition_different_file)
+
+    second = client_with_auth.post("/ingest", json={"filename": "500088p.pdf"})
+
+    assert second.status_code == 409
+    detail = second.json()["detail"]
+    first_checksum = hashlib.sha256((SAMPLES / "500001p.pdf").read_bytes()).hexdigest()
+    second_checksum = hashlib.sha256((SAMPLES / "500088p.pdf").read_bytes()).hexdigest()
+    assert first_checksum in detail
+    assert second_checksum in detail
+
+
+@pytest.mark.integration
+def test_an_undated_edition_sorts_as_the_oldest(clean_graph, database):
+    """ADR-011's named limitation: with no effective_date to anchor on, an
+    undated edition sorts before every dated one — not after."""
+    clean_graph.execute_query(
+        "CREATE (:Document {slug: 'd', name: 'D'})", database_=database
+    )
+    _add(clean_graph, database, "d", None, "undated")
+    _add(clean_graph, database, "d", date(2020, 1, 1), "dated")
+
+    with clean_graph.session(database=database) as session:
+        edges = session.execute_write(link_supersession, "d")
+
+    assert edges == 1
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (newer:DocumentVersion)-[:SUPERSEDES]->(older:DocumentVersion) "
+        "RETURN newer.version_id AS newer, older.version_id AS older",
+        database_=database,
+    )
+    assert [(r["newer"], r["older"]) for r in records] == [
+        ("d@2020-01-01", "d@undated")
+    ]
+
+
+@pytest.mark.integration
+def test_list_versions_is_scoped_ordered_and_points_the_right_direction(
+    client_with_auth, clean_graph, database
+):
+    """One fixture pins three independently-mutable properties of LIST_VERSIONS:
+    slug scoping, SUPERSEDES direction, and the ORDER BY.
+
+    Two documents, each with three versions, dates interleaved between them and
+    inserted out of date order — so a scoping failure returns obviously foreign
+    rows, and a missing ORDER BY does not accidentally match insertion order.
+    """
+    clean_graph.execute_query(
+        "CREATE (:Document {slug: 'alpha-doc', name: 'Alpha'}), "
+        "(:Document {slug: 'beta-doc', name: 'Beta'})",
+        database_=database,
+    )
+
+    # Inserted out of date order on purpose, and with dates interleaved between
+    # the two documents.
+    _add(clean_graph, database, "alpha-doc", date(2024, 1, 1), "a3")
+    _add(clean_graph, database, "beta-doc", date(2021, 1, 1), "b2")
+    _add(clean_graph, database, "alpha-doc", date(2020, 1, 1), "a1")
+    _add(clean_graph, database, "beta-doc", date(2023, 1, 1), "b3")
+    _add(clean_graph, database, "alpha-doc", date(2022, 1, 1), "a2")
+    _add(clean_graph, database, "beta-doc", date(2019, 1, 1), "b1")
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(link_supersession, "alpha-doc")
+        session.execute_write(link_supersession, "beta-doc")
+
+    alpha = client_with_auth.get("/documents/alpha-doc/versions")
+    assert alpha.status_code == 200
+    assert [
+        (v["version_id"], v["effective_date"], v["checksum"], v["supersedes"])
+        for v in alpha.json()
+    ] == [
+        ("alpha-doc@2020-01-01", "2020-01-01", "a1", None),
+        ("alpha-doc@2022-01-01", "2022-01-01", "a2", "alpha-doc@2020-01-01"),
+        ("alpha-doc@2024-01-01", "2024-01-01", "a3", "alpha-doc@2022-01-01"),
+    ]
+
+    beta = client_with_auth.get("/documents/beta-doc/versions")
+    assert beta.status_code == 200
+    assert [
+        (v["version_id"], v["effective_date"], v["checksum"], v["supersedes"])
+        for v in beta.json()
+    ] == [
+        ("beta-doc@2019-01-01", "2019-01-01", "b1", None),
+        ("beta-doc@2021-01-01", "2021-01-01", "b2", "beta-doc@2019-01-01"),
+        ("beta-doc@2023-01-01", "2023-01-01", "b3", "beta-doc@2021-01-01"),
+    ]

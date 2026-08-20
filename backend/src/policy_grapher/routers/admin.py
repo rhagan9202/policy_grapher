@@ -16,6 +16,7 @@ from policy_grapher.models import (
     ResetResult,
 )
 from policy_grapher.sources import SourceError
+from policy_grapher.versions import VersionConflictError
 
 # Tagged explicitly rather than left to smart-union matching: the two models are
 # already mutually exclusive on their `source` Literal, but a discriminator makes
@@ -46,6 +47,8 @@ def ingest(
         )
     except SourceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except VersionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/reset", response_model=ResetResult)

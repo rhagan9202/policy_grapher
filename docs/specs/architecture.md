@@ -86,7 +86,9 @@ file resolves to the edition it already made rather than duplicating it. A cover
 states several dates, so only a *labelled* one counts (`Effective: …`, `Incorporating Change
 N, …`) and the latest of those wins: the file on disk is whatever its last change made it,
 and an unlabelled date is usually a cited predecessor's, not this edition's. Two files claiming
-one date under different checksums raise `VersionConflictError` instead of overwriting.
+one date under different checksums raise `VersionConflictError` instead of overwriting, which
+`POST /ingest` returns as a `409` carrying both checksums — the operator, not the graph, decides
+whether that is a better scan or a genuine reissue.
 `SUPERSEDES` is derived from the editions' dates and rebuilt from scratch on every ingest of
 that instrument — the one place ingest is not purely additive, safe only because no human
 judgement lives on those edges. Editions with no date sort as oldest, which is a real

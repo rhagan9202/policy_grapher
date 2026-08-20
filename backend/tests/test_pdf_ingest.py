@@ -1,3 +1,5 @@
+import hashlib
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -227,3 +229,86 @@ def test_a_cited_document_a_pdf_introduces_is_still_external(client_with_auth):
 
     body = client_with_auth.get("/documents/dodd-1322-18").json()
     assert body["is_external"] is True
+
+
+def _extracted(name, effective_date):
+    return ExtractedDocument(
+        name=name,
+        references=(),
+        self_references_skipped=0,
+        report=ExtractionReport(
+            format="modern", section_found=True, attributed=(), unattributed=()
+        ),
+        effective_date=effective_date,
+    )
+
+
+def test_ingesting_two_editions_through_the_ingest_path_links_supersession(
+    clean_graph, database
+):
+    """I2: the plan's own 'a newer edition produces a SUPERSEDES edge' must be
+    pinned through `ingest_document` — the actual ingest path — not only at the
+    `link_supersession` unit level, which a mutated `slug` argument can dodge
+    while every existing test stays green.
+    """
+    older = _extracted("DoDI Test Instrument", date(2020, 1, 1))
+    newer = _extracted("DoDI Test Instrument", date(2024, 1, 1))
+
+    slug, *_ = ingest_document(clean_graph, database, older, SAMPLES / "500001p.pdf")
+    same_slug, *_ = ingest_document(clean_graph, database, newer, SAMPLES / "500088p.pdf")
+    assert same_slug == slug
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (newer:DocumentVersion)-[:SUPERSEDES]->(older:DocumentVersion) "
+        "RETURN newer.version_id AS newer, older.version_id AS older",
+        database_=database,
+    )
+    assert [(r["newer"], r["older"]) for r in records] == [
+        (f"{slug}@2024-01-01", f"{slug}@2020-01-01")
+    ]
+
+
+def test_checksum_reflects_file_bytes_not_filename(clean_graph, database, tmp_path):
+    """I4: the checksum is the sole discriminator behind VersionConflictError and
+    the version identity for undated editions, so it must track actual file
+    content — not the filename, which is all a `path.name.encode()` mutation
+    would leave it tracking.
+    """
+    dir_a = tmp_path / "a"
+    dir_b = tmp_path / "b"
+    dir_a.mkdir()
+    dir_b.mkdir()
+
+    # Same filename, different bytes, different directories -> must produce
+    # different checksums.
+    same_name_a = dir_a / "same.pdf"
+    same_name_b = dir_b / "same.pdf"
+    same_name_a.write_bytes(b"first edition bytes")
+    same_name_b.write_bytes(b"second edition bytes")
+
+    # Different filenames, identical bytes -> must produce the same checksum.
+    diff_name_a = dir_a / "alpha.pdf"
+    diff_name_b = dir_b / "beta.pdf"
+    diff_name_a.write_bytes(b"shared bytes")
+    diff_name_b.write_bytes(b"shared bytes")
+
+    def checksum_for(name, path):
+        slug, *_ = ingest_document(clean_graph, database, _extracted(name, None), path)
+        records, _, _ = clean_graph.execute_query(
+            "MATCH (:Document {slug: $slug})-[:HAS_VERSION]->(v:DocumentVersion) "
+            "RETURN v.checksum AS checksum",
+            {"slug": slug},
+            database_=database,
+        )
+        return records[0]["checksum"]
+
+    checksum_same_name_a = checksum_for("Same Name Doc A", same_name_a)
+    checksum_same_name_b = checksum_for("Same Name Doc B", same_name_b)
+    assert checksum_same_name_a != checksum_same_name_b
+    assert checksum_same_name_a == hashlib.sha256(b"first edition bytes").hexdigest()
+    assert checksum_same_name_b == hashlib.sha256(b"second edition bytes").hexdigest()
+
+    checksum_diff_name_a = checksum_for("Diff Name Doc A", diff_name_a)
+    checksum_diff_name_b = checksum_for("Diff Name Doc B", diff_name_b)
+    assert checksum_diff_name_a == checksum_diff_name_b
+    assert checksum_diff_name_a == hashlib.sha256(b"shared bytes").hexdigest()
