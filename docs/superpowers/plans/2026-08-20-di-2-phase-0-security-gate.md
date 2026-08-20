@@ -560,8 +560,9 @@ Expected: PASS
 - [ ] **Step 7: Repair the rest of the suite**
 
 Every existing integration test that calls a now-protected route needs the authenticated
-client. Run the full suite, then change each failing test's fixture from `client_with_graph`
-to `client_with_auth`:
+client. `tests/test_query.py` (including the tests Task 1 added) and `tests/test_di1_complete.py`
+are known to need it; others will surface. Run the full suite, then change each failing test's
+fixture from `client_with_graph` to `client_with_auth`:
 
 Run: `cd backend && uv run pytest`
 Expected: initially many 401 failures; after the fixture swap, PASS.
@@ -588,17 +589,39 @@ app.add_middleware(
 )
 ```
 
-`settings` must be read at module scope the same way the app already obtains it; if the app
-only has settings on `app.state`, call `get_settings()` from `policy_grapher.config` here
-instead — middleware is registered once at import time, not per request.
+Read settings via `get_settings()`, which `main.py` already imports — **not**
+`app.state.settings`. Middleware is registered at import time; `app.state.settings` is
+populated inside `lifespan`, which runs later, so reading `app.state` here raises
+`AttributeError` on import. Add above the `app.add_middleware` call:
 
-- [ ] **Step 9: Run everything and commit**
+```python
+settings = get_settings()
+```
+
+- [ ] **Step 9: Pass the new settings through docker compose**
+
+`docker-compose.yml` enumerates every environment variable explicitly rather than using
+`env_file`, so a setting absent from that list never reaches the container. Without this the
+stack starts with `api_tokens=""`, fails closed, and returns 401 on every route — which reads
+as a broken app rather than a misconfigured one.
+
+In `docker-compose.yml`, under `services.backend.environment`, after `AUTO_INGEST`:
+
+```yaml
+      API_TOKENS: ${API_TOKENS}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
+```
+
+Add both to the repository's `.env` as well, so the stack still runs before Task 4 replaces
+that file — `API_TOKENS=` may be empty for now, and `CORS_ALLOW_ORIGINS=http://localhost:5173`.
+
+- [ ] **Step 10: Run everything and commit**
 
 Run: `cd backend && uv run pytest` and `cd ../frontend && npm test`
 Expected: PASS
 
 ```bash
-git add backend/src/policy_grapher backend/tests
+git add backend/src/policy_grapher backend/tests docker-compose.yml .env
 git commit -m "feat: every route but /health requires a principal; CORS is configured"
 ```
 
@@ -655,8 +678,10 @@ placeholders and `NEO4J_AUTH` using the same password:
 ```
 NEO4J_AUTH=neo4j/__NEO4J_PASSWORD__
 NEO4J_URI=bolt://neo4j:7687
+NEO4J_USER=neo4j
 NEO4J_PASSWORD=__NEO4J_PASSWORD__
 NEO4J_DATABASE=neo4j
+DATA_DIR=/data/samples
 GRAPH_RENDER_CAP=300
 SAMPLE_CSV=dod_policy_references_08122026.csv
 AUTO_INGEST=true
