@@ -58,7 +58,11 @@ def test_returning_a_relationship_is_serialised(client_with_auth):
 
 @pytest.mark.integration
 def test_a_temporal_value_survives_serialisation(client_with_auth):
-    """No stored value is temporal, but RETURN datetime() is valid Cypher."""
+    """A temporal at the top level of a row, which `RETURN datetime()` produces.
+
+    The stored-property case is covered separately below; it takes a different
+    path through `coerce` and was not fixed by this one passing.
+    """
     response = client_with_auth.post("/query", json={"cypher": "RETURN datetime() AS now"})
 
     assert response.status_code == 200
@@ -188,3 +192,49 @@ def test_a_result_under_the_cap_is_not_reported_as_truncated(client_with_auth):
     body = response.json()
     assert body["returned_rows"] == 3
     assert body["truncated"] is False
+
+
+@pytest.mark.integration
+def test_a_temporal_stored_on_a_node_survives_serialisation(client_with_auth, driver, database):
+    """A node property that is temporal, not just a bare `RETURN datetime()`.
+
+    The test above was written when its docstring was true — no stored value was
+    temporal. Phase 1 sets `ingested_at = datetime()` on every `:DocumentVersion`,
+    so returning the node itself now carries a temporal inside its properties,
+    where the top-level coercion never reached.
+    """
+    driver.execute_query(
+        "CREATE (:DocumentVersion {version_id: 'v1', ingested_at: datetime()})",
+        database_=database,
+    )
+
+    response = client_with_auth.post(
+        "/query", json={"cypher": "MATCH (v:DocumentVersion) RETURN v"}
+    )
+
+    assert response.status_code == 200
+    properties = response.json()["rows"][0]["v"]["properties"]
+    assert isinstance(properties["ingested_at"], str)
+
+
+@pytest.mark.integration
+def test_a_temporal_stored_on_a_relationship_survives_serialisation(
+    client_with_auth, driver, database
+):
+    """The same defect on the relationship branch of `coerce`.
+
+    No relationship in the corpus carries a temporal property today, so this is
+    unreachable through ingest — but the fix has two branches and a test for one
+    of them leaves the other free to regress.
+    """
+    driver.execute_query(
+        "CREATE (:A)-[:SUPERSEDES {at: datetime()}]->(:B)",
+        database_=database,
+    )
+
+    response = client_with_auth.post(
+        "/query", json={"cypher": "MATCH ()-[r:SUPERSEDES]->() RETURN r"}
+    )
+
+    assert response.status_code == 200
+    assert isinstance(response.json()["rows"][0]["r"]["properties"]["at"], str)

@@ -17,11 +17,22 @@ def coerce(value: object) -> JSONValue:
 
     `MATCH (n) RETURN n` yields Node objects, and `RETURN datetime()` yields a
     temporal — neither is JSON-serialisable, and both are things a user types.
+
+    Node and relationship properties are coerced item by item rather than with
+    `dict(value)`, because a property can itself be a temporal: `:DocumentVersion`
+    carries `ingested_at = datetime()`. Copying the properties wholesale walked
+    past it and handed the driver's `DateTime` to pydantic.
     """
     if isinstance(value, Node):
-        return {"labels": sorted(value.labels), "properties": dict(value)}
+        return {
+            "labels": sorted(value.labels),
+            "properties": {key: coerce(item) for key, item in value.items()},
+        }
     if isinstance(value, Relationship):
-        return {"type": value.type, "properties": dict(value)}
+        return {
+            "type": value.type,
+            "properties": {key: coerce(item) for key, item in value.items()},
+        }
     if isinstance(value, Path):
         return {
             "nodes": [coerce(node) for node in value.nodes],
