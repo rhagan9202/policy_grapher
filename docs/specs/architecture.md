@@ -24,7 +24,7 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 
 | Component | Responsibility |
 | --- | --- |
-| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes raw Cypher. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
+| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes read-only Cypher under a transaction timeout and a row cap. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
 | **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the committed `.env`. Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
 | **Frontend** (React + Vite, port 5173) | Two routes. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`; clicking a node shows its name and whether it is a corpus or external document, and clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. `/documents` renders every document from `GET /documents` as a table — name, how many documents cite it, and outgoing references with slugs resolved to names from the same payload — filtered client-side by name as the user types. Vite dev server proxies `/api` to the backend. |
 
@@ -134,7 +134,8 @@ Because a `Document` now has no mutable field — renaming is delete-and-recreat
 
 Docker Compose with three services: `neo4j`, `backend`, `frontend`. Configuration reaches
 the backend through `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`,
-`GRAPH_RENDER_CAP`, `SAMPLE_CSV`, and `AUTO_INGEST`, all supplied by the committed `.env`.
+`GRAPH_RENDER_CAP`, `QUERY_ROW_CAP`, `QUERY_TIMEOUT_SECONDS`, `SAMPLE_CSV`, and `AUTO_INGEST`,
+all supplied by the committed `.env`.
 CORS allows all origins; there is no authentication. `backend` waits on Neo4j's HTTP
 healthcheck before starting. `./data` is bind-mounted into `backend` read-only with an
 SELinux private label (`:Z`) since only one container consumes it, and `DATA_DIR` points at
@@ -184,13 +185,14 @@ turns a surprise outage into a planned piece of work.
   manifest citing that name demotes it, so it vanishes from the default graph view with no
   error anywhere. STORY-038.
 
-- **`POST /query` executes arbitrary Cypher** with no authentication, no read-only
-  enforcement, no timeout, no row cap, and open CORS — any page in any browser that can
-  reach the backend can drop the database. That is a deliberate, bounded risk acceptance:
-  [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md) records the conditions that make it
-  defensible (local-only, disposable data, trusted audience), all three confirmed to hold
-  when the endpoint shipped, and it must not reach a shared environment in this form. The
-  endpoint is also the demo's entire query interface
+- **`POST /query` is unauthenticated, behind open CORS.** The query itself is now bounded —
+  read routing, a transaction timeout and a row cap
+  ([ADR-009](adr/ADR-009-query-is-read-only-and-bounded.md), superseding
+  [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md)), so a caller can read the whole graph
+  but cannot corrupt it or hang a worker indefinitely. What remains open is *who* may call:
+  any page in any browser that can reach the backend can read everything in the graph, and
+  there is no authenticated path for the ad hoc mutation this endpoint used to provide.
+  STORY-019 closes both halves. The endpoint is also the demo's entire query interface
   ([ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md)) and the eventual target of
   LLM-constructed queries, so its contract outlives the assumption that a trusted human is
   typing into it.
@@ -205,9 +207,10 @@ turns a surprise outage into a planned piece of work.
   different tool won't parse.
 - **No pagination anywhere**, by design. `GET /graph` is bounded by the render cap instead,
   and reports `truncated` so a partial view is never presented as the whole graph.
-  `GET /documents` and `POST /query` are unbounded: the first returns all 438 documents on
-  every call, the second returns whatever the query produces. At DI-1's corpus size that is
-  fine, and it will stop being fine well before the corpus reaches its MVP target. The
+  `POST /query` is bounded by its own row cap (`QUERY_ROW_CAP`) and reports `truncated` the
+  same way. `GET /documents` is the one that stays unbounded — it returns all 438 documents
+  on every call. At DI-1's corpus size that is fine, and it will stop being fine well before
+  the corpus reaches its MVP target. The
   document table compounds it by rendering every row and filtering in the browser.
 - **One node label, one relationship type.** The Policy Concierge capabilities in the
   [vision](../planning/vision.md) — policy points, applicable entities, enforcement

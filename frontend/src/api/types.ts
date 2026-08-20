@@ -40,3 +40,9 @@ export interface ResetResult {
   nodes_deleted: number
   relationships_deleted: number
 }
+
+export interface QueryResult {
+  rows: Record<string, unknown>[]
+  returned_rows: number
+  truncated: boolean
+}

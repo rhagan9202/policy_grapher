@@ -1,7 +1,7 @@
 # SPEC-001: DI-1 — Policy Grapher
 
 *Living document — behavior changes here in the same pull request that changes the code.
-Last reviewed: 2026-08-13*
+Last reviewed: 2026-08-20*
 
 Originated as `SPEC.md` at the repository root. Expanded 2026-08-12 with decisions from a
 gap review against the sample corpus; sections marked **(gap review)** were added or changed
@@ -159,6 +159,8 @@ suffix is appended after truncation, so a slug can reach **89 characters**, not 
 | `NEO4J_PASSWORD` | Neo4j password |
 | `NEO4J_DATABASE` | Database name. Default `neo4j` |
 | `GRAPH_RENDER_CAP` | **(gap review)** Maximum nodes returned by `GET /graph`. Default `300` |
+| `QUERY_ROW_CAP` | Maximum rows returned by `POST /query`. Default `1000` — see [ADR-009](adr/ADR-009-query-is-read-only-and-bounded.md) |
+| `QUERY_TIMEOUT_SECONDS` | Transaction timeout applied to each `POST /query`. Default `10.0` |
 | `DATA_DIR` | Directory `POST /ingest` resolves filenames under. Default `/data/samples` |
 | `SAMPLE_CSV` | Corpus file auto-ingest loads. Default `dod_policy_references_08122026.csv` |
 | `AUTO_INGEST` | Whether an empty graph self-loads at startup. Default `true` |
@@ -211,7 +213,7 @@ immutable after ingest.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/graph` | Return the graph for the UI. **(gap review)** `?include_external=false` (default) returns only the 23 corpus documents and edges among them; `?include_external=true` returns everything up to the render cap; `?expand={slug}` adds one document's external neighbors to the default view; `?limit=` overrides `GRAPH_RENDER_CAP` for one request |
-| `POST` | `/query` | Execute a raw Cypher string. Body: `{ "cypher": "MATCH ..." }`. Returns a list of records. **No read-only enforcement, timeout, or row cap in DI-1** — see [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md) |
+| `POST` | `/query` | Execute a Cypher string. Body: `{ "cypher": "MATCH ..." }`. Returns a `QueryResult`. **Read-only, time-bounded and row-capped** — queries run in a read transaction, so a write is rejected by Neo4j with `400`; execution is bounded by `QUERY_TIMEOUT_SECONDS` and results by `QUERY_ROW_CAP`, with truncation reported rather than silent. See [ADR-009](adr/ADR-009-query-is-read-only-and-bounded.md), which supersedes [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md) |
 
 ### Pydantic Models **(gap review — all changed)**
 - `DocumentIn`: `name: str`
@@ -219,6 +221,7 @@ immutable after ingest.
 - `GraphNode`: `id: str` (slug), `label: str` (name), `is_external: bool`
 - `GraphEdge`: `source: str` (slug), `target: str` (slug)
 - `GraphOut`: `nodes: list[GraphNode]`, `edges: list[GraphEdge]`, `total_nodes: int`, `returned_nodes: int`, `truncated: bool`
+- `QueryResult`: `rows: list[dict]`, `returned_rows: int`, `truncated: bool`
 
 
 `references` and `referenced_by` carry **slugs, not names** — the same identifiers the
@@ -236,6 +239,7 @@ because node count tracks citation breadth rather than corpus size.
 - A cap of `0` means no cap, for deliberate large-graph testing.
 - Applies to `GET /graph` only. `GET /documents`, `POST /query`, and ingest are unaffected —
   the cap is about legibility of the rendered view, not response size in general.
+  `POST /query` has its own separate bound, `QUERY_ROW_CAP`, reporting truncation the same way.
 
 **Truncation is deterministic**, so the same request always returns the same subgraph:
 
@@ -318,4 +322,4 @@ Added by the gap review:
 - **Entity resolution** — near-duplicate names are flagged, not merged
 - **Interpreting the CSV's `type` column** — read during parsing, never stored; see [ADR-006](adr/ADR-006-relational-facts-live-on-typed-edges.md)
 - **Renaming documents** — delete and recreate instead
-- **Query limits on `POST /query`** — deliberately deferred, see [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md)
+- ~~**Query limits on `POST /query`**~~ — deferred in DI-1 under [ADR-004](adr/ADR-004-unrestricted-cypher-in-di-1.md); now in scope and implemented, see [ADR-009](adr/ADR-009-query-is-read-only-and-bounded.md)

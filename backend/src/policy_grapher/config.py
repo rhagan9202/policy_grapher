@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     neo4j_database: str = "neo4j"
 
     graph_render_cap: int = 300
+    query_row_cap: int = 1000
+    query_timeout_seconds: float = 10.0
 
     data_dir: Path = Path("/data/samples")
     sample_csv: str = "dod_policy_references_08122026.csv"

@@ -1,16 +1,19 @@
-"""Raw Cypher passthrough.
+"""Read-only Cypher passthrough.
 
-Unrestricted by decision — no read-only enforcement, no timeout, no row cap.
-See ADR-004; that acceptance is bounded by DI-1 staying local-only.
+Read routing, a transaction timeout and a row cap, per ADR-009. Mutation moved to
+authenticated routes when ADR-004's local-only assumption stopped holding.
 """
 
-from neo4j import Driver, RoutingControl
+from collections.abc import Mapping
+from typing import Any, LiteralString, cast
+
+from neo4j import Driver, EagerResult, Query, RoutingControl
 from neo4j.graph import Node, Path, Relationship
 
-JSON_SCALARS = (str, int, float, bool)
+from policy_grapher.models import JSON_SCALARS, JSONValue, QueryResult
 
 
-def coerce(value: object) -> object:
+def coerce(value: object) -> JSONValue:
     """Turn driver values into something FastAPI can serialise.
 
     `MATCH (n) RETURN n` yields Node objects, and `RETURN datetime()` yields a
@@ -34,9 +37,30 @@ def coerce(value: object) -> object:
     return str(value)
 
 
-def run_cypher(driver: Driver, database: str, cypher: str) -> list[dict]:
-    # WRITE routing: ADR-004 permits mutation through this endpoint.
-    records, _, _ = driver.execute_query(
-        cypher, database_=database, routing_=RoutingControl.WRITE
+def run_cypher(
+    driver: Driver,
+    database: str,
+    cypher: str,
+    *,
+    row_cap: int,
+    timeout_seconds: float,
+) -> QueryResult:
+    # READ routing: Neo4j rejects a write attempted in a read transaction, so the
+    # enforcement is the database's, not a regex over the query text.
+    result: EagerResult = driver.execute_query(
+        Query(cast(LiteralString, cypher), timeout=timeout_seconds),
+        database_=database,
+        routing_=RoutingControl.READ,
     )
-    return [{key: coerce(value) for key, value in record.items()} for record in records]
+    rows = [
+        {
+            key: coerce(value)
+            for key, value in cast(Mapping[str, Any], record).items()
+        }
+        for record in result.records
+    ]
+    truncated = len(rows) > row_cap
+    # Truncation is reported, never silent — the failure mode SPEC-001 names.
+    return QueryResult(
+        rows=rows[:row_cap], returned_rows=min(len(rows), row_cap), truncated=truncated
+    )
