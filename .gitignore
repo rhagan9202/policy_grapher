@@ -6,11 +6,13 @@
 
 # Agent scratch (subagent-driven-development ledger, briefs, review packages)
 .superpowers/
-.claude/worktrees/
 
-# Personal Claude Code overrides. `.claude/settings.json` IS committed — it carries the
-# pre-commit docs-sync hook the whole repo shares. This file is per-machine only.
-.claude/settings.local.json
+# Claude Code workspace, untracked in full — settings, hooks and worktrees alike.
+# `.claude/settings.json` and the docs-sync hook used to be committed so the whole
+# repo shared them, but two checkouts on different machines began overwriting each
+# other's copies. They are per-checkout now, which means a fresh clone does NOT
+# arrive with the pre-commit docs sync — install it locally if you want it.
+.claude/
 
 # OS
 .DS_Store
