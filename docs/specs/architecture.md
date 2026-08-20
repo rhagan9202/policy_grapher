@@ -209,7 +209,12 @@ turns a surprise outage into a planned piece of work.
 - **The committed `.env` makes the Neo4j password public by construction.** Accepted so a
   clean clone runs with one command; the deployment target is still local only. That file now
   also carries `API_TOKENS`, which ships **empty** — so a clean clone authenticates nobody and
-  every route but `/health` answers `401` until an operator puts a digest there.
+  every route but `/health` answers `401` until an operator puts a digest there. Nothing
+  supplies the browser app a token either: the Vite proxy in `frontend/vite.config.ts`
+  forwards `/api` without an `Authorization` header, and `docker-compose.yml` passes the
+  token allow-list to the backend only. A clean `docker compose up` therefore renders a UI
+  whose every view errors, which is why the graph and document routes described above are
+  currently reachable only by a caller that sets the header itself.
 - **Graph size grows with citation breadth, not corpus size.** One 23-row CSV yields 438
   nodes. The 300-node figure is a configurable render cap (`GRAPH_RENDER_CAP`), not a
   storage limit, so this is bounded rather than dangerous — but it means corpus size is a

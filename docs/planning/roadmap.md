@@ -14,6 +14,11 @@ graph at `/`, with the full 438-document corpus listed and searchable at `/docum
 `POST /ingest` now also accepts a DoD issuance PDF, extracting the document and the
 references it cites.
 
+Those two views are currently reachable only by a caller that sets its own bearer token — the
+browser app is not yet wired to send one, so a clean `docker compose up` shows a UI that errors
+everywhere. See *Known weak points* in the
+[architecture](../specs/architecture.md#known-weak-points).
+
 The feasibility question DI-1 existed to answer is answered: the pipeline holds end to end at
 sample-corpus scale, and prose extraction works at 78–100% per document against the corpus as
 an oracle. What remains untested is **scale** — every measurement so far is against five

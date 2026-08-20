@@ -179,7 +179,10 @@ and it must change before any shared deployment.
 
 ### Startup behavior **(gap review)**
 On boot the backend checks whether the graph is empty. If it is, it ingests the sample corpus
-from `/data` automatically, so `docker compose up` → open the browser → see a graph. An empty
+from `/data` automatically, so `docker compose up` leaves a populated graph behind it. Opening
+the browser does not yet show that graph: the frontend sends no bearer token, so every view
+errors until a caller supplies the header itself — see *Known weak points* in the
+[architecture](architecture.md#known-weak-points). An empty
 graph after an explicit `POST /reset` is still empty on the next request; auto-ingest runs at
 startup only, never in response to a reset.
 
