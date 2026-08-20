@@ -1,8 +1,10 @@
 """Chunks in the graph — the first layer that is derived rather than canonical.
 
-Everything here is droppable and rebuildable. Chunk ids are deterministic
-(chunking.Chunk), so a rebuild reproduces the same ids and anything anchored to
-a chunk survives it. That property is what makes re-extraction safe.
+Everything here is droppable and rebuildable. Chunk ids are keyed on a chunk's
+place in the document's own section structure (chunking._chunk_id), so a rebuild
+reproduces the same ids — and, more to the point, an edit or a chunker change
+only moves the ids of the sections it actually touches. Anything anchored to a
+chunk elsewhere survives. That property is what makes re-extraction safe.
 """
 
 from neo4j import ManagedTransaction
@@ -13,10 +15,10 @@ WRITE_CHUNKS = """
 MATCH (v:DocumentVersion {version_id: $version_id})
 UNWIND $chunks AS chunk
 MERGE (c:Chunk {chunk_id: chunk.chunk_id})
-ON CREATE SET c.text         = chunk.text,
-              c.page         = chunk.page,
-              c.section_path = chunk.section_path,
-              c.ordinal      = chunk.ordinal
+SET c.text         = chunk.text,
+    c.page         = chunk.page,
+    c.section_path = chunk.section_path,
+    c.ordinal      = chunk.ordinal
 MERGE (v)-[:HAS_CHUNK]->(c)
 RETURN count(DISTINCT c) AS written
 """
@@ -46,6 +48,16 @@ def write_chunks(tx: ManagedTransaction, *, version_id: str, chunks: list[Chunk]
     now attached — taken from the query result, not from `len(chunks)`, so a
     duplicate chunk_id within one call or an unmatched version is reflected
     honestly rather than reported as if every chunk landed.
+
+    This write is authoritative: an existing chunk_id has its text, page,
+    section_path and ordinal overwritten (`SET`, not `ON CREATE SET`). A chunk
+    id is a hash of where the chunk sits in the document's structure, not of its
+    text, so re-ingesting an edited edition under the same version_id reaches
+    existing ids carrying different text — and a store whose whole point is a
+    verbatim quotation must not answer with the previous edition's words. It
+    also means correctness here does not depend on the caller having dropped
+    first; `ingest._write_document` still drops, to remove chunks the new run no
+    longer produces at all, which no amount of overwriting can do.
 
     Raises UnknownVersionError if version_id names no :DocumentVersion.
     """

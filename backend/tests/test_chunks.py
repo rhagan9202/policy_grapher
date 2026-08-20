@@ -61,6 +61,41 @@ def test_writing_the_same_chunks_twice_creates_nothing_new(clean_graph, database
 
 
 @pytest.mark.integration
+def test_rewriting_a_chunk_id_replaces_what_it_holds(clean_graph, database):
+    """`write_chunks` is authoritative for the chunks it is given.
+
+    A chunk id is a hash of where the chunk sits in the document's structure, not
+    of its text, so an edited edition ingested under the same version_id
+    legitimately reaches an existing chunk_id carrying different text. Under
+    `ON CREATE SET` the new text is silently discarded and the graph keeps
+    yesterday's passage under today's id — a wrong quotation, which is the one
+    failure a verbatim-text store cannot tolerate. `SET` makes the last write
+    win; ingest's drop-before-write ordering is then a second line of defence
+    rather than the only one.
+    """
+    _seed_version(clean_graph, database)
+    before = Chunk(chunk_id="c1", text="Old passage.", page=1, section_path=["1"], ordinal=0)
+    after = Chunk(chunk_id="c1", text="New passage.", page=4, section_path=["1", "1.2"], ordinal=7)
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(write_chunks, version_id="v", chunks=[before])
+        session.execute_write(write_chunks, version_id="v", chunks=[after])
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (c:Chunk {chunk_id: 'c1'}) "
+        "RETURN c.text AS text, c.page AS page, c.section_path AS path, c.ordinal AS ordinal",
+        database_=database,
+    )
+    assert len(records) == 1
+    assert records[0]["text"] == "New passage."
+    assert (records[0]["page"], records[0]["path"], records[0]["ordinal"]) == (
+        4,
+        ["1", "1.2"],
+        7,
+    )
+
+
+@pytest.mark.integration
 def test_dropping_chunks_leaves_the_version_intact(clean_graph, database):
     """The derived layer is droppable; the canonical layer is not touched."""
     _seed_version(clean_graph, database)
