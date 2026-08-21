@@ -55,6 +55,25 @@ def clean_graph(driver, database) -> Driver:
     return driver
 
 
+@pytest.fixture(scope="session")
+def redis_container():
+    from testcontainers.redis import RedisContainer
+
+    with RedisContainer("redis:8-alpine") as container:
+        yield container
+
+
+@pytest.fixture(scope="session")
+def redis_connection(redis_container):
+    """A real Redis, as Neo4j is real — this project does not mock its drivers."""
+    from redis import Redis
+
+    return Redis(
+        host=redis_container.get_container_host_ip(),
+        port=int(redis_container.get_exposed_port(6379)),
+    )
+
+
 @pytest.fixture
 def client_with_graph(clean_graph, settings_for_container, database, monkeypatch):
     """A TestClient wired to the container, with auto-ingest off and /data pointed
