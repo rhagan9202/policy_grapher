@@ -12,13 +12,15 @@ dependencies = [
     "pypdf>=6.0",
     "uvicorn[standard]>=0.52",
     "sentence-transformers>=5.0",
+    "rq>=2.11",
+    "redis>=8.1",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=9.1",
     "pytest-asyncio>=1.0",
-    "testcontainers[neo4j]>=4.0",
+    "testcontainers[neo4j,redis]>=4.0",
     "ruff>=0.16",
 ]
 

@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     embedder_adapter: str = "null"          # "null" | "local"
     embedder_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
+    # The rebuild queue (STORY-048). Unreachable Redis fails only the rebuild
+    # routes — the connection is lazy and every other route talks to Neo4j.
+    redis_url: str = "redis://localhost:6379/0"
+    # Generous on purpose: a rebuild with a real model is one call per chunk over
+    # dozens of chunks, so there is no short timeout that is not a false alarm.
+    rebuild_job_timeout_seconds: int = 1800
+
     data_dir: Path = Path("/data/samples")
     sample_csv: str = "dod_policy_references_08122026.csv"
     # Off by default (ADR-019). A first run holds nothing, and every screen
