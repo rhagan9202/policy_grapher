@@ -104,9 +104,10 @@ document; each sprint's plan is written at its own start and frozen
 
 | Sprint | Goal | Items |
 | --- | --- | --- |
-| **3 — Truth and reachability** | A cold start reaches a populated Triage, Review and Ask through product actions alone, and the docs stop claiming more than the app does | STORY-048, 049, 050, 053, 038 |
-| **4 — Combed for bugs** | Every defect the 2026-08-21 audit found is closed, the unmeasured gates are measured, and a check exists that would catch the next one | STORY-039, 040, 041, 051, 052, 054, 055 |
+| **3 — Truth and reachability** ✅ | The app tells the truth about its own state: starts empty, says so, and carries none of the audit's UI defects | STORY-038, 039, 040, 041, 049, 050, 053 |
+| **4 — The app can fill its own screens** | The derived layer is buildable from the application, and a check exists that would catch the next regression | STORY-048, 051, 052, 056 |
 | **5 — The UI reaches the whole API** | No backend capability is left without a way to reach it; the corpus-management bar in [What success looks like](vision.md#what-success-looks-like) is met | STORY-017, 042, 043, 044, 046 |
+| **6 — Extraction quality** | The ratchet measures a real model, and the modality enum recognises the word this corpus actually uses | STORY-054, 055 |
 
 **What the surge deliberately does not close.** Two MVP bars in the
 [vision](vision.md#what-success-looks-like) stay open, because they are feature work rather
