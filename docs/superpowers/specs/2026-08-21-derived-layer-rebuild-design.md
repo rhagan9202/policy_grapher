@@ -154,8 +154,11 @@ Following this project's rule that integration tests use the real thing and neve
 driver:
 
 - **A real Redis via testcontainers** for the queue tests, as Neo4j already is.
-- **Route validation** — 404, both 409s, and the 202 — against a queue that records what was
-  enqueued without running it.
+- **Route validation** — 404, both 409s, and the 202 — against a real queue on that Redis with
+  no worker running, so the tests observe exactly what a caller sees between enqueue and
+  completion. A recording fake was considered and dropped: this project does not mock its
+  drivers, and the in-flight check reads RQ's own registries, which a fake would have to
+  reimplement to be meaningful.
 - **The job function itself** through RQ's synchronous mode (`Queue(is_async=False)`), which
   executes the real function in-process with no worker. With the `null` extractor this is fast
   and needs no model.
