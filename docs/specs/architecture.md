@@ -31,9 +31,7 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 | **Frontend** (React + Vite, port 5173) | Two routes. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`; clicking a node shows its name and whether it is a corpus or external document, and clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. `/documents` renders every document from `GET /documents` as a table — name, how many documents cite it, and outgoing references with slugs resolved to names from the same payload — filtered client-side by name as the user types. Vite dev server proxies `/api` to the backend. |
 
 Typed fetch wrappers for the frontend-used endpoints live in `src/api/client.ts`.
-`GET /documents/{slug}/versions` and `GET /documents/{slug}/chunks` are backend-only today,
-until a corpus-management or review UI needs them. `request()` returns `undefined` on a `204`,
-which the five body-less endpoints rely on.
+Every route the backend serves now has a screen or a caller: DI-1's standing gap — an API client of eleven functions of which the UI called two, and no navigation between the two screens that existed — is closed. `frontend/src/App.tsx` declares routes and navigation from one list, so a screen cannot exist without a link to it, and `App.test.tsx` asserts one link per route. `GET /documents/{slug}/chunks` remains backend-only, read by retrieval rather than by a screen.
 
 Routes live in `routers/` — `admin.py` (`/health`, `/ingest`, `/reset`), `documents.py`
 (document CRUD, reference edges, versions and chunks), `graph.py` (`/graph`, `/query`),

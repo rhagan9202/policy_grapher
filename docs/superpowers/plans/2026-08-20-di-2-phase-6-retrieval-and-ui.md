@@ -1,6 +1,6 @@
 # DI-2 Phase 6: Retrieval, Question Answering and the UI — Implementation Plan
 
-**Status:** Tasks 1–3 (the backend) complete, verified on 2026-08-20 with `uv run pytest` (509 passed). Task 4 (the UI) not started — split at the seam this plan identifies, on the project owner's decision.
+**Status:** Complete. Verified on 2026-08-20 with `uv run pytest` (509 passed) and `npm test` (eslint + tsc + 76 vitest tests). Executed in two runs, split at the Task 3/Task 4 seam this plan identifies.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -188,7 +188,7 @@ git commit -m "feat: answer questions from the corpus, with citations or not at 
 Note the standing gap this task finally closes: DI-1 shipped an API client with eleven
 functions of which the UI called two, and no navigation between the two screens that existed.
 
-- [ ] **Step 1: Write the failing component tests**
+- [x] **Step 1: Write the failing component tests**
 
 Following the existing `GraphExplorer.test.tsx` and `DocumentTable.test.tsx` patterns:
 - **Triage** renders ranked rows with both citations, and shows the `unlinked_changes` count rather than hiding it — an empty triage must read as "nothing linked yet", not "nothing affected"
@@ -197,7 +197,7 @@ Following the existing `GraphExplorer.test.tsx` and `DocumentTable.test.tsx` pat
 - **Ask** renders an answer with its citations, and renders the "nothing in the corpus says" case as an explicit statement rather than an empty panel
 - **App** has navigation between every route — assert the links exist, because their absence is the DI-1 defect this closes
 
-- [ ] **Step 2: Implement the views and navigation**
+- [x] **Step 2: Implement the views and navigation**
 
 **This question is already answered — do not re-open it.** [ADR-018](../../specs/adr/ADR-018-the-dev-proxy-forwards-writes.md)
 decided it: the dev proxy forwards every method and injects the token only for requests
@@ -212,7 +212,7 @@ writes as well as reads — is a development posture, not a deployment one. If t
 the point at which the UI gets served to someone who is not the person who ran
 `init-env.sh`, that is ADR-018's stated expiry condition and it needs a superseding ADR.
 
-- [ ] **Step 3: Run `npm test`, the backend suite, and commit**
+- [x] **Step 3: Run `npm test`, the backend suite, and commit**
 
 ```bash
 git add frontend backend docs/specs/adr

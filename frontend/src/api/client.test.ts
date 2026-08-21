@@ -7,8 +7,11 @@ import {
   getDocument,
   getGraph,
   getHealth,
+  ask,
+  getTriage,
   ingest,
   listDocuments,
+  recordVerdict,
   runQuery,
 } from './client'
 
@@ -191,5 +194,63 @@ describe('runQuery', () => {
       cypher: 'MATCH (d:Document) RETURN count(d) AS total',
     })
     expect(result.rows).toEqual([])
+  })
+})
+
+describe('the phase-6 endpoints', () => {
+  it('sends the dev-proxy header on a review verdict, which is a write', async () => {
+    // ADR-018: the proxy injects the bearer token only for requests carrying it.
+    // A verdict posted without it 401s, and the audit record is never written.
+    const fetchMock = mockJson({ promoted: 1, suppressed: 0, unpromotable: 0 })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await recordVerdict('src-id', 'tgt-id', 'approve', 'Discharges the duty.')
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.headers).toMatchObject({ 'x-policy-grapher-ui': '1' })
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({
+      verdict: 'approve',
+      rationale: 'Discharges the duty.',
+    })
+  })
+
+  it('sends the dev-proxy header when asking a question', async () => {
+    const fetchMock = mockJson({ answer: 'x', citations: [], template_used: 'x' })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await ask('what obliges the Director?')
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init.headers).toMatchObject({ 'x-policy-grapher-ui': '1' })
+  })
+
+  it('escapes obligation ids into the verdict path', async () => {
+    const fetchMock = mockJson({})
+    vi.stubGlobal('fetch', fetchMock)
+
+    await recordVerdict('a/b', 'c d', 'reject')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/review/a%2Fb/c%20d')
+  })
+
+  it('omits from_version_id when it was not chosen', async () => {
+    const fetchMock = mockJson({ rows: [], total_changes: 0, unlinked_changes: 0 })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getTriage('v2')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/triage?to_version_id=v2')
+  })
+
+  it('passes from_version_id when it was', async () => {
+    const fetchMock = mockJson({ rows: [], total_changes: 0, unlinked_changes: 0 })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getTriage('v2', 'v1')
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      '/api/triage?to_version_id=v2&from_version_id=v1',
+    )
   })
 })

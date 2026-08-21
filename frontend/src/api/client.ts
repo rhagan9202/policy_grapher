@@ -1,10 +1,15 @@
 import type {
+  Answer,
   DocumentIn,
   DocumentOut,
+  DocumentVersionOut,
   GraphOut,
   IngestResult,
   QueryResult,
   ResetResult,
+  ReviewItem,
+  TriageOut,
+  Verdict,
 } from './types'
 
 const BASE = '/api'
@@ -110,5 +115,46 @@ export function runQuery(cypher: string): Promise<QueryResult> {
   return request<QueryResult>('/query', {
     method: 'POST',
     body: JSON.stringify({ cypher }),
+  })
+}
+
+export function listVersions(slug: string): Promise<DocumentVersionOut[]> {
+  return request<DocumentVersionOut[]>(
+    `/documents/${encodeURIComponent(slug)}/versions`,
+  )
+}
+
+export function getReviewQueue(limit?: number): Promise<ReviewItem[]> {
+  const query = limit === undefined ? '' : `?limit=${limit}`
+  return request<ReviewItem[]>(`/review/queue${query}`)
+}
+
+// A write, and therefore dependent on the ADR-018 header that `request` adds.
+// Calling fetch directly here would drop it and 401.
+export function recordVerdict(
+  sourceId: string,
+  targetId: string,
+  verdict: Verdict,
+  rationale = '',
+): Promise<Record<string, number>> {
+  return request<Record<string, number>>(
+    `/review/${encodeURIComponent(sourceId)}/${encodeURIComponent(targetId)}`,
+    { method: 'POST', body: JSON.stringify({ verdict, rationale }) },
+  )
+}
+
+export function getTriage(
+  toVersionId: string,
+  fromVersionId?: string,
+): Promise<TriageOut> {
+  const params = new URLSearchParams({ to_version_id: toVersionId })
+  if (fromVersionId) params.set('from_version_id', fromVersionId)
+  return request<TriageOut>(`/triage?${params.toString()}`)
+}
+
+export function ask(question: string): Promise<Answer> {
+  return request<Answer>('/ask', {
+    method: 'POST',
+    body: JSON.stringify({ question }),
   })
 }

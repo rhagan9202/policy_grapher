@@ -78,12 +78,12 @@ counted so an empty answer is never mistaken for an all-clear. See
 [ADR-015](../specs/adr/ADR-015-changes-are-detected-and-ranked.md).
 and Phase 6
 ([retrieval, question answering and the UI](../superpowers/plans/2026-08-20-di-2-phase-6-retrieval-and-ui.md))
-is **partly landed**: its backend — the embedding port and vector index, three-signal hybrid
-retrieval, and grounded question answering at `POST /ask` — is complete, with
+has landed, and with it DI-2. Its backend brought the embedding port and vector index,
+three-signal hybrid retrieval, and grounded question answering at `POST /ask` — see
 [ADR-016](../specs/adr/ADR-016-embeddings-are-a-port.md) and
-[ADR-017](../specs/adr/ADR-017-answers-select-templates.md). Its Task 4, the Triage, Review and
-Ask screens and the navigation DI-1 never shipped, has not started; that is the seam the phase
-plan itself identifies. A `SPEC-002` is not yet written. DI-2 builds the
+[ADR-017](../specs/adr/ADR-017-answers-select-templates.md). Its UI brought Triage, Review and
+Ask screens, and the navigation DI-1 never shipped: routes and links are declared from one
+list, so a screen cannot exist without a way to reach it. A `SPEC-002` is not yet written. DI-2 builds the
 semantic substrate that turns DI-1's bibliographic graph into a policy knowledge graph —
 document text, the obligations inside that text, and version supersession — proven by one
 deliverable, **impact triage**: *a higher-level policy changed; which of our policies are
