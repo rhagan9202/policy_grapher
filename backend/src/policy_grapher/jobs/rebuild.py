@@ -9,7 +9,7 @@ worker process outlives any single job and would otherwise leak one per run.
 from neo4j import Driver
 from rq import get_current_job
 
-from policy_grapher.config import get_settings
+from policy_grapher.config import Settings, get_settings
 from policy_grapher.db import create_driver
 from policy_grapher.embedding import build_embedder, embed_chunks
 from policy_grapher.extraction import build_extractor
@@ -36,7 +36,9 @@ def _progress_reporter():
     return report
 
 
-def _run(driver: Driver, database: str, settings, **kwargs) -> dict[str, int]:
+def _run(
+    driver: Driver, database: str, settings: Settings, **kwargs
+) -> dict[str, int]:
     # Cached on purpose (ADR-013): a second run over an unchanged edition calls
     # the model zero times, which is what makes re-extraction cheap enough to be
     # routine rather than an event.

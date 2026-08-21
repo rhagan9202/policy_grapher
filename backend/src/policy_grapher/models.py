@@ -211,9 +211,24 @@ class AnswerOut(BaseModel):
     template_used: str
 
 
+class RebuildRequest(BaseModel):
+    """What to compare the rebuilt edition against.
+
+    Naming candidates is the only way proposals get made: nothing in the graph
+    records which documents are higher-tier (ADR-015 drops tier distance from
+    ranking for exactly that reason), so the caller states it and the route does
+    not guess. Empty — including an omitted body — means rebuild only.
+    """
+
+    candidate_version_ids: list[str] = Field(default_factory=list)
+
+
 class RebuildStarted(BaseModel):
     run_id: str
     version_id: str
+    # Echoed back so the response says what the run will compare against, rather
+    # than leaving the caller to infer it from an empty review queue later.
+    candidate_version_ids: list[str] = Field(default_factory=list)
 
 
 class RebuildStatus(BaseModel):

@@ -43,7 +43,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-q"
 markers = [
-    "integration: requires a live Neo4j container (Docker must be running)",
+    "integration: requires live Neo4j and Redis containers (Docker must be running)",
 ]
 filterwarnings = [
     # starlette's TestClient warns until httpx2 lands; the dependency floors in this

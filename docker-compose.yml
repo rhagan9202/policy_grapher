@@ -69,10 +69,15 @@ services:
       # development on ./frontend/src below, which is why it carries the same
       # reasoning. Do not "fix" this back to :Z for either service.
       - ./data:/data:ro,z
+    # No `depends_on: redis`, deliberately, and the asymmetry with `worker` below
+    # is the point. The backend needs nothing from Redis at boot: the connection
+    # is lazy and `lifespan` never touches it, so with Redis down the app still
+    # serves every route and only the two rebuild ones answer 503. Waiting on
+    # `redis: service_healthy` here would turn one unhealthy container into a
+    # total outage — the exact failure the lazy connection was built to avoid.
+    # The worker genuinely cannot work without Redis, so it does wait.
     depends_on:
       neo4j:
-        condition: service_healthy
-      redis:
         condition: service_healthy
 
   redis:
@@ -89,6 +94,11 @@ services:
   worker:
     build: ./backend
     restart: on-failure
+    # "rebuilds" must equal QUEUE_NAME in backend/src/policy_grapher/jobs/queue.py,
+    # where the same warning is written. The `rq` CLI takes queue names as
+    # arguments and cannot import the constant, so this is a second copy: change
+    # one without the other and the worker listens on an empty queue forever
+    # while the routes keep answering 202.
     command: ["uv", "run", "rq", "worker", "rebuilds"]
     depends_on:
       redis:

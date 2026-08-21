@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     # Generous on purpose: a rebuild with a real model is one call per chunk over
     # dozens of chunks, so there is no short timeout that is not a false alarm.
     rebuild_job_timeout_seconds: int = 1800
+    # Much longer than the timeout, deliberately: the result is the only record
+    # of what a run produced. RQ's 500-second default would expire a legitimate
+    # 1800-second run's counts eight minutes after they landed, and the poll
+    # route would then answer 404 — indistinguishable from a run id that never
+    # existed. One day is long enough for a person to come back and look.
+    rebuild_result_ttl_seconds: int = 86400
 
     data_dir: Path = Path("/data/samples")
     sample_csv: str = "dod_policy_references_08122026.csv"

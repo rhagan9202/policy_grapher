@@ -48,6 +48,24 @@ class MissingSourceError(Exception):
     """The edition, or the file it was read from, is not there to rebuild from."""
 
 
+def resolve_source(version_id: str, source_uri: str) -> Path:
+    """The readable file an edition was read from, or `MissingSourceError`.
+
+    Public because the rebuild route validates the same thing synchronously,
+    before it enqueues anything. Two implementations of this rule would drift:
+    the route would validate against the old one, return 202, and every job
+    would then die on the check the route had just passed. One function, one
+    rule, one wording.
+    """
+    path = Path(unquote(urlparse(source_uri).path))
+    if not path.is_file():
+        raise MissingSourceError(
+            f"{version_id!r} was read from {source_uri!r}, which is not a readable "
+            f"file now. Re-chunking needs the original document; nothing was dropped."
+        )
+    return path
+
+
 def _source_path(driver: Driver, database: str, version_id: str) -> Path:
     records, _, _ = driver.execute_query(
         READ_SOURCE,
@@ -58,14 +76,7 @@ def _source_path(driver: Driver, database: str, version_id: str) -> Path:
     if not records:
         raise MissingSourceError(f"no :DocumentVersion with version_id {version_id!r}")
 
-    source_uri = records[0]["source_uri"]
-    path = Path(unquote(urlparse(source_uri).path))
-    if not path.is_file():
-        raise MissingSourceError(
-            f"{version_id!r} was read from {source_uri!r}, which is not a readable "
-            f"file now. Re-chunking needs the original document; nothing was dropped."
-        )
-    return path
+    return resolve_source(version_id, records[0]["source_uri"])
 
 
 def _write_rebuild(
@@ -140,6 +151,13 @@ def rebuild_derived(
 
     Raises MissingSourceError before touching the graph if the edition or its
     source document is not there.
+
+    `on_progress`, when given, is called once per chunk as extraction walks them,
+    with `(done, total)`: `done` counts from 1 and reaches `total` on the last
+    chunk, and `total` is fixed for the run — it is the chunk count decided
+    before the loop starts, so a caller can render a proportion that never moves
+    backwards. It is called only during extraction, which is the slow phase; the
+    write transaction afterwards reports nothing.
     """
     path = _source_path(driver, database, version_id)
     document = pdf.extract_document(path)
