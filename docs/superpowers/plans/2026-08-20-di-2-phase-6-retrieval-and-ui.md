@@ -1,5 +1,7 @@
 # DI-2 Phase 6: Retrieval, Question Answering and the UI — Implementation Plan
 
+**Status:** Tasks 1–3 (the backend) complete, verified on 2026-08-20 with `uv run pytest` (509 passed). Task 4 (the UI) not started — split at the seam this plan identifies, on the project owner's decision.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the substrate usable by a person — hybrid retrieval over the corpus, grounded question answering with real citations, and screens for triage and review.
@@ -17,6 +19,7 @@
 ## Global Constraints
 
 - Python `>=3.14`; deps via `uv`. **This phase adds a local embedding library** (`sentence-transformers` or equivalent). Nothing else.
+  *Executor's note (2026-08-20):* `sentence-transformers` was chosen over the lighter alternatives on the project owner's decision. It pulls `torch`, `transformers` and `scikit-learn` — the backend virtualenv is ~4.9 GB and importing the library costs ~9s, so `LocalEmbedder` imports it inside its constructor and loads the model lazily. The default configuration never touches it.
 - Ruff enforced **as a test**. Frontend `npm test` = `eslint . --max-warnings=0 && tsc -b && vitest run`, each gating the next.
 - Integration tests use real `neo4j:2025.10`; never mock the driver.
 - **The default embedder must require no network.** A model downloaded once and cached is acceptable; a hosted API as the default is not — it would break offline test runs and foreclose the CUI path.
@@ -59,7 +62,7 @@
 **Interfaces:**
 - Produces: `Embedder` protocol (`model_id: str`, `dimensions: int`, `embed(texts: list[str]) -> list[list[float]]`), `LocalEmbedder`, `NullEmbedder`, `build_embedder(settings)`, and `embed_chunks(driver, database, *, version_id, embedder) -> int`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_embedding.py` covering:
 - the null embedder is the default, so the suite runs with no model present
@@ -70,7 +73,7 @@ Create `backend/tests/test_embedding.py` covering:
 - embedding is idempotent: re-running writes no second vector
 - a chunk with no text is skipped rather than embedded as an empty vector
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 The index carries its own provenance:
 
@@ -88,7 +91,7 @@ and every chunk records `embedding_model`. `embed_chunks` reads the model record
 existing embedded chunk and refuses if it differs from the configured embedder — loudly,
 naming both, because the alternative is silently wrong neighbours forever.
 
-- [ ] **Step 3: Write ADR-016**
+- [x] **Step 3: Write ADR-016**
 
 Create `docs/specs/adr/ADR-016-embeddings-are-a-port.md`. Must state: the embedder is a port
 with a local default; why local rather than hosted (offline test runs, and the only choice
@@ -97,7 +100,7 @@ the index and refused on mismatch, because a silent embedder swap does not error
 quietly wrong neighbours indefinitely; and that changing embedder means re-embedding the
 corpus, which is why the choice is made now rather than deferred.
 
-- [ ] **Step 4: Run tests and commit**
+- [x] **Step 4: Run tests and commit**
 
 ```bash
 git add backend/src/policy_grapher/embedding backend/src/policy_grapher/db.py \
@@ -116,7 +119,7 @@ git commit -m "feat: embeddings are a port, and the index remembers whose vector
 **Interfaces:**
 - Produces: `retrieve(driver, database, *, query, embedder, limit) -> list[RetrievedChunk]` with `score`, `signals` (which legs matched), and the chunk's citation
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_retrieval.py` covering:
 - **an exact designator query finds its chunk via the full-text leg even when the vector leg misses** — assert `signals` includes `fulltext`. This is why the lexical leg exists
@@ -126,7 +129,7 @@ Create `backend/tests/test_retrieval.py` covering:
 - results carry `section_path` and `page`, so every hit is citable
 - an empty corpus returns an empty list rather than raising
 
-- [ ] **Step 2: Implement, run, commit**
+- [x] **Step 2: Implement, run, commit**
 
 ```bash
 git add backend/src/policy_grapher/retrieval backend/tests/test_retrieval.py
@@ -144,7 +147,7 @@ git commit -m "feat: retrieval fuses vector, lexical and graph signals"
 **Interfaces:**
 - Produces: `POST /ask` taking `{question}` and returning `{answer, citations: [{document, section_path, page, quote}], template_used}`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_ask.py` covering:
 - an answer carries at least one citation with a real `section_path` and `page`
@@ -153,13 +156,13 @@ Create `backend/tests/test_ask.py` covering:
 - `template_used` is one of the known templates; an unknown template name is a 500 rather than a passthrough
 - the route requires a principal
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 `templates.py` holds a fixed set of parameterised Cypher templates — "what obliges entity X",
 "what does document Y implement", "what changed in Z". The model's job is to choose a template
 and fill its parameters, which are then bound as query parameters. It never emits Cypher text.
 
-- [ ] **Step 3: Write ADR-017 and commit**
+- [x] **Step 3: Write ADR-017 and commit**
 
 Must state: answers select from templates rather than authoring Cypher, and why — the corpus
 is externally supplied text and a generated query is an injection sink; that every answer

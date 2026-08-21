@@ -101,3 +101,24 @@ def drop_obligations(tx: ManagedTransaction, *, version_id: str) -> int:
     """Remove a version's obligations. Chunks and versions are untouched."""
     summary = tx.run(DROP_OBLIGATIONS, {"version_id": version_id}).consume()
     return summary.counters.nodes_deleted
+
+
+def primary_anchor(obligation_var: str, chunk_var: str) -> str:
+    """Cypher binding `chunk_var` to the one chunk that cites `obligation_var`.
+
+    An obligation can legitimately anchor to more than one chunk: chunking
+    overlaps text across a section split, so a sentence near a boundary is read
+    out of both pieces — measured at 5 of 88 obligations on `500001p_2003.pdf`.
+    A plain `MATCH (o)-[:ANCHORED_IN]->(c)` therefore multiplies rows, showing the
+    same clause to a reviewer twice and inflating any count taken over it. Three
+    separate queries hit this before it was worth naming; this is the shared fix.
+
+    The earliest chunk in reading order is the citation, because that is where
+    the passage starts.
+    """
+    return (
+        f"CALL ({obligation_var}) {{\n"
+        f"    MATCH ({obligation_var})-[:ANCHORED_IN]->(anchor:Chunk)\n"
+        f"    RETURN anchor AS {chunk_var} ORDER BY anchor.ordinal LIMIT 1\n"
+        f"}}"
+    )

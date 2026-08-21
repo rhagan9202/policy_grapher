@@ -12,6 +12,7 @@ from policy_grapher.config import Settings
 from policy_grapher.dependencies import get_app_settings, get_driver
 from policy_grapher.links.decisions import Verdict, record_decision, replay_decisions
 from policy_grapher.models import ObligationCitationOut, ReviewItemOut, VerdictIn
+from policy_grapher.obligations import primary_anchor
 
 router = APIRouter(prefix="/review", tags=["review"])
 
@@ -19,25 +20,17 @@ router = APIRouter(prefix="/review", tags=["review"])
 # anti-join is on the two obligation ids rather than on the decision key, because
 # the key is a hash computed in Python and Cypher cannot recompute it — which is
 # exactly why `record_decision` stores both ids on the node alongside it.
-QUEUE = """
+# One citation per side. See `obligations.primary_anchor` for why an anchor is
+# not matched directly. Substituted rather than formatted: the query already
+# contains Cypher braces, which str.format would try to read as fields.
+_QUEUE_TEMPLATE = """
 MATCH (source:Obligation)-[r:IMPLEMENTS_PROPOSED]->(target:Obligation)
 WHERE NOT EXISTS {
     MATCH (d:LinkDecision {source_obligation_id: source.obligation_id,
                            target_obligation_id: target.obligation_id})
 }
-// One chunk per side, not every chunk it anchors to. Chunk overlap repeats a
-// sentence across a section split, so an obligation legitimately anchors to more
-// than one chunk — 5 of 88 on a real DoD issuance. A plain MATCH would emit a row
-// per combination and hand the reviewer the same pair several times. The earliest
-// chunk in reading order is the citation: it is where the passage starts.
-CALL (source) {
-    MATCH (source)-[:ANCHORED_IN]->(chunk:Chunk)
-    RETURN chunk AS source_chunk ORDER BY chunk.ordinal LIMIT 1
-}
-CALL (target) {
-    MATCH (target)-[:ANCHORED_IN]->(chunk:Chunk)
-    RETURN chunk AS target_chunk ORDER BY chunk.ordinal LIMIT 1
-}
+--SOURCE-ANCHOR--
+--TARGET-ANCHOR--
 MATCH (source_doc:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(source)
 MATCH (target_doc:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(target)
 RETURN source.obligation_id   AS source_id,
@@ -58,6 +51,12 @@ RETURN source.obligation_id   AS source_id,
 ORDER BY r.confidence DESC, source_id, target_id
 LIMIT $limit
 """
+
+QUEUE = (
+    _QUEUE_TEMPLATE
+    .replace("--SOURCE-ANCHOR--", primary_anchor("source", "source_chunk"))
+    .replace("--TARGET-ANCHOR--", primary_anchor("target", "target_chunk"))
+)
 
 PROPOSAL_EXISTS = """
 MATCH (:Obligation {obligation_id: $source_id})

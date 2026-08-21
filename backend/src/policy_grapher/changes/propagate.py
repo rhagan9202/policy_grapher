@@ -15,6 +15,8 @@ from dataclasses import dataclass
 
 from neo4j import ManagedTransaction
 
+from policy_grapher.obligations import primary_anchor
+
 # Named, not inlined into the Cypher, because a policy analyst should be able to
 # disagree with them. They are a starting position, not a measurement.
 MODALITY_WEIGHT: dict[str, float] = {
@@ -37,24 +39,15 @@ KIND_WEIGHT: dict[str, float] = {
 # instead of raising in the middle of a triage run.
 UNKNOWN_WEIGHT = 1.0
 
-TRIAGE = """
+# One citation per side. See `obligations.primary_anchor` for why an anchor is
+# not matched directly.
+_TRIAGE_TEMPLATE = """
 MATCH (c:Change)-[:FROM_VERSION]->(:DocumentVersion {version_id: $from_version_id})
 MATCH (c)-[:TO_VERSION]->(:DocumentVersion {version_id: $to_version_id})
 MATCH (c)-[:AFFECTS]->(higher:Obligation)
 MATCH (ours:Obligation)-[:IMPLEMENTS]->(higher)
-// One citation per side. Chunk overlap repeats a sentence across a section split,
-// so an obligation legitimately anchors to more than one chunk — 5 of 88 on a real
-// DoD issuance. A plain MATCH would emit a row per combination, inflating the
-// triage count and showing a reviewer the same clause twice. The earliest chunk in
-// reading order is the citation: it is where the passage starts.
-CALL (higher) {
-    MATCH (higher)-[:ANCHORED_IN]->(chunk:Chunk)
-    RETURN chunk AS higher_chunk ORDER BY chunk.ordinal LIMIT 1
-}
-CALL (ours) {
-    MATCH (ours)-[:ANCHORED_IN]->(chunk:Chunk)
-    RETURN chunk AS our_chunk ORDER BY chunk.ordinal LIMIT 1
-}
+--HIGHER-ANCHOR--
+--OUR-ANCHOR--
 MATCH (our_version:DocumentVersion)-[:MANDATES]->(ours)
 MATCH (document:Document)-[:HAS_VERSION]->(our_version)
 MATCH (higher_version:DocumentVersion)-[:MANDATES]->(higher)
@@ -76,6 +69,12 @@ RETURN c.change_id          AS change_id,
        document.name        AS document,
        document.slug        AS document_slug
 """
+
+TRIAGE = (
+    _TRIAGE_TEMPLATE
+    .replace("--HIGHER-ANCHOR--", primary_anchor("higher", "higher_chunk"))
+    .replace("--OUR-ANCHOR--", primary_anchor("ours", "our_chunk"))
+)
 
 COUNT_CHANGES = """
 MATCH (c:Change)-[:FROM_VERSION]->(:DocumentVersion {version_id: $from_version_id})

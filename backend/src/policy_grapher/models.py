@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class IngestRequest(BaseModel):
@@ -173,3 +173,36 @@ class TriageOut(BaseModel):
     rows: list[TriageRowOut]
     total_changes: int
     unlinked_changes: int
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("question")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("question must not be blank")
+        return value
+
+
+class CitationOut(BaseModel):
+    """Where a claim came from, precisely enough to go and read it."""
+
+    document: str
+    section_path: list[str]
+    page: int
+    quote: str
+
+
+class AnswerOut(BaseModel):
+    """An answer and everything it rests on.
+
+    `citations` is empty only when `answer` says the corpus does not address the
+    question. There is no third state — an answer with no citation behind it is a
+    hallucination with good grammar (ADR-017).
+    """
+
+    answer: str
+    citations: list[CitationOut]
+    template_used: str
