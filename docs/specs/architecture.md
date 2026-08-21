@@ -36,7 +36,8 @@ until a corpus-management or review UI needs them. `request()` returns `undefine
 which the five body-less endpoints rely on.
 
 Routes live in `routers/` — `admin.py` (`/health`, `/ingest`, `/reset`), `documents.py`
-(document CRUD and reference edges), and `graph.py` (`/graph`, `/query`) — so `main.py` is
+(document CRUD, reference edges, versions and chunks), `graph.py` (`/graph`, `/query`), and
+`review.py` (the obligation-link review queue) — so `main.py` is
 app assembly, CORS, and lifespan only. Routers reach the driver and settings through
 `dependencies.py`, which resolves both from `request.app.state`; the lifespan is what puts
 them there. Cypher lives beside the router that needs it: `graph.py`, `documents.py`, and
@@ -49,6 +50,16 @@ scans every configured entry; an empty `API_TOKENS` admits nobody. `/health` sta
 because the container healthcheck calls it. See
 [ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md), superseding
 [ADR-001](adr/ADR-001-demo-assumes-cypher-fluent-users.md).
+
+That "every route except `GET /health`" is **enumerated from the application, not asserted from
+a list**. `test_auth.py` walks the app's routers, subtracts a one-entry `OPEN_ROUTES` set, and
+requires a `401` from each remaining route for an unauthenticated caller. It replaced a
+hand-maintained list that had already drifted — `GET /documents/{slug}/versions` and
+`GET /documents/{slug}/chunks` shipped without ever being added to it, so nothing checked that
+either needed a token. A list covers the routes somebody remembered, and the forgotten one is by
+definition the one nobody is thinking about. A second test asserts the walk found the routes at
+all, because a walker returning nothing would leave the property test with no parameters and the
+whole application unguarded without a red suite to show for it.
 
 Ingestion sources live in `sources/`: `__init__.py` dispatches on file extension,
 `manifest.py` reads a CSV into many documents, `document.py` holds the shared

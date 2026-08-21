@@ -1,6 +1,8 @@
+import re
+
 import pytest
 
-from policy_grapher import auth
+from policy_grapher import auth, main
 from policy_grapher.auth import Principal, token_digest, verify_token
 
 
@@ -70,31 +72,91 @@ def test_every_entry_is_compared_even_after_a_match(monkeypatch):
     assert len(calls) == 2
 
 
+# Routes that are deliberately open. Adding to this set is a security decision and
+# should be argued for in review — everything not named here must require a
+# principal, and the test below enumerates the app to find out.
+OPEN_ROUTES = frozenset({"/health"})
+
+PLACEHOLDER = re.compile(r"\{[^}]+\}")
+
+
+def _iter_routes(routes):
+    """Every (path, methods) the app actually serves.
+
+    Walks nested routers rather than reading `app.routes` directly: this FastAPI
+    keeps included routers lazy (`_IncludedRouter`) until startup, so the top
+    level yields four opaque objects and none of the fifteen real routes. Both
+    the lazy wrapper's `original_router` and a plain nested `.routes` are
+    followed, so the walk survives a FastAPI that changes its mind about which
+    it uses.
+    """
+    for route in routes:
+        original = getattr(route, "original_router", None)
+        if original is not None:
+            yield from _iter_routes(original.routes)
+            continue
+        nested = getattr(route, "routes", None)
+        if nested:
+            yield from _iter_routes(nested)
+            continue
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", None)
+        if path and methods:
+            yield path, frozenset(methods)
+
+
+def _discovered_routes() -> list[tuple[str, str]]:
+    found = set()
+    for path, methods in _iter_routes(main.app.routes):
+        for method in methods - {"HEAD", "OPTIONS"}:
+            found.add((method.lower(), path))
+    return sorted(found)
+
+
 PROTECTED = [
-    ("post", "/ingest", {"filename": "x.csv"}),
-    ("post", "/reset", None),
-    ("post", "/query", {"cypher": "RETURN 1"}),
-    ("post", "/documents", {"name": "X"}),
-    ("delete", "/documents/some-slug", None),
-    ("get", "/graph", None),
-    ("get", "/documents", None),
-    ("get", "/documents/some-slug", None),
-    ("post", "/documents/some-slug/references/other-slug", None),
-    ("delete", "/documents/some-slug/references/other-slug", None),
-    ("get", "/review/queue", None),
-    ("post", "/review/some-id/other-id", {"verdict": "approve"}),
+    (method, path) for method, path in _discovered_routes() if path not in OPEN_ROUTES
 ]
 
 
-@pytest.mark.integration
-@pytest.mark.parametrize("method,path,body", PROTECTED)
-def test_protected_routes_reject_an_unauthenticated_caller(
-    client_with_graph, method, path, body
-):
-    response = getattr(client_with_graph, method)(
-        path, **({"json": body} if body is not None else {})
+def test_the_route_enumeration_actually_found_the_routes():
+    """The guard on the guard. A walker that silently returned nothing would make
+    the property test below vacuously green — no parameters, no failures, and
+    every route in the application unprotected without a word from the suite."""
+    discovered = _discovered_routes()
+    paths = {path for _, path in discovered}
+
+    assert len(discovered) >= 15, discovered
+    assert "/health" in paths, "the walk missed a route known to exist"
+    assert "/review/queue" in paths, "the walk missed the most recently added router"
+    assert len(PROTECTED) == len(discovered) - 1, (
+        "exactly one route is expected to be open; OPEN_ROUTES says otherwise"
     )
-    assert response.status_code == 401
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("method,path", PROTECTED)
+def test_every_route_but_health_requires_a_principal(client_with_graph, method, path):
+    """Enumerated from the application rather than listed by hand.
+
+    The hand-maintained list this replaces had drifted: `/documents/{slug}/chunks`
+    and `/documents/{slug}/versions` shipped in phase 2 and were never added to
+    it, so nothing checked that either required a token. A list only covers the
+    routes somebody remembered, and the one that gets forgotten is by definition
+    the one nobody is thinking about.
+
+    A body is sent on every request because FastAPI resolves dependencies before
+    it validates the body: a route that rejects the caller returns 401 whatever
+    the body is, and one that does not returns 422 and fails this test loudly
+    rather than passing for the wrong reason.
+    """
+    response = client_with_graph.request(
+        method, PLACEHOLDER.sub("placeholder", path), json={}
+    )
+    assert response.status_code == 401, (
+        f"{method.upper()} {path} answered {response.status_code} to an "
+        f"unauthenticated caller. Every route but {sorted(OPEN_ROUTES)} must "
+        f"require a principal."
+    )
 
 
 @pytest.mark.integration
