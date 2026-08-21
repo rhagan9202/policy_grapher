@@ -89,7 +89,7 @@ services:
   worker:
     build: ./backend
     restart: on-failure
-    command: ["uv", "run", "rq", "worker", "--url", "redis://redis:6379/0", "rebuilds"]
+    command: ["uv", "run", "rq", "worker", "rebuilds"]
     depends_on:
       redis:
         condition: service_healthy
@@ -101,7 +101,13 @@ services:
       NEO4J_PASSWORD: ${NEO4J_PASSWORD}
       NEO4J_DATABASE: ${NEO4J_DATABASE}
       DATA_DIR: /data/samples
+      # Two names for one value, fed from the same default so they cannot drift:
+      # REDIS_URL is what this project's own Settings reads (matching the backend),
+      # RQ_REDIS_URL is what the `rq` CLI's --url flag falls back to when --url isn't
+      # passed on the command line. The command above deliberately omits --url so
+      # this variable is what actually controls where the worker listens.
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      RQ_REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       EXTRACTOR_ADAPTER: ${EXTRACTOR_ADAPTER:-null}
       EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-qwen3:8b}
       EXTRACTOR_BASE_URL: ${EXTRACTOR_BASE_URL:-http://localhost:11434}
