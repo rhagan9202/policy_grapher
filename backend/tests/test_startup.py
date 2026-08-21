@@ -7,6 +7,7 @@ from neo4j import RoutingControl
 from policy_grapher import main
 from policy_grapher.config import Settings, get_settings
 from policy_grapher.db import clear_graph
+from policy_grapher.embedding import build_embedder
 from policy_grapher.extraction import build_extractor
 from policy_grapher.ingest import ingest_file
 from policy_grapher.main import maybe_autoingest
@@ -109,3 +110,14 @@ def test_a_misconfigured_extractor_stops_startup():
 
 def test_the_default_configuration_builds_an_extractor_that_needs_nothing():
     assert build_extractor(Settings(_env_file=None)).adapter_id == "null"
+
+
+def test_a_misconfigured_embedder_stops_startup():
+    """Same fail-fast as the extractor. An embedder resolved lazily on first
+    retrieval would surface a typo as a failed search, not as a boot error."""
+    with pytest.raises(ValueError, match="unknown embedder"):
+        build_embedder(Settings(_env_file=None, embedder_adapter="magic"))
+
+
+def test_the_default_configuration_builds_an_embedder_that_needs_nothing():
+    assert build_embedder(Settings(_env_file=None)).model_id == "null"

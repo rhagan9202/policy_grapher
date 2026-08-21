@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from policy_grapher.config import Settings, get_settings
 from policy_grapher.db import apply_schema, create_driver, is_graph_empty
+from policy_grapher.embedding import build_embedder
 from policy_grapher.extraction import build_extractor
 from policy_grapher.ingest import ingest_file
 from policy_grapher.models import IngestResult
@@ -57,11 +58,16 @@ async def lifespan(app: FastAPI):
     # drives extraction yet — phase 4's rebuild is the caller — so the instance is
     # held on app.state rather than used, and the null default touches no network.
     extractor = build_extractor(settings)
+    # Same reason, and just as cheap: build_embedder only resolves the name.
+    # LocalEmbedder loads its model lazily on first use, so a "local" setting
+    # does not pay nine seconds of torch import here.
+    embedder = build_embedder(settings)
     maybe_autoingest(driver, settings)
 
     app.state.driver = driver
     app.state.settings = settings
     app.state.extractor = extractor
+    app.state.embedder = embedder
     try:
         yield
     finally:

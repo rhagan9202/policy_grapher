@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     extractor_model: str = "qwen3:8b"
     extractor_base_url: str = "http://localhost:11434"
 
+    # Embedding (DI-2 phase 6). "null" produces no vectors and needs no model —
+    # the default, so a fresh clone and CI pass without a download. "local" runs
+    # a sentence-transformers model on this machine; hosted is deliberately not
+    # an option (ADR-016). `embedder_model` is recorded on the vector index, and
+    # a later run under a different one is refused rather than silently mixed.
+    embedder_adapter: str = "null"          # "null" | "local"
+    embedder_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+
     data_dir: Path = Path("/data/samples")
     sample_csv: str = "dod_policy_references_08122026.csv"
     auto_ingest: bool = True

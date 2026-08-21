@@ -56,6 +56,8 @@ services:
       EXTRACTOR_ADAPTER: ${EXTRACTOR_ADAPTER:-null}
       EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-qwen3:8b}
       EXTRACTOR_BASE_URL: ${EXTRACTOR_BASE_URL:-http://localhost:11434}
+      EMBEDDER_ADAPTER: ${EMBEDDER_ADAPTER:-null}
+      EMBEDDER_MODEL: ${EMBEDDER_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
     volumes:
       # :Z relabels the host directory for exclusive container access under SELinux
       # (enforcing on Fedora/RHEL hosts); harmless no-op where SELinux is disabled.
