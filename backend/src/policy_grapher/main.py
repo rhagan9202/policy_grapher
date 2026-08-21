@@ -9,8 +9,17 @@ from policy_grapher.db import apply_schema, create_driver, is_graph_empty
 from policy_grapher.embedding import build_embedder
 from policy_grapher.extraction import build_extractor
 from policy_grapher.ingest import ingest_file
+from policy_grapher.jobs.queue import build_queue
 from policy_grapher.models import IngestResult
-from policy_grapher.routers import admin, ask, documents, graph, review, triage
+from policy_grapher.routers import (
+    admin,
+    ask,
+    documents,
+    graph,
+    rebuilds,
+    review,
+    triage,
+)
 from policy_grapher.sources import SourceError
 
 logger = logging.getLogger(__name__)
@@ -62,12 +71,16 @@ async def lifespan(app: FastAPI):
     # LocalEmbedder loads its model lazily on first use, so a "local" setting
     # does not pay nine seconds of torch import here.
     embedder = build_embedder(settings)
+    # Lazy: Redis being down must not stop the app booting, since every route
+    # but the two rebuild ones talks to Neo4j.
+    queue = build_queue(settings)
     maybe_autoingest(driver, settings)
 
     app.state.driver = driver
     app.state.settings = settings
     app.state.extractor = extractor
     app.state.embedder = embedder
+    app.state.queue = queue
     try:
         yield
     finally:
@@ -109,5 +122,6 @@ app.include_router(admin.router)
 app.include_router(ask.router)
 app.include_router(documents.router)
 app.include_router(graph.router)
+app.include_router(rebuilds.router)
 app.include_router(review.router)
 app.include_router(triage.router)

@@ -75,7 +75,9 @@ def redis_connection(redis_container):
 
 
 @pytest.fixture
-def client_with_graph(clean_graph, settings_for_container, database, monkeypatch):
+def client_with_graph(
+    clean_graph, settings_for_container, database, monkeypatch, redis_connection
+):
     """A TestClient wired to the container, with auto-ingest off and /data pointed
     at the repository's real sample directory."""
     repo_data = Path(__file__).resolve().parents[2] / "data" / "samples"
@@ -83,6 +85,21 @@ def client_with_graph(clean_graph, settings_for_container, database, monkeypatch
 
     get_settings.cache_clear()
     monkeypatch.setattr(main, "get_settings", lambda: settings)
+
+    # The routes enqueue against a real Redis, exactly as they will in
+    # production. No worker runs here, so these tests observe precisely what a
+    # caller sees between enqueue and completion.
+    from rq import Queue
+
+    from policy_grapher.jobs.queue import QUEUE_NAME
+
+    queue = Queue(QUEUE_NAME, connection=redis_connection)
+    # The Redis container is session-scoped and version ids are deterministic
+    # (slug@effective-date), so a job a previous test left queued would still
+    # look "in flight" for the same version id here. clean_graph gives every
+    # test a blank Neo4j; this is the same guarantee for the queue.
+    queue.empty()
+    monkeypatch.setattr(main, "build_queue", lambda _settings: queue)
 
     with TestClient(main.app) as client:
         yield client

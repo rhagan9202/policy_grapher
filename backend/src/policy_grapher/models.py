@@ -209,3 +209,25 @@ class AnswerOut(BaseModel):
     answer: str
     citations: list[CitationOut]
     template_used: str
+
+
+class RebuildStarted(BaseModel):
+    run_id: str
+    version_id: str
+
+
+class RebuildStatus(BaseModel):
+    """What a poller sees.
+
+    `counts` is populated only once the run finishes and `error` only if it
+    failed. Both empty, with `state` still in progress, is the normal mid-run
+    reading.
+    """
+
+    run_id: str
+    version_id: str
+    state: str
+    chunks_done: int = 0
+    chunks_total: int = 0
+    counts: dict[str, int] = Field(default_factory=dict)
+    error: str | None = None
