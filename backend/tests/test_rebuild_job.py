@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from rq import Queue
+from rq.job import Job
 
 from policy_grapher.config import Settings
 from policy_grapher.ingest import ingest_file
@@ -66,8 +67,11 @@ def test_the_job_rebuilds_an_edition_and_reports_counts(
 def test_the_job_records_progress_in_its_metadata(
     clean_graph, database, monkeypatch, settings_for_container, redis_connection
 ):
-    """Progress is polled from job.meta, so it has to be written there while the
-    job runs — not merely handed to a callback that discards it."""
+    """Progress is polled from job.meta, so it has to round-trip through Redis —
+    not merely survive on the in-process object `enqueue` happens to return. A
+    status route reads it back with `Job.fetch` from a separate process, so this
+    re-fetches from Redis rather than trusting the object still in hand, which
+    would pass even if `job.save_meta()` were deleted."""
     from policy_grapher.jobs import rebuild as job_module
 
     monkeypatch.setattr(job_module, "get_settings", lambda: settings_for_container)
@@ -76,5 +80,6 @@ def test_the_job_records_progress_in_its_metadata(
     queue = Queue("test-rebuilds", connection=redis_connection, is_async=False)
     job = queue.enqueue(rebuild_edition, version_id=version_id)
 
-    assert job.meta["chunks_total"] > 0
-    assert job.meta["chunks_done"] == job.meta["chunks_total"]
+    stored = Job.fetch(job.id, connection=redis_connection)
+    assert stored.meta["chunks_total"] > 0
+    assert stored.meta["chunks_done"] == stored.meta["chunks_total"]

@@ -57,7 +57,7 @@ def clean_graph(driver, database) -> Driver:
 
 @pytest.fixture(scope="session")
 def redis_container():
-    from testcontainers.redis import RedisContainer
+    from testcontainers.community.redis import RedisContainer
 
     with RedisContainer("redis:8-alpine") as container:
         yield container
