@@ -97,3 +97,40 @@ class ChunkOut(BaseModel):
     page: int
     section_path: list[str]
     ordinal: int
+
+
+class ObligationCitationOut(BaseModel):
+    """One side of a proposed link, with enough context to decide from.
+
+    The citation fields are not decoration: a reviewer asked whether one clause
+    implements another cannot answer without knowing which document each comes
+    from and where in it to go and read.
+    """
+
+    obligation_id: str
+    statement: str
+    modality: str
+    document: str
+    section_path: list[str]
+    page: int
+
+
+class ReviewItemOut(BaseModel):
+    source: ObligationCitationOut
+    target: ObligationCitationOut
+    confidence: float
+    rationale: str
+    proposer: str
+
+
+class VerdictIn(BaseModel):
+    """A reviewer's decision.
+
+    Deliberately carries no `actor`. The actor is the authenticated principal and
+    nothing else — a client-supplied one would let anyone record a decision as
+    anyone, which makes the audit trail worthless. `extra="ignore"` (the default)
+    means a body that sends one is accepted and the field discarded.
+    """
+
+    verdict: str = Field(min_length=1)
+    rationale: str = ""

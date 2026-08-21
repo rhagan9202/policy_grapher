@@ -1,5 +1,7 @@
 # DI-2 Phase 4: Typed Links and the Review Queue — Implementation Plan
 
+**Status:** Complete. Verified on 2026-08-20 with `uv run pytest` (418 passed), including the integration suite against a real `neo4j:2025.10` container.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Link an org obligation to the higher-level obligation it implements — proposed by machine, promoted only by a human, and surviving a full rebuild of the derived layer.
@@ -60,7 +62,7 @@ references, over obligations in the named higher-tier versions. Phase 6's hybrid
 will improve recall; this phase needs *something* to review, and a weak proposer with a
 human gate is safe in a way a strong proposer without one is not.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_links.py` covering, each as a real test with assertions:
 - a proposal creates `(:Obligation)-[:IMPLEMENTS_PROPOSED]->(:Obligation)` with `confidence` and `rationale` on the edge
@@ -69,14 +71,14 @@ Create `backend/tests/test_links.py` covering, each as a real test with assertio
 - an obligation with no plausible counterpart yields no proposal (an empty queue is a correct outcome)
 - a proposal carries the `proposer` id, so a later rebuild can tell machine-authored edges apart
 
-- [ ] **Step 2: Run to verify failure, then implement**
+- [x] **Step 2: Run to verify failure, then implement**
 
 `propose_links` matches org obligations against higher-tier ones, writes
 `IMPLEMENTS_PROPOSED` with `confidence`, `rationale`, and `proposer`, and returns the count.
 The rationale is one sentence written for a human about to make a decision — what the two
 obligations have in common and why the link is plausible.
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```bash
 git add backend/src/policy_grapher/links backend/tests/test_links.py
@@ -94,7 +96,9 @@ git commit -m "feat: propose which org obligation implements which higher one"
 **Interfaces:**
 - Produces: `decision_key(source_id, target_id) -> str`, `record_decision(tx, *, source_id, target_id, verdict, actor, rationale) -> None`, `replay_decisions(tx) -> tuple[int, int]` returning `(promoted, suppressed)`
 
-- [ ] **Step 1: Add the constraint**
+*Executor's note (2026-08-20):* `replay_decisions` returns a dict of three counts, not a two-tuple. Task 3 requires a rebuild to report an approval it could no longer apply, and `(promoted, suppressed)` has no slot for it — an approval whose obligations vanished is neither. The third count is `unpromotable`.
+
+- [x] **Step 1: Add the constraint**
 
 ```python
     (
@@ -103,7 +107,7 @@ git commit -m "feat: propose which org obligation implements which higher one"
     ),
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Append to `backend/tests/test_links.py`:
 - approving a proposal creates an `IMPLEMENTS` edge and leaves the proposal in place
@@ -113,13 +117,13 @@ Append to `backend/tests/test_links.py`:
 - `replay_decisions` is idempotent — running it twice yields the same graph
 - `decision_key` is symmetric-free: `(a, b)` and `(b, a)` are different keys, because "A implements B" is not "B implements A"
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `record_decision` merges a `:LinkDecision {key}` with `verdict`, `actor`, `at`, `rationale`.
 `replay_decisions` walks decisions and, for each `approve`, merges the `IMPLEMENTS` edge;
 for each `reject`, ensures no such edge exists. It is the **only** writer of `IMPLEMENTS`.
 
-- [ ] **Step 4: Run tests and commit**
+- [x] **Step 4: Run tests and commit**
 
 ```bash
 git add backend/src/policy_grapher/links backend/src/policy_grapher/db.py backend/tests/test_links.py
@@ -139,7 +143,7 @@ git commit -m "feat: a human verdict promotes a proposal, and survives"
 **This task is the one that makes "rebuildable overlay" a fact rather than an intention.**
 If it is wrong, every later phase inherits a graph whose human decisions quietly evaporate.
 
-- [ ] **Step 1: Write the failing test — the whole point of the phase**
+- [x] **Step 1: Write the failing test — the whole point of the phase**
 
 Create `backend/tests/test_rebuild.py`:
 
@@ -166,13 +170,15 @@ Add three more:
 - a rebuild after an extractor change that *removes* an obligation leaves its decision recorded but unpromotable, and reports that in the return value rather than silently
 - a rebuild leaves `:Document`, `:DocumentVersion`, `:Source` and `:Authority` untouched
 
-- [ ] **Step 2: Run to verify failure, then implement**
+- [x] **Step 2: Run to verify failure, then implement**
 
 `rebuild_derived` in one transaction: `drop_obligations` → `drop_chunks` → re-chunk →
 re-extract → `write_chunks` → `write_obligations` → `propose_links` → `replay_decisions`.
+
+*Executor's note (2026-08-20):* on the project owner's decision, re-chunking and re-extraction run *before* the transaction opens; everything that mutates the graph still runs inside one `execute_write`, so the atomic swap this step is protecting is preserved. A model call per chunk inside an open write transaction would hold Neo4j locks across minutes of network I/O. The pages come from re-reading the PDF at the version's `source_uri` — stored chunk text cannot be re-chunked differently, which is the main reason to rebuild. The signature gained `candidate_version_ids` and `proposer`, which `propose_links` needs and the stated one had no way to supply.
 Return a dict of counts so a caller can see what happened. Decisions are never touched.
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```bash
 git add backend/src/policy_grapher/links/rebuild.py backend/tests/test_rebuild.py
@@ -191,7 +197,7 @@ git commit -m "feat: rebuilding the derived layer keeps every human decision"
 **Interfaces:**
 - Produces: `GET /review/queue` → unreviewed proposals with both obligations, both citations, rationale and confidence; `POST /review/{source_id}/{target_id}` taking `{verdict, rationale}` and recording the decision as the authenticated principal
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_review.py` covering:
 - the queue returns a proposal with **both sides' citation** — `section_path` and `page` for each — because a reviewer cannot decide without them
@@ -200,12 +206,12 @@ Create `backend/tests/test_review.py` covering:
 - posting an unknown verdict is a 400
 - both routes require a principal (the Phase 0 property test enforces this, but assert it here too — this is the route that writes an audit record)
 
-- [ ] **Step 2: Implement, wire the router into `main.py`, and run**
+- [x] **Step 2: Implement, wire the router into `main.py`, and run**
 
 The `actor` comes from `Depends(require_principal)` and nowhere else. A client-supplied
 actor field would make the audit trail worthless.
 
-- [ ] **Step 3: Write ADR-014**
+- [x] **Step 3: Write ADR-014**
 
 Must state: why two edge types rather than a status property; that rejections are stored
 and why; that the decision key is content-derived so it survives re-extraction; that
@@ -214,7 +220,7 @@ confirmed by the project owner on 2026-08-20, with the note that `:LinkDecision`
 allows more than one verdict per key without migration if a control framework later
 requires dual approval.
 
-- [ ] **Step 4: Run everything and commit**
+- [x] **Step 4: Run everything and commit**
 
 ```bash
 git add backend/src/policy_grapher backend/tests docs/specs/adr/ADR-014-proposals-and-decisions-are-different-things.md

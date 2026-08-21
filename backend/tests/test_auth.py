@@ -81,6 +81,8 @@ PROTECTED = [
     ("get", "/documents/some-slug", None),
     ("post", "/documents/some-slug/references/other-slug", None),
     ("delete", "/documents/some-slug/references/other-slug", None),
+    ("get", "/review/queue", None),
+    ("post", "/review/some-id/other-id", {"verdict": "approve"}),
 ]
 
 

@@ -9,7 +9,7 @@ from policy_grapher.db import apply_schema, create_driver, is_graph_empty
 from policy_grapher.extraction import build_extractor
 from policy_grapher.ingest import ingest_file
 from policy_grapher.models import IngestResult
-from policy_grapher.routers import admin, documents, graph
+from policy_grapher.routers import admin, documents, graph, review
 from policy_grapher.sources import SourceError
 
 logger = logging.getLogger(__name__)
@@ -102,3 +102,4 @@ app.add_middleware(
 app.include_router(admin.router)
 app.include_router(documents.router)
 app.include_router(graph.router)
+app.include_router(review.router)

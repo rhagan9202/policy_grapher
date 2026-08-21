@@ -57,8 +57,16 @@ results are cached on chunk *content* rather than chunk id, and a hand-labelled 
 ratchets precision, recall and modality accuracy per adapter — so a provider swap is a tested
 property rather than a hope. The gate announces loudly when it did not run. See
 [ADR-013](../specs/adr/ADR-013-extraction-is-a-port-with-a-ratchet.md). Phase 4
-([typed links and the review queue](../superpowers/plans/2026-08-20-di-2-phase-4-links-and-review.md)),
-Phase 5
+([typed links and the review queue](../superpowers/plans/2026-08-20-di-2-phase-4-links-and-review.md))
+has landed: an obligation of ours is linked to the higher-level obligation it implements —
+proposed by machine as `IMPLEMENTS_PROPOSED`, promoted to `IMPLEMENTS` only by a human verdict,
+and surviving a full rebuild of the derived layer. Verdicts live in a canonical `:LinkDecision`
+keyed on the two obligation ids, so a re-extraction replays them instead of discarding them;
+rejections are stored as well as approvals, and a rebuild reports approvals it could no longer
+apply rather than passing over them. `GET /review/queue` and
+`POST /review/{source_id}/{target_id}` serve the queue, with the actor taken from the
+authenticated principal and never from the request body. See
+[ADR-014](../specs/adr/ADR-014-proposals-and-decisions-are-different-things.md). Phase 5
 ([change detection and propagation](../superpowers/plans/2026-08-20-di-2-phase-5-diff-and-propagation.md))
 and Phase 6
 ([retrieval, question answering and the UI](../superpowers/plans/2026-08-20-di-2-phase-6-retrieval-and-ui.md))

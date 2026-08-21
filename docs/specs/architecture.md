@@ -26,7 +26,7 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 
 | Component | Responsibility |
 | --- | --- |
-| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `GET /documents/{slug}/versions` lists an instrument's editions oldest first with each one's `supersedes` link, `GET /documents/{slug}/chunks` serves the newest edition's section-aware text chunks unless `version_id` pins another edition, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes read-only Cypher under a transaction timeout and a row cap. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
+| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `GET /documents/{slug}/versions` lists an instrument's editions oldest first with each one's `supersedes` link, `GET /documents/{slug}/chunks` serves the newest edition's section-aware text chunks unless `version_id` pins another edition, `GET /review/queue` lists proposed obligation links nobody has decided yet with both sides' citations, `POST /review/{source_id}/{target_id}` records a verdict as the authenticated principal and applies it, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes read-only Cypher under a transaction timeout and a row cap. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
 | **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the generated `.env` — written by `./scripts/init-env.sh`, never committed ([ADR-010](adr/ADR-010-secrets-leave-the-repository.md)). Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
 | **Frontend** (React + Vite, port 5173) | Two routes. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`; clicking a node shows its name and whether it is a corpus or external document, and clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. `/documents` renders every document from `GET /documents` as a table — name, how many documents cite it, and outgoing references with slugs resolved to names from the same payload — filtered client-side by name as the user types. Vite dev server proxies `/api` to the backend. |
 
@@ -71,6 +71,7 @@ for the reasoning behind each stage.
 | `Chunk` *(derived)* | `chunk_id: str`, `text: str`, `page: int`, `section_path: list[str]`, `ordinal: int` | `chunk_id` unique; full-text index `chunk_text` on `text` |
 | `Obligation` *(derived)* | `obligation_id: str`, `statement: str`, `modality: str`, `actor: str \| null`, `deadline: str \| null`, `conditions: str \| null`, `confidence: float`, `section_path: list[str]` | `obligation_id` unique |
 | `ExtractionCache` *(derived)* | `key: str`, `payload_json: str` | `key` unique |
+| `LinkDecision` *(canonical)* | `key: str`, `source_obligation_id: str`, `target_obligation_id: str`, `verdict: str`, `actor: str`, `rationale: str`, `at: datetime` | `key` unique |
 
 | Type | Direction | Meaning |
 | --- | --- | --- |
@@ -82,9 +83,18 @@ for the reasoning behind each stage.
 | `HAS_CHUNK` | `(:DocumentVersion)-[:HAS_CHUNK]->(:Chunk)` | A passage of that edition's text |
 | `MANDATES` | `(:DocumentVersion)-[:MANDATES]->(:Obligation)` | A duty that edition places on someone |
 | `ANCHORED_IN` | `(:Obligation)-[:ANCHORED_IN]->(:Chunk)` | The passage the duty was read from |
+| `IMPLEMENTS_PROPOSED` *(derived)* | `(:Obligation)-[:IMPLEMENTS_PROPOSED]->(:Obligation)` | A machine guess, carrying `confidence`, `rationale`, `proposer`. Never traversed by triage |
+| `IMPLEMENTS` *(derived)* | `(:Obligation)-[:IMPLEMENTS]->(:Obligation)` | A human approved the link. Written **only** by `links.decisions.replay_decisions` |
 
 Nodes and relationships are created with `MERGE`, making ingestion idempotent — re-running
 `/ingest` on the same file creates nothing new. Self-loops are never created.
+
+**A proposal and an approval are separate edge types, not one edge with a status.** The triage
+traversal names `IMPLEMENTS` and therefore cannot see an unreviewed `IMPLEMENTS_PROPOSED` — the
+mistake is unwriteable rather than merely discouraged. `:LinkDecision` is canonical precisely
+because the edges are not: a rebuild drops both edge types and replays the decisions back onto
+freshly proposed links, matching on a key derived from the two obligation ids. See
+[ADR-014](adr/ADR-014-proposals-and-decisions-are-different-things.md).
 
 **The labels marked *derived* are droppable and rebuildable; the rest are canonical.** A
 canonical node records something an ingest read directly off a source. A derived one exists
