@@ -9,12 +9,15 @@ it through a query API and a lightweight visual explorer.
 
 ## Status
 
-**DI-1 complete** — 18 of 18 stories. **DI-2 complete as a library**: versioned editions,
-section-aware chunking, obligation extraction behind a port, human-reviewed links, edition
-diffing and hybrid retrieval are all built and tested, but nothing in the running app can yet
-drive extraction over an ingested document — that is
-[STORY-048](docs/backlog/stories/STORY-048-derived-layer-buildable-from-the-app.md), in
-sprint 4.
+**DI-1 complete** — 18 of 18 stories. **DI-2 complete**: versioned editions, section-aware
+chunking, obligation extraction behind a port, human-reviewed links, edition diffing and
+hybrid retrieval are all built and tested — and, since
+[STORY-048](docs/backlog/stories/STORY-048-derived-layer-buildable-from-the-app.md) landed in
+sprint 4, all of it is reachable from the running application. `POST
+/documents/{slug}/versions/{version_id}/rebuild` queues a rebuild of one edition's derived
+layer — chunks, obligations, proposed links and embeddings — onto a Redis-backed RQ queue that
+a `worker` service drains, and `GET /rebuilds/{run_id}` reports its progress chunk by chunk.
+See [Building an edition's derived layer](#building-an-editions-derived-layer).
 
 `./scripts/init-env.sh && docker compose up` serves the app at http://localhost:5173. **It
 starts empty on purpose** ([ADR-019](docs/specs/adr/ADR-019-the-first-run-is-empty.md)): every
@@ -34,6 +37,44 @@ docker compose up --build
 
 Then open http://localhost:5173. The API is at http://localhost:8000, the Neo4j browser at
 http://localhost:7474.
+
+### Building an edition's derived layer
+
+Ingest gives you a document, an edition and its text. Everything downstream — obligations,
+proposed links, embeddings — is *derived*, and a rebuild is what produces it. The sequence,
+with `$TOKEN` set to the API token `init-env.sh` printed:
+
+```bash
+# 1. Ingest two PDFs: the issuance to rebuild, and the higher-tier one it
+#    implements. `GET /documents/{slug}/versions` gives you the version ids.
+curl -sX POST localhost:8000/ingest -H "Authorization: Bearer $TOKEN" \
+     -H 'Content-Type: application/json' -d '{"filename": "500001p_2020.pdf"}'
+curl -sX POST localhost:8000/ingest -H "Authorization: Bearer $TOKEN" \
+     -H 'Content-Type: application/json' -d '{"filename": "500088p.pdf"}'
+
+# 2. Rebuild that edition's derived layer. 202 with a run_id; the worker does the work.
+#    candidate_version_ids names the higher-tier editions to propose links against —
+#    omit it and the rebuild produces no proposals (see below).
+curl -sX POST "localhost:8000/documents/dodi-5000-88/versions/dodi-5000-88@2020-11-18/rebuild" \
+     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+     -d '{"candidate_version_ids": ["dodd-5000-01@2020-09-09"]}'
+
+# 3. Poll it. state goes queued → started → finished, with chunks_done/chunks_total
+#    moving while it runs and counts landing when it does.
+curl -s localhost:8000/rebuilds/<run_id> -H "Authorization: Bearer $TOKEN"
+```
+
+Then `GET /triage`, `GET /review/queue` and `POST /ask` have something to work with, and the
+Triage, Review and Ask screens stop being empty.
+
+**Two things worth knowing before you expect results.** The default `EXTRACTOR_ADAPTER=null`
+extracts nothing, on purpose — it needs no model server, so the stack still comes up on one
+command ([ADR-013](docs/specs/adr/ADR-013-extraction-is-a-port-with-a-ratchet.md)). Set
+`EXTRACTOR_ADAPTER=local` with an Ollama-compatible endpoint to get real obligations, and with
+them real proposals. And **`candidate_version_ids` is required for proposals**: nothing in the
+graph records which documents are higher-tier
+([ADR-015](docs/specs/adr/ADR-015-changes-are-detected-and-ranked.md) drops tier distance for
+that reason), so the caller names them and the route never guesses.
 
 **Upgrading a stack that predates the generated `.env`?** Run `docker compose down -v` before
 `init-env.sh`. `NEO4J_AUTH` sets the password when the data volume is *created* and never

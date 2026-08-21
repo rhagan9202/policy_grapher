@@ -19,12 +19,16 @@ using the [t-shirt scale](README.md#estimation) adopted at the same session, so 
 [Definition of Ready](README.md#definition-of-ready) is met here for the first time.
 
 Sprint 3 closed on 2026-08-21 with all seven of its items delivered; they have moved to
-[Done](#done). What remains is sprints 4 and 5.
+[Done](#done). Sprint 4's spine, STORY-048, has since landed and moved there too: `POST
+/documents/{slug}/versions/{version_id}/rebuild` queues a rebuild onto a Redis-backed RQ
+queue that a `worker` service drains, and `GET /rebuilds/{run_id}` reports its progress —
+so `rebuild_derived`, `embed_chunks`, `CachedExtractor` and `GraphCacheStore` all have a
+caller in the running application now, and Triage, Review and Ask can be filled without
+running Python by hand. What remains is the rest of sprint 4, and sprint 5.
 
 | ID | Item | Epic | Est. | Sprint | Notes |
 | --- | --- | --- | --- | --- | --- |
 | STORY-056 | A model server is available without installing anything on the host | — | S | 4 | The extraction port's `local` adapter needs an Ollama-compatible endpoint, and there is none — no binary, nothing on :11434 — so `local` has never been exercised against a real model and [STORY-054](#ready) cannot be closed. Run it as a container beside Neo4j rather than installing it: `ollama/ollama` behind a compose **profile**, so `docker compose up` is unchanged and only someone who wants real extraction pays for it. The image is 8.43GB and a model is several more, which is exactly why it must not be on the default path |
-| STORY-048 | An ingested edition's derived layer can be built from the running app | — | L | 4 | **The surge's spine.** `rebuild_derived`, `embed_chunks`, `CachedExtractor` and `GraphCacheStore` have no caller anywhere in `src/` — only in tests. Nothing in the running application can turn an ingested edition into obligations, embeddings or proposals, so Triage, Review and Ask can only ever be empty and the vector leg of hybrid retrieval is permanently inert. The 2026-08-21 audit could only exercise those screens by running Python by hand against the container's Neo4j. See [STORY-048](stories/STORY-048-derived-layer-buildable-from-the-app.md) |
 | STORY-051 | Both suites run on a check nobody has to remember | — | M | 4 | [architecture.md](../specs/architecture.md) states plainly that there is no CI, and the [Definition of Done](README.md#definition-of-done) has carried a TODO about it since it was written. Every check currently depends on a person choosing to run `uv run pytest` and `npm test`. The surge is the point at which that stops being tenable: it will close a dozen defects, and nothing would catch the thirteenth |
 | STORY-052 | The backend image carries only what it needs to run | — | M | 4 | Adding `sentence-transformers` for [ADR-016](../specs/adr/ADR-016-embeddings-are-a-port.md) pulled `torch`, `transformers` and `scikit-learn`: the backend virtualenv measures **4.9 GB** and importing the library costs ~9s. `LocalEmbedder` already imports lazily so the default `null` configuration pays neither cost at runtime, but the image carries the weight regardless, against a vision constraint of a stack that comes up on one command. Options: an optional dependency group, a multi-stage build, or a lighter static-embedding library behind the same port — the port exists precisely to keep that swap small |
 | STORY-054 | The extraction ratchet has been run against a real model at least once | — | M | 4 | `FLOORS['local:qwen3:8b']` in `test_obligation_ratchet.py` records precision 0.60, recall 0.50 and modality accuracy 0.85. Those numbers were never measured — [ADR-016](../specs/adr/ADR-016-embeddings-are-a-port.md)'s sibling [ADR-013](../specs/adr/ADR-013-extraction-is-a-port-with-a-ratchet.md) records them as *targets*, and the gate skips loudly whenever no model server answers. Until one run happens the swap gate has never actually gated anything, and the first measured run replaces the estimates in either direction **Blocked until [STORY-056](#ready) lands a model server**; sprint 4 stretch |
@@ -66,6 +70,7 @@ sprint reviews.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-048 | An ingested edition's derived layer can be built from the running app | 4 |
 | STORY-049 | A cold start is empty, and the app says so instead of looking broken | 3 |
 | STORY-039 | The graph view fits the window it is drawn in | 3 |
 | STORY-040 | Triage only offers comparisons it can actually carry out | 3 |

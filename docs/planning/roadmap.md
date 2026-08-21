@@ -85,14 +85,21 @@ three-signal hybrid retrieval, and grounded question answering at `POST /ask` �
 Ask screens, and the navigation DI-1 never shipped: routes and links are declared from one
 list, so a screen cannot exist without a way to reach it. A `SPEC-002` is not yet written.
 
-**What DI-2 did not deliver, found on 2026-08-21:** none of that machinery is reachable from
-the running application. `rebuild_derived`, `embed_chunks`, `CachedExtractor` and
-`GraphCacheStore` have no caller in `src/` — only in tests — and auto-ingest loads a CSV
-manifest, which by design records no edition and no text. So a clean `docker compose up`
-yields 439 documents, zero chunks and zero obligations, and Triage, Review and Ask are empty
-with no product action that can fill them. Every phase's tests pass; nothing composes them.
-Closing that is [STORY-048](../backlog/stories/STORY-048-derived-layer-buildable-from-the-app.md)
-and the reason for the surge below.
+**What DI-2 did not deliver, found on 2026-08-21 — now closed.** None of that machinery was
+reachable from the running application: `rebuild_derived`, `embed_chunks`, `CachedExtractor`
+and `GraphCacheStore` had no caller in `src/`, only in tests, and auto-ingest loads a CSV
+manifest, which by design records no edition and no text. A clean `docker compose up` yielded
+439 documents, zero chunks and zero obligations, with Triage, Review and Ask empty and no
+product action that could fill them. Every phase's tests passed; nothing composed them. That
+was the reason for the surge below, and
+[STORY-048](../backlog/stories/STORY-048-derived-layer-buildable-from-the-app.md) has since
+closed it: `POST /documents/{slug}/versions/{version_id}/rebuild` validates an edition and
+queues a rebuild of its derived layer onto a Redis-backed RQ queue, a `worker` service runs
+it, and `GET /rebuilds/{run_id}` reports progress chunk by chunk and the counts it produced.
+Proposals are generated for the candidate editions the caller names — the graph records no
+tier information, so the route asks rather than guesses. See the
+[README quickstart](../../README.md#building-an-editions-derived-layer) for the command
+sequence.
 
 ## The tech-debt surge
 
@@ -105,7 +112,7 @@ document; each sprint's plan is written at its own start and frozen
 | Sprint | Goal | Items |
 | --- | --- | --- |
 | **3 — Truth and reachability** ✅ | The app tells the truth about its own state: starts empty, says so, and carries none of the audit's UI defects | STORY-038, 039, 040, 041, 049, 050, 053 |
-| **4 — The app can fill its own screens** | The derived layer is buildable from the application, and a check exists that would catch the next regression | STORY-048, 051, 052, 056 |
+| **4 — The app can fill its own screens** | The derived layer is buildable from the application, and a check exists that would catch the next regression | STORY-048 ✅, 051, 052, 056 |
 | **5 — The UI reaches the whole API** | No backend capability is left without a way to reach it; the corpus-management bar in [What success looks like](vision.md#what-success-looks-like) is met | STORY-017, 042, 043, 044, 046 |
 | **6 — Extraction quality** | The ratchet measures a real model, and the modality enum recognises the word this corpus actually uses | STORY-054, 055 |
 

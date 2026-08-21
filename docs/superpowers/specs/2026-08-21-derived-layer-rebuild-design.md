@@ -141,8 +141,13 @@ RQ moves a timed-out job to the failed registry, and `GET /rebuilds/{run_id}` re
 failed rather than in progress.
 
 **Re-running is safe and cheap.** Chunk and obligation ids are content- and structure-derived,
-so a second run reproduces the same ids; the cache means it calls the model zero times; and the
-409 above stops two runs racing over one edition.
+so a second run reproduces the same ids, and the cache means it calls the model zero times. The
+409 above is a courtesy, not a safety property: it usually spares the second caller a pointless
+run, but there is a window between the check and the enqueue, and another before RQ moves a job
+into `StartedJobRegistry`, so two runs over one edition can still slip through. That is harmless
+here — every mutation lands in a single `execute_write`, ids are deterministic, and one worker
+runs at concurrency 1, so the loser of a race simply rewrites the same rows. Safety comes from
+the transaction, not from the 409.
 
 **Redis being down fails only the rebuild routes.** The queue connection is lazy. Everything
 else in the application is Neo4j and keeps working, rather than the app refusing to boot over
