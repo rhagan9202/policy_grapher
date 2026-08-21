@@ -25,8 +25,19 @@ WHERE NOT EXISTS {
     MATCH (d:LinkDecision {source_obligation_id: source.obligation_id,
                            target_obligation_id: target.obligation_id})
 }
-MATCH (source)-[:ANCHORED_IN]->(source_chunk:Chunk)
-MATCH (target)-[:ANCHORED_IN]->(target_chunk:Chunk)
+// One chunk per side, not every chunk it anchors to. Chunk overlap repeats a
+// sentence across a section split, so an obligation legitimately anchors to more
+// than one chunk — 5 of 88 on a real DoD issuance. A plain MATCH would emit a row
+// per combination and hand the reviewer the same pair several times. The earliest
+// chunk in reading order is the citation: it is where the passage starts.
+CALL (source) {
+    MATCH (source)-[:ANCHORED_IN]->(chunk:Chunk)
+    RETURN chunk AS source_chunk ORDER BY chunk.ordinal LIMIT 1
+}
+CALL (target) {
+    MATCH (target)-[:ANCHORED_IN]->(chunk:Chunk)
+    RETURN chunk AS target_chunk ORDER BY chunk.ordinal LIMIT 1
+}
 MATCH (source_doc:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(source)
 MATCH (target_doc:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(target)
 RETURN source.obligation_id   AS source_id,

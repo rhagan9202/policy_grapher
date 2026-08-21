@@ -180,3 +180,68 @@ def test_both_review_routes_require_a_principal(client_with_graph):
         client_with_graph.post("/review/a/b", json={"verdict": "approve"}).status_code
         == 401
     )
+
+
+@pytest.mark.integration
+def test_an_obligation_anchored_to_two_chunks_appears_once(client_with_auth):
+    """Chunk overlap repeats a sentence across a section split, so one obligation
+    can legitimately anchor to two chunks — measured at 5 of 88 on a real DoD
+    issuance. The queue must still show it once: a reviewer handed the same pair
+    twice does the work twice, and the second verdict has nothing left to decide.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+
+    _seed_version(
+        driver, database, version_id="higher", name="DoDI 5000.88", statement=HIGHER
+    )
+    driver.execute_query(
+        "MERGE (d:Document {slug: 'org', name: 'ORG 1.0'}) "
+        "MERGE (d)-[:HAS_VERSION]->(:DocumentVersion {version_id: 'org', "
+        "checksum: 'org', source_uri: 'file:///x.pdf'})",
+        database_=database,
+    )
+    body = " ".join(f"word{i}" for i in range(400))
+    split = chunk_pages(
+        [f"2.4. DUTIES.\n{body}"], version_id="org", max_chars=600, overlap_chars=150
+    )
+    assert len({c.chunk_id for c in split}) > 1
+    assert len({tuple(c.section_path) for c in split}) == 1
+
+    obligation = ExtractedObligation(
+        statement=ORG,
+        modality=Modality.MUST,
+        actor=None,
+        deadline=None,
+        conditions=None,
+        confidence=0.9,
+    )
+    with driver.session(database=database) as session:
+        session.execute_write(write_chunks, version_id="org", chunks=split)
+        # The same statement read out of two overlapping chunks: one obligation,
+        # two ANCHORED_IN edges.
+        for chunk in split[:2]:
+            session.execute_write(
+                write_obligations,
+                version_id="org",
+                chunk_id=chunk.chunk_id,
+                section_path=chunk.section_path,
+                obligations=[obligation],
+            )
+        session.execute_write(
+            propose_links,
+            org_version_id="org",
+            candidate_version_ids=["higher"],
+            proposer="lexical-v1",
+        )
+
+    records, _, _ = driver.execute_query(
+        "MATCH (o:Obligation {statement: $statement})-[a:ANCHORED_IN]->() "
+        "RETURN count(a) AS anchors",
+        {"statement": ORG},
+        database_=database,
+    )
+    assert records[0]["anchors"] == 2, "the fixture must actually double-anchor"
+
+    queue = client_with_auth.get("/review/queue").json()
+    assert len(queue) == 1

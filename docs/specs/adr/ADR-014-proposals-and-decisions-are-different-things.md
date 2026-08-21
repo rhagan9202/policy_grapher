@@ -96,6 +96,14 @@ each obligation. This is not presentation polish: a reviewer asked whether one c
 another cannot answer without going and reading both in context, and a queue that made them
 search for the passage would be a queue that gets rubber-stamped.
 
+**The queue shows one citation per side, not one row per anchor.** Chunk overlap repeats a
+sentence across a section split, so an obligation can legitimately anchor to more than one chunk
+— measured at 5 of 88 obligations on `500001p_2003.pdf`. A plain traversal would emit a row per
+combination and hand the reviewer the same pair several times; the second verdict then has
+nothing left to decide, and the queue length stops meaning how much work is outstanding. The
+citation is the earliest anchoring chunk in reading order, because that is where the passage
+starts.
+
 **A verdict on a pair that was never proposed is a 404.** A decision is recorded against a
 proposal, not against an arbitrary pair of ids, so junk cannot accumulate in the canonical layer
 through a mistyped request.

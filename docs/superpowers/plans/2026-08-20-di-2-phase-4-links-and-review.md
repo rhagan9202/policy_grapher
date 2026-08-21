@@ -1,6 +1,6 @@
 # DI-2 Phase 4: Typed Links and the Review Queue — Implementation Plan
 
-**Status:** Complete. Verified on 2026-08-20 with `uv run pytest` (418 passed), including the integration suite against a real `neo4j:2025.10` container.
+**Status:** Complete. Verified on 2026-08-20 with `uv run pytest` (419 passed), including the integration suite against a real `neo4j:2025.10` container.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
