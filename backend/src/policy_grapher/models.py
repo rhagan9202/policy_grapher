@@ -73,6 +73,9 @@ class DocumentOut(BaseModel):
     is_external: bool
     references: list[str] = Field(default_factory=list)
     referenced_by: list[str] = Field(default_factory=list)
+    # How many editions this document has. Zero for the great majority — an
+    # externally cited document has no ingested text (STORY-040).
+    version_count: int = 0
 
 
 class DocumentVersionOut(BaseModel):

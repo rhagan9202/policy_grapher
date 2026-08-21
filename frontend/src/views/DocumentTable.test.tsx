@@ -18,6 +18,7 @@ const documents: DocumentOut[] = [
     is_external: false,
     references: ['public-law-116-92'],
     referenced_by: [],
+    version_count: 0,
   },
   {
     slug: 'dodi-3115-14',
@@ -25,6 +26,7 @@ const documents: DocumentOut[] = [
     is_external: false,
     references: [],
     referenced_by: [],
+    version_count: 0,
   },
   {
     slug: 'public-law-116-92',
@@ -32,6 +34,7 @@ const documents: DocumentOut[] = [
     is_external: true,
     references: [],
     referenced_by: ['dodd-5000-01'],
+    version_count: 0,
   },
 ]
 
@@ -114,5 +117,26 @@ describe('DocumentTable', () => {
     render(<DocumentTable />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend down/i)
+  })
+})
+
+describe('DocumentTable when nothing has been ingested', () => {
+  it('says the corpus is empty rather than showing a table of nothing', async () => {
+    // ADR-019: "Showing 0 of 0" over empty headers reads as a broken fetch.
+    listDocuments.mockResolvedValue([])
+    render(<DocumentTable />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /no documents have been ingested yet/i,
+    )
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('does not offer a filter over an empty corpus', async () => {
+    listDocuments.mockResolvedValue([])
+    render(<DocumentTable />)
+    await screen.findByRole('status')
+
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
   })
 })

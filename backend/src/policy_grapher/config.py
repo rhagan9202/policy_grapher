@@ -57,7 +57,11 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path("/data/samples")
     sample_csv: str = "dod_policy_references_08122026.csv"
-    auto_ingest: bool = True
+    # Off by default (ADR-019). A first run holds nothing, and every screen
+    # explains that rather than rendering a blank that reads as failure. The
+    # machinery still works when this is switched on — a changed default, not a
+    # removal.
+    auto_ingest: bool = False
 
 
 @lru_cache

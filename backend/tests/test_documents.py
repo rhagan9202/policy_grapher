@@ -1,6 +1,12 @@
 import pytest
+from neo4j.exceptions import CypherSyntaxError
 
-from policy_grapher.documents import allocate_slugs, create_document, reconcile_slugs
+from policy_grapher.documents import (
+    allocate_slugs,
+    create_document,
+    list_documents,
+    reconcile_slugs,
+)
 from policy_grapher.slugs import assign_slugs, hash_suffix
 
 pytestmark = pytest.mark.integration
@@ -318,3 +324,54 @@ def test_every_created_document_shares_one_api_source(client_with_auth, driver, 
         routing_=RoutingControl.READ,
     )
     assert records[0]["total"] == 1
+
+
+@pytest.mark.integration
+def test_creating_a_document_rolls_back_when_a_later_write_fails(
+    clean_graph, database, monkeypatch
+):
+    """STORY-038. The four writes must commit together or not at all.
+
+    Failure is provoked by making the *last* statement invalid Cypher, so a real
+    server-side error arrives partway through a real transaction — nothing here
+    mocks the driver. Under the original four-auto-commit implementation the
+    :Document is already committed by the time that error lands, and it survives
+    as a node with no provenance and no :External label, which nothing
+    re-refreshes: the next manifest citing that name silently demotes it and it
+    vanishes from the default graph view.
+    """
+    from policy_grapher import documents as documents_module
+
+    monkeypatch.setattr(documents_module, "REFRESH_EXTERNAL", "RETURN this_is_not_cypher(")
+
+    with pytest.raises(CypherSyntaxError):
+        create_document(clean_graph, database, "DoDD 9999.99")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:Document {name: 'DoDD 9999.99'}) RETURN count(d) AS total",
+        database_=database,
+    )
+    assert records[0]["total"] == 0, (
+        "the document was committed before the failing statement — the writes are "
+        "not in one transaction"
+    )
+
+
+@pytest.mark.integration
+def test_a_listed_document_reports_how_many_editions_it_has(clean_graph, database):
+    """STORY-040. Triage can only compare a document that has editions, and 439
+    of the sample corpus's 440 have none — so the picker needs to know which,
+    without fetching versions for every document one at a time.
+    """
+    clean_graph.execute_query(
+        "CREATE (a:Document {slug: 'has-editions', name: 'DoDD 5000.01'})"
+        "-[:HAS_VERSION]->(:DocumentVersion {version_id: 'v1'}) "
+        "CREATE (a)-[:HAS_VERSION]->(:DocumentVersion {version_id: 'v2'}) "
+        "CREATE (:Document {slug: 'no-editions', name: 'Public Law 116-92'})",
+        database_=database,
+    )
+
+    by_slug = {d.slug: d for d in list_documents(clean_graph, database)}
+
+    assert by_slug["has-editions"].version_count == 2
+    assert by_slug["no-editions"].version_count == 0

@@ -18,13 +18,19 @@ from policy_grapher.sources.provenance import (
     REFRESH_EXTERNAL,
 )
 
+# `version_count` is counted here rather than left to a per-document call: Triage
+# can only compare a document that has editions, and 439 of the sample corpus's
+# 440 have none (STORY-040). Asking `/documents/{slug}/versions` for each one to
+# find that out would be 440 requests to populate a dropdown.
 DOCUMENT_FIELDS = """
 OPTIONAL MATCH (d)-[:REFERENCES]->(out:Document)
 WITH d, collect(DISTINCT out.slug) AS references
 OPTIONAL MATCH (d)<-[:REFERENCES]-(inc:Document)
 WITH d, references, collect(DISTINCT inc.slug) AS referenced_by
+OPTIONAL MATCH (d)-[:HAS_VERSION]->(v:DocumentVersion)
+WITH d, references, referenced_by, count(DISTINCT v) AS version_count
 RETURN d.slug AS slug, d.name AS name,
-       d:External AS is_external, references, referenced_by
+       d:External AS is_external, references, referenced_by, version_count
 """
 
 LIST_DOCUMENTS = f"MATCH (d:Document) {DOCUMENT_FIELDS} ORDER BY slug ASC"
@@ -91,6 +97,7 @@ def _to_document(record) -> DocumentOut:
         is_external=record["is_external"],
         references=sorted(record["references"]),
         referenced_by=sorted(record["referenced_by"]),
+        version_count=record["version_count"],
     )
 
 
@@ -241,40 +248,37 @@ def reconcile_slugs(driver: Driver, database: str, names: Iterable[str]) -> dict
     return assigned
 
 
-def create_document(driver: Driver, database: str, name: str) -> DocumentOut:
-    if _count(driver, database, NAME_TAKEN, {"name": name}) > 0:
-        raise NameConflictError(name)
+def _write_new_document(tx, *, slug: str, name: str) -> None:
+    """The four writes that make a hand-created document, in one transaction.
 
-    slug = allocate_slug(driver, database, name)
-    _write(
-        driver,
-        database,
-        CREATE_DOCUMENT,
-        {"slug": slug, "name": name},
-    )
-
+    Separated out so they share a transaction rather than committing one at a
+    time. `ingest_document` has always had this shape; `create_document` did not,
+    and the gap was STORY-038: a failure partway through left a :Document with no
+    provenance and no :External label, a state nothing re-refreshes, so the next
+    manifest citing that name demoted it out of the default graph view with no
+    error anywhere.
+    """
+    tx.run(CREATE_DOCUMENT, {"slug": slug, "name": name}).consume()
     # ADR-007: the user's assertion that this document exists is itself
     # provenance. One shared :Source node stands for every hand-created
     # document — there are no users to attribute to yet, and a node per
     # request would be provenance theatre.
-    _write(
-        driver,
-        database,
-        MERGE_SOURCE,
-        {"id": API_SOURCE_ID, "kind": API, "filename": ""},
-    )
-    _write(
-        driver,
-        database,
-        DESCRIBES,
-        {"id": API_SOURCE_ID, "slugs": [slug]},
-    )
-    _write(
-        driver,
-        database,
-        REFRESH_EXTERNAL,
-        {"slugs": [slug]},
-    )
+    tx.run(MERGE_SOURCE, {"id": API_SOURCE_ID, "kind": API, "filename": ""}).consume()
+    tx.run(DESCRIBES, {"id": API_SOURCE_ID, "slugs": [slug]}).consume()
+    tx.run(REFRESH_EXTERNAL, {"slugs": [slug]}).consume()
+
+
+def create_document(driver: Driver, database: str, name: str) -> DocumentOut:
+    # Both reads happen before the transaction opens: `driver.execute_query`
+    # cannot run inside a `session.execute_write` callback, which is the same
+    # reason `ingest_document` resolves its slugs up front.
+    if _count(driver, database, NAME_TAKEN, {"name": name}) > 0:
+        raise NameConflictError(name)
+
+    slug = allocate_slug(driver, database, name)
+
+    with driver.session(database=database) as session:
+        session.execute_write(_write_new_document, slug=slug, name=name)
 
     return get_document(driver, database, slug)
 

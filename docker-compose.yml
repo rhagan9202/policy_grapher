@@ -40,7 +40,9 @@ services:
       # .env override that disagreed would fail at ingest rather than at startup.
       DATA_DIR: /data/samples
       SAMPLE_CSV: ${SAMPLE_CSV}
-      AUTO_INGEST: ${AUTO_INGEST}
+      # Defaulted like the flags below it: a .env written before ADR-019 says
+      # true, and a fresh clone should get an empty first run.
+      AUTO_INGEST: ${AUTO_INGEST:-false}
       API_TOKENS: ${API_TOKENS}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
       # Defaulted rather than bare ${...}: a .env generated before this variable

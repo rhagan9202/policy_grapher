@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getReviewQueue, recordVerdict } from '../api/client'
+import { getReviewQueue, listDocuments, recordVerdict } from '../api/client'
+import EmptyState from './EmptyState'
 import type { ObligationCitation, ReviewItem, Verdict } from '../api/types'
 
 /** "DoDI 5000.88 · 3/3.2 · p. 12" — where to go and read the passage. */
@@ -28,6 +29,7 @@ export default function Review() {
   const [error, setError] = useState<string | null>(null)
   const [rationale, setRationale] = useState('')
   const [pending, setPending] = useState(false)
+  const [corpusEmpty, setCorpusEmpty] = useState<boolean | null>(null)
 
   const load = useCallback(() => {
     return getReviewQueue()
@@ -40,6 +42,23 @@ export default function Review() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // "Nothing is waiting for review" is true of an empty graph and tells the
+  // reader the queue has been worked through. The two states need telling
+  // apart, and only the corpus can say which this is (ADR-019).
+  useEffect(() => {
+    let cancelled = false
+    listDocuments()
+      .then((d) => {
+        if (!cancelled) setCorpusEmpty(d.length === 0)
+      })
+      .catch(() => {
+        if (!cancelled) setCorpusEmpty(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function decide(item: ReviewItem, verdict: Verdict) {
     // `pending` gates both buttons for the whole round trip. Without it a
@@ -73,7 +92,9 @@ export default function Review() {
       <h1>Review</h1>
       {error && <div role="alert">Could not record that: {error}</div>}
 
-      {!item ? (
+      {corpusEmpty ? (
+        <EmptyState lead="Nothing has been proposed for review." />
+      ) : !item ? (
         queue && <p>Nothing is waiting for review.</p>
       ) : (
         <article>

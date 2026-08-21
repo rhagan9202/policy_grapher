@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentOut, DocumentVersionOut, TriageOut } from '../api/types'
@@ -22,6 +22,7 @@ const documents: DocumentOut[] = [
     is_external: false,
     references: [],
     referenced_by: [],
+    version_count: 2,
   },
 ]
 
@@ -188,5 +189,84 @@ describe('Triage', () => {
     await chooseAnEdition()
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/supersedes no earlier/i)
+  })
+})
+
+describe('Triage when nothing has been ingested', () => {
+  it('says the corpus is empty rather than offering an empty picker', async () => {
+    listDocuments.mockResolvedValue([])
+    render(<Triage />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /no documents have been ingested yet/i,
+    )
+    expect(screen.queryByLabelText(/document/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('Triage document picker', () => {
+  it('offers only documents that have editions to compare', async () => {
+    // STORY-040: 439 of 440 documents on the sample corpus have no edition, so
+    // choosing one leads to an empty list and no explanation.
+    listDocuments.mockResolvedValue([
+      ...documents,
+      {
+        slug: 'public-law-116-92',
+        name: 'Public Law 116-92',
+        is_external: true,
+        references: [],
+        referenced_by: [],
+        version_count: 0,
+      },
+    ])
+    listVersions.mockResolvedValue(versions)
+    render(<Triage />)
+
+    const picker = await screen.findByLabelText(/document/i)
+    const options = within(picker).getAllByRole('option').map((o) => o.textContent)
+    expect(options).toContain('DoDI 5000.88')
+    expect(options).not.toContain('Public Law 116-92')
+  })
+
+  it('does not offer the oldest edition, which can never be compared', async () => {
+    // STORY-040: it supersedes nothing, so /triage answers 400 every time.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    render(<Triage />)
+
+    await userEvent.selectOptions(await screen.findByLabelText(/document/i), 'dodi-5000-88')
+    const editions = await screen.findByLabelText(/edition/i)
+    const options = within(editions).getAllByRole('option').map((o) => o.textContent)
+
+    expect(options).toContain('2020-11-18')
+    expect(options).not.toContain('2019-01-01')
+  })
+
+  it('says so when a document has no edition that can be compared', async () => {
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue([versions[0]])
+    render(<Triage />)
+
+    await userEvent.selectOptions(await screen.findByLabelText(/document/i), 'dodi-5000-88')
+
+    expect(await screen.findByText(/only one edition/i)).toBeInTheDocument()
+  })
+})
+
+describe('Triage when the corpus has no editions', () => {
+  it('explains that no document has an edition, rather than showing an empty picker', async () => {
+    // Found on the sprint-3 cold-start walkthrough: ingesting the sample CSV
+    // gives 438 documents and zero editions, because a manifest records no text
+    // (ADR-011). The picker then renders with no options and no explanation —
+    // the STORY-040 dead end in a second guise.
+    listDocuments.mockResolvedValue(
+      documents.map((d) => ({ ...d, version_count: 0 })),
+    )
+    render(<Triage />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /no document has an ingested edition/i,
+    )
+    expect(screen.queryByLabelText(/document/i)).not.toBeInTheDocument()
   })
 })

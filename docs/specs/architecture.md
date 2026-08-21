@@ -26,7 +26,7 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 
 | Component | Responsibility |
 | --- | --- |
-| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `GET /documents/{slug}/versions` lists an instrument's editions oldest first with each one's `supersedes` link, `GET /documents/{slug}/chunks` serves the newest edition's section-aware text chunks unless `version_id` pins another edition, `GET /review/queue` lists proposed obligation links nobody has decided yet with both sides' citations, `POST /review/{source_id}/{target_id}` records a verdict as the authenticated principal and applies it, `GET /triage?to_version_id=` diffs an edition against the one it supersedes and ranks the clauses of ours that the changes reach, `POST /ask` answers a question from the corpus with citations or states that the corpus does not address it, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes read-only Cypher under a transaction timeout and a row cap. Auto-ingests the sample corpus at startup when the graph is empty (`AUTO_INGEST`, on by default). Mounts `./data` at `/data`, read-only. |
+| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `GET /documents/{slug}/versions` lists an instrument's editions oldest first with each one's `supersedes` link, `GET /documents/{slug}/chunks` serves the newest edition's section-aware text chunks unless `version_id` pins another edition, `GET /review/queue` lists proposed obligation links nobody has decided yet with both sides' citations, `POST /review/{source_id}/{target_id}` records a verdict as the authenticated principal and applies it, `GET /triage?to_version_id=` diffs an edition against the one it supersedes and ranks the clauses of ours that the changes reach, `POST /ask` answers a question from the corpus with citations or states that the corpus does not address it, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes read-only Cypher under a transaction timeout and a row cap. Auto-ingests the sample corpus at startup when the graph is empty — **off by default** (`AUTO_INGEST`), so a first run holds nothing and every screen says so rather than rendering a blank that reads as failure ([ADR-019](adr/ADR-019-the-first-run-is-empty.md)). Mounts `./data` at `/data`, read-only. |
 | **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the generated `.env` — written by `./scripts/init-env.sh`, never committed ([ADR-010](adr/ADR-010-secrets-leave-the-repository.md)). Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
 | **Frontend** (React + Vite, port 5173) | Two routes. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`; clicking a node shows its name and whether it is a corpus or external document, and clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. `/documents` renders every document from `GET /documents` as a table — name, how many documents cite it, and outgoing references with slugs resolved to names from the same payload — filtered client-side by name as the user types. Vite dev server proxies `/api` to the backend. |
 
@@ -72,6 +72,7 @@ for the reasoning behind each stage.
 | Label | Properties | Constraints |
 | --- | --- | --- |
 | `Document` | `slug: str`, `name: str` | `slug` unique, `name` unique |
+| *(computed)* | `version_count` is counted from `HAS_VERSION` at read time, not stored — Triage needs to know which documents have editions without asking per document (STORY-040) | — |
 | `Document:External` | `slug: str`, `name: str` | same, plus the `:External` label |
 | `Source` | `id: str`, `kind: str`, `filename: str` | `id` unique |
 | `DocumentVersion` | `version_id: str`, `effective_date: str \| null`, `checksum: str`, `source_uri: str`, `ingested_at: datetime` | `version_id` unique |
@@ -274,17 +275,22 @@ Both linters are dev-only: ruff never enters the backend image (`uv sync --no-de
 ESLint reaches the frontend container only through an image rebuild, since `package.json`
 and `eslint.config.js` are baked in rather than bind-mounted.
 
+**Emptiness is a state the UI explains, not one it hides.** `AUTO_INGEST` is off, so the
+first run holds nothing, and each screen distinguishes *no corpus* from *nothing to show* —
+Review's "Nothing is waiting for review" is true of an empty graph and would tell the reader
+the queue had been worked through. `views/EmptyState.tsx` carries the shared message; Triage
+adds a second state for a corpus that has documents but no editions, which is what ingesting
+the CSV manifest alone produces. See [ADR-019](adr/ADR-019-the-first-run-is-empty.md).
+
+**The graph canvas is sized from its container, not the window.** `ForceGraph2D` defaults its
+canvas to `window.innerWidth`/`innerHeight` when given neither, which pushed the 320px detail
+panel beside it off-screen at every viewport width measured — 1280 through 2560. A
+`ResizeObserver` on the container feeds explicit `width`/`height` instead (STORY-039).
+
 ## Known weak points
 
 Where the current design will strain, and roughly when. Writing these down early is what
 turns a surprise outage into a planned piece of work.
-
-- **`POST /documents` is not atomic, and its failure mode is silent.** Both ingest paths
-  commit their writes in one `session.execute_write`; `create_document` runs four separate
-  auto-commit statements instead. A crash between the first and the last leaves a document
-  with no provenance and no `:External` label — a state nothing re-refreshes — and the next
-  manifest citing that name demotes it, so it vanishes from the default graph view with no
-  error anywhere. STORY-038.
 
 - **Anything on this machine that reaches port 5173 acts as the dev principal, reads and
   writes alike.** The vite dev proxy adds `Authorization: Bearer $API_TOKEN` to requests

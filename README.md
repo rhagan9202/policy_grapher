@@ -9,11 +9,20 @@ it through a query API and a lightweight visual explorer.
 
 ## Status
 
-**DI-1 complete** — 18 of 18 stories. `./scripts/init-env.sh && docker compose up` ingests
-the sample corpus and serves it as a navigable graph at http://localhost:5173, with the full
-438-document corpus listed and searchable at http://localhost:5173/documents. Every endpoint
-SPEC-001 names is built: document CRUD, reference editing, `POST /reset`, and read-only
-Cypher via `POST /query` — read-routed, timed and row-capped since
+**DI-1 complete** — 18 of 18 stories. **DI-2 complete as a library**: versioned editions,
+section-aware chunking, obligation extraction behind a port, human-reviewed links, edition
+diffing and hybrid retrieval are all built and tested, but nothing in the running app can yet
+drive extraction over an ingested document — that is
+[STORY-048](docs/backlog/stories/STORY-048-derived-layer-buildable-from-the-app.md), in
+sprint 4.
+
+`./scripts/init-env.sh && docker compose up` serves the app at http://localhost:5173. **It
+starts empty on purpose** ([ADR-019](docs/specs/adr/ADR-019-the-first-run-is-empty.md)): every
+screen says so and names what to run. Load the sample corpus with
+`POST /ingest` — `dod_policy_references_08122026.csv` for the 438-document reference graph,
+or `500001p.pdf` for one issuance with its text. Every endpoint SPEC-001 names is built:
+document CRUD, reference editing, `POST /reset`, and read-only Cypher via `POST /query` —
+read-routed, timed and row-capped since
 [ADR-009](docs/specs/adr/ADR-009-query-is-read-only-and-bounded.md).
 
 ## Quickstart

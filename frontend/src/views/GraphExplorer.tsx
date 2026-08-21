@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
 import { getGraph } from '../api/client'
 import type { GraphNode, GraphOut } from '../api/types'
+import EmptyState from './EmptyState'
 
 const CORPUS_COLOUR = '#2563eb'
 const EXTERNAL_COLOUR = '#94a3b8'
@@ -48,6 +49,25 @@ export default function GraphExplorer() {
   const [selected, setSelected] = useState<GraphNode | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+
+  // ForceGraph2D given no width/height sizes its canvas to window.innerWidth
+  // and innerHeight rather than to its container, which pushed the 320px panel
+  // beside it clean off the viewport at every width measured — 1280 through
+  // 2560 (STORY-039). Measuring the container is the fix; a ResizeObserver
+  // keeps it right when the window changes.
+  const canvasRef = useRef<HTMLDivElement | null>(null)
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    const element = canvasRef.current
+    if (!element) return
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect
+      setCanvasSize({ width: Math.round(width), height: Math.round(height) })
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -169,12 +189,17 @@ export default function GraphExplorer() {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh' }}>
-      <div style={{ flex: 1 }}>
+    // The nav bar sits above this view, so 100vh would overflow the page by
+    // its height. min-height 0 lets the flex child shrink instead of forcing
+    // its content's size onto the row.
+    <div style={{ display: 'flex', height: 'calc(100vh - 5rem)', minHeight: 0 }}>
+      <div ref={canvasRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
         <ForceGraph2D
           // The library's ref type is generic over the inferred node and link
           // shapes; ForceGraphHandle names only the two methods used here.
           ref={forceGraphRef as never}
+          width={canvasSize.width}
+          height={canvasSize.height}
           graphData={graphData}
           nodeId="id"
           nodeLabel="label"
@@ -191,8 +216,18 @@ export default function GraphExplorer() {
         />
       </div>
 
-      <aside style={{ width: 320, padding: '1rem', borderLeft: '1px solid #e2e8f0' }}>
+      <aside
+        style={{
+          width: 320,
+          flexShrink: 0,
+          padding: '1rem',
+          borderLeft: '1px solid #e2e8f0',
+          overflowY: 'auto',
+        }}
+      >
         <h1>Policy Grapher</h1>
+
+        {graph.total_nodes === 0 && <EmptyState />}
 
         {graph.truncated && (
           <p>

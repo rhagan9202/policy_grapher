@@ -1,11 +1,13 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Answer } from '../api/types'
 
 const ask = vi.fn()
+const listDocuments = vi.fn()
 vi.mock('../api/client', () => ({
   ask: (question: string) => ask(question),
+  listDocuments: () => listDocuments(),
   ApiError: class extends Error {},
 }))
 
@@ -32,7 +34,12 @@ const nothing: Answer = {
   template_used: 'grounded_passages',
 }
 
-afterEach(() => ask.mockReset())
+afterEach(() => {
+  ask.mockReset()
+  listDocuments.mockReset()
+})
+
+beforeEach(() => listDocuments.mockResolvedValue([{ slug: 'd', name: 'D' }]))
 
 describe('Ask', () => {
   it('shows the answer and every citation behind it', async () => {
@@ -106,5 +113,17 @@ describe('Ask', () => {
     await userEvent.click(screen.getByRole('button', { name: /ask/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend down/i)
+  })
+})
+
+describe('Ask when nothing has been ingested', () => {
+  it('says the corpus is empty instead of inviting a question with no answer', async () => {
+    listDocuments.mockResolvedValue([])
+    render(<Ask />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /no documents have been ingested yet/i,
+    )
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
   })
 })

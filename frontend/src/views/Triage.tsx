@@ -6,6 +6,7 @@ import type {
   TriageCitation,
   TriageOut,
 } from '../api/types'
+import EmptyState from './EmptyState'
 
 function Citation({ heading, of }: { heading: string; of: TriageCitation }) {
   return (
@@ -21,6 +22,7 @@ function Citation({ heading, of }: { heading: string; of: TriageCitation }) {
 
 export default function Triage() {
   const [documents, setDocuments] = useState<DocumentOut[]>([])
+  const [corpusEmpty, setCorpusEmpty] = useState<boolean | null>(null)
   const [slug, setSlug] = useState('')
   const [versions, setVersions] = useState<DocumentVersionOut[]>([])
   const [versionId, setVersionId] = useState('')
@@ -31,7 +33,11 @@ export default function Triage() {
     let cancelled = false
     listDocuments()
       .then((result) => {
-        if (!cancelled) setDocuments(result)
+        // STORY-040: only a document with editions can be triaged. Offering the
+        // other 439 leads to an empty edition list and no explanation.
+        if (cancelled) return
+        setDocuments(result.filter((d) => d.version_count > 0))
+        setCorpusEmpty(result.length === 0)
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
@@ -80,6 +86,12 @@ export default function Triage() {
   // Clearing stale state belongs in the handler that invalidates it, not in an
   // effect: a synchronous setState in an effect body cascades a second render
   // for something the event already knew (react-hooks/set-state-in-effect).
+  // The oldest edition supersedes nothing, so GET /triage answers 400 for it
+  // every time (ADR-015). Offering a choice we can predict will fail is worse
+  // than not offering it. Editions arrive oldest-first from the API.
+  const comparableEditions = versions.slice(1)
+  const noEditions = corpusEmpty === false && documents.length === 0
+
   function chooseDocument(next: string) {
     setSlug(next)
     setVersions([])
@@ -98,6 +110,24 @@ export default function Triage() {
     <div style={{ padding: '1rem' }}>
       <h1>Triage</h1>
 
+      {corpusEmpty ? (
+        <EmptyState lead="There is nothing to triage." />
+      ) : noEditions ? (
+        /* A manifest records documents but no text (ADR-011), so a corpus
+           ingested from CSV alone has 438 documents and nothing to compare.
+           Without this the picker renders empty and unexplained. */
+        <div role="status" style={{ padding: '1rem 0', maxWidth: '40rem' }}>
+          <p>
+            <strong>No document has an ingested edition yet.</strong>
+          </p>
+          <p>
+            Triage compares two editions of the same instrument. A CSV manifest
+            records which documents cite which, but carries no text — ingest a
+            PDF, such as <code>500001p.pdf</code>, to give a document an edition.
+          </p>
+        </div>
+      ) : (
+      <>
       <label>
         Document{' '}
         <select value={slug} onChange={(event) => chooseDocument(event.target.value)}>
@@ -114,16 +144,23 @@ export default function Triage() {
         <select
           value={versionId}
           onChange={(event) => chooseEdition(event.target.value)}
-          disabled={versions.length === 0}
+          disabled={comparableEditions.length === 0}
         >
           <option value="">Choose an edition…</option>
-          {versions.map((version) => (
+          {comparableEditions.map((version) => (
             <option key={version.version_id} value={version.version_id}>
               {version.effective_date ?? version.version_id}
             </option>
           ))}
         </select>
       </label>
+
+      {versions.length === 1 && (
+        <p>
+          This document has only one edition, so there is nothing to compare it
+          against.
+        </p>
+      )}
 
       {error && <div role="alert">Could not triage that edition: {error}</div>}
 
@@ -177,6 +214,8 @@ export default function Triage() {
             </ol>
           )}
         </section>
+      )}
+      </>
       )}
     </div>
   )

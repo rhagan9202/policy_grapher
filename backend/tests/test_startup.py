@@ -121,3 +121,9 @@ def test_a_misconfigured_embedder_stops_startup():
 
 def test_the_default_configuration_builds_an_embedder_that_needs_nothing():
     assert build_embedder(Settings(_env_file=None)).model_id == "null"
+
+
+def test_a_first_run_ingests_nothing():
+    """ADR-019: a clean start holds no corpus, so the emptiness a user sees is a
+    state the app can explain rather than a blank that reads as failure."""
+    assert Settings(_env_file=None).auto_ingest is False

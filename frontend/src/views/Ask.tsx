@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { ask } from '../api/client'
+import { useEffect, useState } from 'react'
+import { ask, listDocuments } from '../api/client'
+import EmptyState from './EmptyState'
 import type { Answer } from '../api/types'
 
 export default function Ask() {
@@ -7,6 +8,24 @@ export default function Ask() {
   const [answer, setAnswer] = useState<Answer | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const [corpusEmpty, setCorpusEmpty] = useState<boolean | null>(null)
+
+  // Asking a question of an empty corpus can only ever answer "nothing in the
+  // corpus says", which is indistinguishable from a real negative finding.
+  // Better to say the corpus is empty before the question is asked.
+  useEffect(() => {
+    let cancelled = false
+    listDocuments()
+      .then((d) => {
+        if (!cancelled) setCorpusEmpty(d.length === 0)
+      })
+      .catch(() => {
+        if (!cancelled) setCorpusEmpty(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function submit() {
     if (!question.trim()) return
@@ -26,6 +45,10 @@ export default function Ask() {
     <div style={{ padding: '1rem' }}>
       <h1>Ask</h1>
 
+      {corpusEmpty ? (
+        <EmptyState lead="There is nothing to ask about." />
+      ) : (
+      <>
       <form
         onSubmit={(event) => {
           event.preventDefault()
@@ -73,6 +96,8 @@ export default function Ask() {
             <small>Answered by: {answer.template_used}</small>
           </p>
         </article>
+      )}
+      </>
       )}
     </div>
   )

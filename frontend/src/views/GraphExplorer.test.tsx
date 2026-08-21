@@ -320,3 +320,34 @@ describe('GraphExplorer', () => {
     expect(curvature({ source: { id: 'a' }, target: { id: 'c' } })).toBe(0)
   })
 })
+
+describe('GraphExplorer layout', () => {
+  it('sizes the canvas to its container, not to the window', async () => {
+    // STORY-039: ForceGraph2D with no width/height defaults to
+    // window.innerWidth/innerHeight, which pushed the 320px detail panel past
+    // the right edge at every viewport size measured (1280 to 2560). Selecting
+    // a node worked and could not be seen.
+    getGraph.mockResolvedValue(corpusView)
+    render(<GraphExplorer />)
+    await waitFor(() => expect(graphProps.length).toBeGreaterThan(0))
+
+    const latest = graphProps.at(-1)!
+    expect(latest.width).toEqual(expect.any(Number))
+    expect(latest.height).toEqual(expect.any(Number))
+  })
+
+  it('says the corpus is empty rather than drawing an empty canvas', async () => {
+    getGraph.mockResolvedValue({
+      nodes: [],
+      edges: [],
+      total_nodes: 0,
+      returned_nodes: 0,
+      truncated: false,
+    })
+    render(<GraphExplorer />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /no documents have been ingested yet/i,
+    )
+  })
+})

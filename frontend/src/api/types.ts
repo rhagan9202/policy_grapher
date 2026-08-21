@@ -34,6 +34,9 @@ export interface DocumentOut {
   is_external: boolean
   references: string[]
   referenced_by: string[]
+  /** Editions this document has. Zero for the great majority — an externally
+   *  cited document has no ingested text, so it can never be triaged. */
+  version_count: number
 }
 
 export interface ResetResult {

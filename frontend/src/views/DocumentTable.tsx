@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listDocuments } from '../api/client'
+import EmptyState from './EmptyState'
 import type { DocumentOut } from '../api/types'
 
 export default function DocumentTable() {
@@ -39,6 +40,15 @@ export default function DocumentTable() {
 
   if (error) return <div role="alert">Could not load documents: {error}</div>
   if (!documents) return <p>Loading documents…</p>
+  // An empty corpus gets a statement, not a filter over nothing and a table
+  // of headers — which reads as a fetch that failed (ADR-019).
+  if (documents.length === 0)
+    return (
+      <div style={{ padding: '1rem' }}>
+        <h1>Documents</h1>
+        <EmptyState />
+      </div>
+    )
 
   return (
     <div style={{ padding: '1rem' }}>

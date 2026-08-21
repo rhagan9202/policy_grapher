@@ -1,12 +1,14 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReviewItem } from '../api/types'
 
 const getReviewQueue = vi.fn()
 const recordVerdict = vi.fn()
+const listDocuments = vi.fn()
 vi.mock('../api/client', () => ({
   getReviewQueue: () => getReviewQueue(),
+  listDocuments: () => listDocuments(),
   recordVerdict: (...args: unknown[]) => recordVerdict(...args),
   ApiError: class extends Error {},
 }))
@@ -38,7 +40,11 @@ const item: ReviewItem = {
 afterEach(() => {
   getReviewQueue.mockReset()
   recordVerdict.mockReset()
+  listDocuments.mockReset()
 })
+
+// Every test below has a corpus unless it says otherwise.
+beforeEach(() => listDocuments.mockResolvedValue([{ slug: 'd', name: 'D' }]))
 
 describe('Review', () => {
   it('shows both obligations with their citations', async () => {
@@ -147,5 +153,20 @@ describe('Review', () => {
     render(<Review />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend down/i)
+  })
+})
+
+describe('Review when nothing has been ingested', () => {
+  it('distinguishes an empty corpus from a worked-through queue', async () => {
+    // ADR-019: "Nothing is waiting for review" is true and misleading when
+    // nothing has ever been ingested — it says the work is done.
+    listDocuments.mockResolvedValue([])
+    getReviewQueue.mockResolvedValue([])
+    render(<Review />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /no documents have been ingested yet/i,
+    )
+    expect(screen.queryByText(/nothing is waiting for review/i)).not.toBeInTheDocument()
   })
 })
