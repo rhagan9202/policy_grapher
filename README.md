@@ -28,6 +28,26 @@ document CRUD, reference editing, `POST /reset`, and read-only Cypher via `POST 
 read-routed, timed and row-capped since
 [ADR-009](docs/specs/adr/ADR-009-query-is-read-only-and-bounded.md).
 
+## Running a real extraction model
+
+The default extractor is `null` — it produces no obligations, so Review and Triage stay empty
+even after a rebuild. To extract for real, bring up the model profile:
+
+```bash
+docker compose --profile models up -d     # pulls ollama (8.4GB) + llama3.1:8b (4.9GB), once
+```
+
+Then set `EXTRACTOR_ADAPTER=local` in `.env` and restart the worker:
+
+```bash
+docker compose up -d --force-recreate worker
+```
+
+Model weights are constrained to US-published models
+([ADR-020](docs/specs/adr/ADR-020-model-weights-come-from-us-organisations.md)); the default is
+Llama 3.1 8B. Neither the image nor the model is on the default startup path — a plain
+`docker compose up` pulls neither.
+
 ## Quickstart
 
 ```bash

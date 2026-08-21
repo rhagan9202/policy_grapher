@@ -301,6 +301,15 @@ canvas to `window.innerWidth`/`innerHeight` when given neither, which pushed the
 panel beside it off-screen at every viewport width measured — 1280 through 2560. A
 `ResizeObserver` on the container feeds explicit `width`/`height` instead (STORY-039).
 
+**A model server is available, and off by default.** `ollama` and a one-shot `ollama-pull`
+sit behind the `models` compose profile, so `docker compose up` pulls neither the 8.4GB image
+nor the 4.9GB model — the default `EXTRACTOR_ADAPTER=null` needs neither. Ollama publishes on
+`127.0.0.1:11434` rather than staying network-internal like Redis, because the extraction
+ratchet runs on the *host* and reaches the model at `Settings.extractor_base_url`; in-network
+callers use `http://ollama:11434`. Model weights are constrained to US-published models
+([ADR-020](adr/ADR-020-model-weights-come-from-us-organisations.md)), enforced by a test rather
+than a comment.
+
 ## Known weak points
 
 Where the current design will strain, and roughly when. Writing these down early is what

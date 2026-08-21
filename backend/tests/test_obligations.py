@@ -21,7 +21,7 @@ from policy_grapher.obligations import (
 KEY = {
     "chunk_text": "The Director shall notify the Comptroller.",
     "section_path": ["3.2"],
-    "adapter_id": "local:qwen3:8b",
+    "adapter_id": "local:llama3.1:8b",
     "prompt_version": 1,
 }
 

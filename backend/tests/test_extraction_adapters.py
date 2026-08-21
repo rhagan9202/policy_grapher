@@ -85,8 +85,8 @@ def test_an_empty_obligation_list_is_a_valid_answer():
 def test_the_adapter_id_names_the_model():
     """It is part of the cache key — two models must not share cached results."""
     assert (
-        LocalExtractor(base_url="http://m", model="qwen3:8b").adapter_id
-        == "local:qwen3:8b"
+        LocalExtractor(base_url="http://m", model="llama3.1:8b").adapter_id
+        == "local:llama3.1:8b"
     )
 
 

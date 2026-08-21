@@ -26,11 +26,40 @@ from policy_grapher.extraction.scoring import micro_average, score
 
 GOLD = Path(__file__).parent / "fixtures" / "gold"
 
+# Model provenance is a procurement constraint here, not a preference. This corpus
+# is heading toward controlled unclassified information, and the default extraction
+# model must be published by a US organisation (ADR-020). Adding to this set is a
+# supply-chain decision and should be argued for in review.
+US_ORIGIN_MODELS = frozenset(
+    {
+        "llama3.1:8b",  # Meta
+        "llama3.2:3b",  # Meta
+        "granite3.3:8b",  # IBM
+        "phi4:14b",  # Microsoft
+    }
+)
+
 # Per adapter. The local model is for iteration speed; a hosted adapter must
 # clear the production bar before it is promoted.
+#
+# **Measured 2026-08-21** against llama3.1:8b on CPU, temperature 0 — the first
+# time this gate has ever run against a real model rather than skipping (it had
+# no model server to reach until the `models` compose profile existed). Observed,
+# micro-averaged over the three gold fixtures: precision 0.600, recall 0.500,
+# modality accuracy 1.000, from matched=3, predicted=5, gold=6.
+#
+# Precision and recall are recorded exactly as observed, which happens to equal
+# the estimates they replace. **They pass by zero margin**, and with six gold
+# obligations a single different answer moves recall by 0.167 — so a red build
+# here means "the answer changed", not necessarily "the model got worse".
+# Widening the gold set is the prerequisite for treating this as a real gate.
+#
+# Modality is deliberately NOT raised to the observed 1.000: it was computed over
+# three matched pairs, where one error would read as 0.667. A floor that fires on
+# noise rather than on regression teaches people to ignore it.
 FLOORS = {
     "null": {"precision": 0.0, "recall": 0.0, "modality_accuracy": 0.0},
-    "local:qwen3:8b": {"precision": 0.60, "recall": 0.50, "modality_accuracy": 0.85},
+    "local:llama3.1:8b": {"precision": 0.60, "recall": 0.50, "modality_accuracy": 0.85},
 }
 
 
@@ -119,7 +148,7 @@ def test_the_gate_has_teeth():
         for _, case in _gold_cases()
     ]
     overall = micro_average(scores)
-    floors = FLOORS["local:qwen3:8b"]
+    floors = FLOORS["local:llama3.1:8b"]
 
     assert overall["precision"] < floors["precision"]
     assert overall["recall"] < floors["recall"]
@@ -161,4 +190,30 @@ def test_the_configured_extractor_clears_its_floors():
         f"{extractor.adapter_id} scored below its floor: "
         + "; ".join(f"{leg} {got:.2f} < {floor:.2f}" for leg, (got, floor) in below.items())
         + f". Full scores: {overall}. Fix the extractor — do not lower the floor."
+    )
+
+
+def test_the_shipped_model_has_recorded_floors():
+    """The gate must be able to gate what the stack actually runs.
+
+    `FLOORS` is keyed by `adapter_id`, which embeds the model name, so a default
+    model with no entry makes the ratchet skip silently — it reports "no floors
+    recorded" and a green suite means nothing was checked. That is exactly the
+    state this project was in while `FLOORS` named a model the settings did not.
+    """
+    settings = Settings(_env_file=None, extractor_adapter="local")
+    adapter_id = build_extractor(settings).adapter_id
+
+    assert adapter_id in FLOORS, (
+        f"the configured default model has no recorded floors: {adapter_id!r} is "
+        f"not in {sorted(FLOORS)}. The gate would skip rather than gate."
+    )
+
+
+def test_the_default_extraction_model_is_us_origin():
+    """ADR-020. Qwen (Alibaba) and DeepSeek are capable and are not eligible here;
+    the constraint is where the weights come from, not how they score."""
+    assert Settings(_env_file=None).extractor_model in US_ORIGIN_MODELS, (
+        f"{Settings(_env_file=None).extractor_model!r} is not in the US-origin set "
+        f"{sorted(US_ORIGIN_MODELS)}"
     )

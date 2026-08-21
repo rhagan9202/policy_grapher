@@ -44,7 +44,10 @@ class Settings(BaseSettings):
     # the cache key via the adapter id — changing it must not reuse cached
     # results from a different model.
     extractor_adapter: str = "null"          # "null" | "local"
-    extractor_model: str = "qwen3:8b"
+    # Llama 3.1 (Meta, US). Model provenance is a procurement constraint here, not
+    # a preference — see ADR-020. Capable non-US models such as Qwen and DeepSeek
+    # are ineligible regardless of how they score.
+    extractor_model: str = "llama3.1:8b"
     extractor_base_url: str = "http://localhost:11434"
 
     # Embedding (DI-2 phase 6). "null" produces no vectors and needs no model —

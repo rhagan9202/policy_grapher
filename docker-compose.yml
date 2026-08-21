@@ -57,7 +57,7 @@ services:
       # and needs no model server, so the stack still comes up on one command.
       EXTRACTOR_ADAPTER: ${EXTRACTOR_ADAPTER:-null}
       EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-qwen3:8b}
-      EXTRACTOR_BASE_URL: ${EXTRACTOR_BASE_URL:-http://localhost:11434}
+      EXTRACTOR_BASE_URL: ${EXTRACTOR_BASE_URL:-http://ollama:11434}
       EMBEDDER_ADAPTER: ${EMBEDDER_ADAPTER:-null}
       EMBEDDER_MODEL: ${EMBEDDER_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
@@ -120,7 +120,7 @@ services:
       RQ_REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       EXTRACTOR_ADAPTER: ${EXTRACTOR_ADAPTER:-null}
       EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-qwen3:8b}
-      EXTRACTOR_BASE_URL: ${EXTRACTOR_BASE_URL:-http://localhost:11434}
+      EXTRACTOR_BASE_URL: ${EXTRACTOR_BASE_URL:-http://ollama:11434}
       EMBEDDER_ADAPTER: ${EMBEDDER_ADAPTER:-null}
       EMBEDDER_MODEL: ${EMBEDDER_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
     volumes:
@@ -154,5 +154,50 @@ services:
     depends_on:
       - backend
 
+  # Both services below sit behind the `models` profile, so a plain
+  # `docker compose up` never pulls them: the image is 8.4GB and the model
+  # another 4.9GB, and the default EXTRACTOR_ADAPTER is `null`, which needs
+  # neither. Bring them up with:
+  #
+  #     docker compose --profile models up -d
+  #
+  # The stack still comes up on one command; wanting real extraction is what
+  # costs the download.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["models"]
+    # Published on loopback, unlike redis, because the extraction ratchet
+    # (tests/test_obligation_ratchet.py) runs on the host and reaches the model
+    # at Settings.extractor_base_url — the default of which is localhost:11434.
+    # In-network callers use http://ollama:11434 instead.
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # Pulls the model once and exits. Without it the stack looks healthy while
+  # every extraction fails against a server that has no weights loaded. The
+  # named volume above makes a second run a no-op, so this is slow exactly once.
+  ollama-pull:
+    image: ollama/ollama:latest
+    profiles: ["models"]
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-llama3.1:8b}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['ollama pull "$${EXTRACTOR_MODEL}"']
+
 volumes:
   neo4j-data:
+  # Model weights, so a re-created ollama container does not re-download 4.9GB.
+  ollama-models:
