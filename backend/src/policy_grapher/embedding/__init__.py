@@ -46,6 +46,8 @@ MATCH (i:EmbeddingIndex {name: $name})
 RETURN i.model_id AS model_id, i.dimensions AS dimensions
 """
 
+ANY_EMBEDDED = "MATCH (c:Chunk) WHERE c.embedding IS NOT NULL RETURN count(c) AS total"
+
 RECORD_INDEX = """
 MERGE (i:EmbeddingIndex {name: $name})
 SET i.model_id = $model_id, i.dimensions = $dimensions
@@ -88,26 +90,41 @@ def ensure_vector_index(driver: Driver, database: str, *, embedder: Embedder) ->
     if embedder.dimensions == 0:
         return
 
-    records, _, _ = driver.execute_query(
+    embedded, _, _ = driver.execute_query(
+        ANY_EMBEDDED, database_=database, routing_=RoutingControl.READ
+    )
+    corpus_holds_vectors = embedded[0]["total"] > 0
+
+    recorded, _, _ = driver.execute_query(
         READ_INDEX,
         {"name": INDEX_NAME},
         database_=database,
         routing_=RoutingControl.READ,
     )
-    if records:
+    if recorded and corpus_holds_vectors:
         check_identity(
-            recorded_model=records[0]["model_id"],
-            recorded_dimensions=records[0]["dimensions"],
+            recorded_model=recorded[0]["model_id"],
+            recorded_dimensions=recorded[0]["dimensions"],
             model_id=embedder.model_id,
             dimensions=embedder.dimensions,
         )
         return
 
-    # The index name and dimensions are not parameterisable in Cypher DDL, so
-    # they are interpolated. Both come from configuration this process resolved,
-    # never from a request; INDEX_NAME is a module constant and `dimensions` is
-    # an int the check below enforces.
+    # Nothing is embedded, so there is nothing to be incompatible with and the
+    # index can simply be rebuilt at this embedder's width. Dropping first rather
+    # than relying on IF NOT EXISTS is what makes this self-healing: `clear_graph`
+    # — which POST /reset calls — deletes the :EmbeddingIndex marker node but
+    # cannot delete a Neo4j index, so after a reset the marker and the real index
+    # would otherwise disagree, and CREATE ... IF NOT EXISTS would silently keep
+    # the old geometry while the marker advertised the new one. That is the same
+    # silent-mismatch failure this module exists to prevent, arriving by a
+    # different route.
     dimensions = int(embedder.dimensions)
+    driver.execute_query(
+        f"DROP INDEX {INDEX_NAME} IF EXISTS",
+        database_=database,
+        routing_=RoutingControl.WRITE,
+    )
     driver.execute_query(
         f"CREATE VECTOR INDEX {INDEX_NAME} IF NOT EXISTS "
         "FOR (c:Chunk) ON c.embedding "

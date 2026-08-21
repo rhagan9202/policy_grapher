@@ -1,6 +1,7 @@
 """The embedding port, and the guard on the failure that does not look like one."""
 
 import pytest
+from support import LOCAL_MODEL, FakeEmbedder, local_or_skip
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
@@ -8,40 +9,6 @@ from policy_grapher.config import Settings
 from policy_grapher.embedding import build_embedder, embed_chunks, ensure_vector_index
 from policy_grapher.embedding.null import NullEmbedder
 from policy_grapher.embedding.schema import EmbeddingModelMismatch
-
-
-class FakeEmbedder:
-    """A stand-in with a declared identity and no model behind it.
-
-    The guard tests below are about what the graph records and refuses, not about
-    embedding quality — a real model would make them slow and would not make them
-    stronger.
-    """
-
-    def __init__(self, *, model_id: str = "fake-a", dimensions: int = 4) -> None:
-        self.model_id = model_id
-        self.dimensions = dimensions
-
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        return [
-            [float((hash(text) >> (8 * i)) % 100) / 100.0 for i in range(self.dimensions)]
-            for text in texts
-        ]
-
-
-def _local_or_skip():
-    from policy_grapher.embedding.local import LocalEmbedder
-
-    embedder = LocalEmbedder(model="sentence-transformers/all-MiniLM-L6-v2")
-    try:
-        embedder.embed(["warm up"])
-    except Exception as exc:  # noqa: BLE001 - any load failure means the same thing
-        pytest.skip(
-            "THE LOCAL EMBEDDER WAS NOT EXERCISED: the model could not be loaded "
-            f"({type(exc).__name__}: {exc}). A green suite does not mean it works."
-        )
-    return embedder
-
 
 # --- the port -----------------------------------------------------------------
 
@@ -64,7 +31,7 @@ def test_an_unknown_embedder_name_fails_loudly():
 
 
 def test_the_local_embedder_returns_vectors_of_its_declared_width():
-    embedder = _local_or_skip()
+    embedder = local_or_skip()
     vectors = embedder.embed(["The Director shall notify.", "Another clause."])
 
     assert len(vectors) == 2
@@ -74,7 +41,7 @@ def test_the_local_embedder_returns_vectors_of_its_declared_width():
 def test_the_local_embedder_is_deterministic():
     """A rebuild re-embeds. If the vector moved, every stored neighbour moved
     with it for no reason anybody could see."""
-    embedder = _local_or_skip()
+    embedder = local_or_skip()
     text = "The Director shall notify the Comptroller within 24 hours."
 
     assert embedder.embed([text]) == embedder.embed([text])
@@ -83,8 +50,8 @@ def test_the_local_embedder_is_deterministic():
 def test_the_local_embedder_names_the_model_it_is():
     from policy_grapher.embedding.local import LocalEmbedder
 
-    embedder = LocalEmbedder(model="sentence-transformers/all-MiniLM-L6-v2")
-    assert embedder.model_id == "local:sentence-transformers/all-MiniLM-L6-v2"
+    embedder = LocalEmbedder(model=LOCAL_MODEL)
+    assert embedder.model_id == f"local:{LOCAL_MODEL}"
 
 
 # --- the index and its provenance ---------------------------------------------
@@ -214,3 +181,39 @@ def test_the_index_records_its_provenance(clean_graph, database):
         database_=database,
     )
     assert (records[0]["model"], records[0]["dims"]) == ("fake-a", 4)
+
+
+@pytest.mark.integration
+def test_an_index_left_behind_by_a_reset_is_rebuilt_not_inherited(
+    clean_graph, database
+):
+    """`clear_graph` — which POST /reset calls — deletes the marker node and
+    cannot delete the Neo4j index. Left alone, the next embedder would advertise
+    its own width while the real index kept the old one, which is this module's
+    own failure mode arriving by a different route."""
+    _seed_chunks(clean_graph, database)
+    embed_chunks(clean_graph, database, version_id="v", embedder=FakeEmbedder())
+
+    # A reset: nodes go, the index does not.
+    clean_graph.execute_query("MATCH (n) DETACH DELETE n", database_=database)
+    _seed_chunks(clean_graph, database)
+
+    written = embed_chunks(
+        clean_graph,
+        database,
+        version_id="v",
+        embedder=FakeEmbedder(model_id="fake-wide", dimensions=16),
+    )
+
+    assert written > 0
+    records, _, _ = clean_graph.execute_query(
+        "SHOW VECTOR INDEXES YIELD name, options WHERE name = 'chunk_embedding' "
+        "RETURN options['indexConfig']['vector.dimensions'] AS dims",
+        database_=database,
+    )
+    assert records[0]["dims"] == 16
+    marker, _, _ = clean_graph.execute_query(
+        "MATCH (i:EmbeddingIndex) RETURN i.model_id AS model, i.dimensions AS dims",
+        database_=database,
+    )
+    assert (marker[0]["model"], marker[0]["dims"]) == ("fake-wide", 16)
