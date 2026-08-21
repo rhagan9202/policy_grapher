@@ -1,6 +1,6 @@
 # Architecture
 
-*Living document — edit in place. Last reviewed: 2026-08-20*
+*Living document — edit in place. Last reviewed: 2026-08-21*
 
 Describes the system as it is today, not as it's planned to be. Planned changes belong in
 the [roadmap](../planning/roadmap.md); the reasoning behind past choices belongs in
@@ -26,8 +26,10 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 
 | Component | Responsibility |
 | --- | --- |
-| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `GET /documents/{slug}/versions` lists an instrument's editions oldest first with each one's `supersedes` link, `GET /documents/{slug}/chunks` serves the newest edition's section-aware text chunks unless `version_id` pins another edition, `GET /review/queue` lists proposed obligation links nobody has decided yet with both sides' citations, `POST /review/{source_id}/{target_id}` records a verdict as the authenticated principal and applies it, `GET /triage?to_version_id=` diffs an edition against the one it supersedes and ranks the clauses of ours that the changes reach, `POST /ask` answers a question from the corpus with citations or states that the corpus does not address it, `POST /reset` empties the graph and reports what it deleted, and `POST /query` executes read-only Cypher under a transaction timeout and a row cap. Auto-ingests the sample corpus at startup when the graph is empty — **off by default** (`AUTO_INGEST`), so a first run holds nothing and every screen says so rather than rendering a blank that reads as failure ([ADR-019](adr/ADR-019-the-first-run-is-empty.md)). Mounts `./data` at `/data`, read-only. |
+| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `GET /documents/{slug}/versions` lists an instrument's editions oldest first with each one's `supersedes` link, `GET /documents/{slug}/chunks` serves the newest edition's section-aware text chunks unless `version_id` pins another edition, `GET /review/queue` lists proposed obligation links nobody has decided yet with both sides' citations, `POST /review/{source_id}/{target_id}` records a verdict as the authenticated principal and applies it, `GET /triage?to_version_id=` diffs an edition against the one it supersedes and ranks the clauses of ours that the changes reach, `POST /ask` answers a question from the corpus with citations or states that the corpus does not address it, `POST /reset` empties the graph and reports what it deleted, `POST /query` executes read-only Cypher under a transaction timeout and a row cap, `POST /documents/{slug}/versions/{version_id}/rebuild` enqueues a rebuild of that edition's derived layer onto the Redis-backed queue and returns `202` with a run id, and `GET /rebuilds/{run_id}` reports that run's state, per-chunk progress, and either its counts or its error. Auto-ingests the sample corpus at startup when the graph is empty — **off by default** (`AUTO_INGEST`), so a first run holds nothing and every screen says so rather than rendering a blank that reads as failure ([ADR-019](adr/ADR-019-the-first-run-is-empty.md)). Mounts `./data` at `/data`, read-only. |
 | **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the generated `.env` — written by `./scripts/init-env.sh`, never committed ([ADR-010](adr/ADR-010-secrets-leave-the-repository.md)). Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
+| **Redis** (`redis:8-alpine`) | Backs the rebuild queue (STORY-048). No published port — reached only from inside the compose network, by the backend (enqueueing) and the worker (dequeueing). |
+| **Worker** | The same backend image, run as `uv run rq worker ... rebuilds` instead of the API server. Drains the rebuild queue: opens its own Neo4j driver and builds its own extractor and embedder per job, and mounts `./data` read-only because a rebuild re-reads the source PDF from a container-internal path, the same way ingest does. |
 | **Frontend** (React + Vite, port 5173) | Two routes. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`; clicking a node shows its name and whether it is a corpus or external document, and clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. `/documents` renders every document from `GET /documents` as a table — name, how many documents cite it, and outgoing references with slugs resolved to names from the same payload — filtered client-side by name as the user types. Vite dev server proxies `/api` to the backend. |
 
 Typed fetch wrappers for the frontend-used endpoints live in `src/api/client.ts`.
@@ -222,27 +224,39 @@ Because a `Document` now has no mutable field — renaming is delete-and-recreat
 
 - **Neo4j** — pinned to `2025.10` (STORY-018), so the database version no longer depends on
   when the image was last pulled.
-- **Python packages** — FastAPI, Pydantic v2, `neo4j` driver, `pypdf` (PDF text extraction), pytest, httpx, managed by `uv`.
+- **Redis** (`redis:8-alpine`) — backs the rebuild queue (STORY-048); not published to the host.
+- **Python packages** — FastAPI, Pydantic v2, `neo4j` driver, `pypdf` (PDF text extraction), `rq`
+  (the rebuild queue), pytest, httpx, managed by `uv`.
 - **npm packages** — React, Vite, TypeScript, vitest, `react-force-graph`, `react-router-dom`.
 - No external network services, APIs, or model providers. The system is self-contained.
 
 ## Deployment
 
-Docker Compose with three services: `neo4j`, `backend`, `frontend`. Configuration reaches
-the backend through `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`,
-`GRAPH_RENDER_CAP`, `QUERY_ROW_CAP`, `QUERY_TIMEOUT_SECONDS`, `API_TOKENS`,
-`CORS_ALLOW_ORIGINS`, `ENABLE_API_DOCS`, `SAMPLE_CSV`, and `AUTO_INGEST`; the `frontend`
-service additionally takes `API_TOKEN`, the plaintext half of the same token, which only the
-vite dev proxy reads. All of them come from the generated `.env` — `./scripts/init-env.sh`
-writes it and it is not committed ([ADR-010](adr/ADR-010-secrets-leave-the-repository.md)).
+Docker Compose with five services: `neo4j`, `backend`, `redis`, `worker`, `frontend`.
+Configuration reaches the backend through `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`,
+`NEO4J_DATABASE`, `GRAPH_RENDER_CAP`, `QUERY_ROW_CAP`, `QUERY_TIMEOUT_SECONDS`, `API_TOKENS`,
+`CORS_ALLOW_ORIGINS`, `ENABLE_API_DOCS`, `SAMPLE_CSV`, `AUTO_INGEST`, and `REDIS_URL`
+(STORY-048) — unreachable Redis fails only the two rebuild routes, since the queue connects
+lazily; the `worker` service takes the same Neo4j, extractor, embedder, and `REDIS_URL`
+configuration as the backend, since it opens its own driver and builds its own extractor and
+embedder rather than sharing the backend's; the `frontend` service additionally takes
+`API_TOKEN`, the plaintext half of the same token, which only the vite dev proxy reads. All of
+them come from the generated `.env` — `./scripts/init-env.sh` writes it and it is not
+committed ([ADR-010](adr/ADR-010-secrets-leave-the-repository.md)).
 CORS allows only the origins `CORS_ALLOW_ORIGINS` lists — `http://localhost:5173`, the Vite
 dev server, by default — without credentials, since the credential is an `Authorization`
 header rather than a cookie. `ENABLE_API_DOCS` is `false` by default, so `/openapi.json`,
 `/docs` and `/redoc` are not published: they carry no authentication of their own.
-`backend` waits on Neo4j's HTTP healthcheck before starting. `./data` is bind-mounted into `backend` read-only with an
-SELinux private label (`:Z`) since only one container consumes it, and `DATA_DIR` points at
-`/data/samples` inside it; `./frontend/src` is
-bind-mounted into `frontend` with the shared label (`:z`) instead, because tooling
+`backend` waits on Neo4j's HTTP healthcheck and Redis's `redis-cli ping` healthcheck before
+starting; `worker` waits on the same Redis healthcheck. `redis` publishes no port — it is
+reached only from inside the compose network, by `backend` and `worker`. `./data` is
+bind-mounted read-only into both `backend` and `worker`, since a rebuild re-reads the source
+PDF from a container-internal path the same way ingest does, and `DATA_DIR` points at
+`/data/samples` inside it. Two long-running services now read `./data`, so it takes the SELinux
+shared label (`:z`) rather than the private one (`:Z`) — a private label lets whichever
+container mounts it second steal exclusive access and break the other's reads until restarted.
+`./frontend/src` is
+bind-mounted into `frontend` with the same shared label (`:z`), because tooling
 containers (`docker compose run`/`build`, ad-hoc `docker run`) also read that path and a
 private label lets one steal exclusive access from the other.
 
@@ -349,6 +363,13 @@ turns a surprise outage into a planned piece of work.
   corpus CSV range from 75% to 100%; see
   [SPEC-001's Testing section](SPEC-001-di-1-policy-grapher.md#testing-gap-review) for the
   pinned floors.
+- **Rebuild run history lives in Redis and expires; it is not durable.** A rebuild's state,
+  progress, and outcome are RQ job data in Redis, not a row in Neo4j or any other durable
+  store, so a finished or failed run eventually disappears, and `docker compose down -v`
+  discards it immediately. This is chosen deliberately, per the design: an audit trail of past
+  rebuild runs is a speculative requirement nothing has asked for yet, and standing up a second
+  source of truth (e.g. mirroring run state into Postgres) to serve a need that may never
+  materialise is a worse trade than accepting that only the current run's state is queryable.
 - **Auto-ingest only runs at startup.** It checks once, in `lifespan`, whether the graph is
   empty — and "empty" means holding no `:Document` nodes, not no nodes at all. Provenance
   outlives what it describes, so a create-then-delete round trip leaves an orphan `:Source`

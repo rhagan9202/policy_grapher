@@ -60,13 +60,59 @@ services:
       EXTRACTOR_BASE_URL: ${EXTRACTOR_BASE_URL:-http://localhost:11434}
       EMBEDDER_ADAPTER: ${EMBEDDER_ADAPTER:-null}
       EMBEDDER_MODEL: ${EMBEDDER_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
-      # :Z relabels the host directory for exclusive container access under SELinux
-      # (enforcing on Fedora/RHEL hosts); harmless no-op where SELinux is disabled.
-      - ./data:/data:ro,Z
+      # Lowercase :z (shared label), not :Z (private label): this path now has two
+      # consumers, backend and worker, each a long-running compose service. A
+      # private label lets whichever container mounts it second steal exclusive
+      # access and break the other's reads until restarted — observed twice during
+      # development on ./frontend/src below, which is why it carries the same
+      # reasoning. Do not "fix" this back to :Z for either service.
+      - ./data:/data:ro,z
     depends_on:
       neo4j:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:8-alpine
+    # No published port: only the backend and the worker speak to it, and both
+    # are on this network. Publishing it would put an unauthenticated data store
+    # on the host for nothing.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    build: ./backend
+    restart: on-failure
+    command: ["uv", "run", "rq", "worker", "--url", "redis://redis:6379/0", "rebuilds"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # The same configuration as the backend, deliberately: the worker opens its
+      # own Neo4j driver and builds its own extractor and embedder.
+      NEO4J_URI: ${NEO4J_URI}
+      NEO4J_USER: ${NEO4J_USER}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      NEO4J_DATABASE: ${NEO4J_DATABASE}
+      DATA_DIR: /data/samples
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      EXTRACTOR_ADAPTER: ${EXTRACTOR_ADAPTER:-null}
+      EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-qwen3:8b}
+      EXTRACTOR_BASE_URL: ${EXTRACTOR_BASE_URL:-http://localhost:11434}
+      EMBEDDER_ADAPTER: ${EMBEDDER_ADAPTER:-null}
+      EMBEDDER_MODEL: ${EMBEDDER_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+    volumes:
+      # Load-bearing, not incidental: rebuild_derived re-reads the source PDF
+      # from `file:///data/samples/...`, a path inside a container. The route's
+      # readability check runs in the backend, where the file exists — a worker
+      # without this mount fails every job on a check that already passed.
+      - ./data:/data:ro,z
 
   frontend:
     build: ./frontend
@@ -86,8 +132,8 @@ services:
       # container (`docker compose run`/`build`, a one-off `docker run`) used to
       # install deps or run tests. A private label lets whichever container mounts it
       # second steal exclusive access and break the other's reads until restarted —
-      # observed twice during development. `./data` has only one consumer (backend),
-      # so it keeps :Z. Do not "fix" this back to :Z for consistency.
+      # observed twice during development. `./data` now has two consumers as well
+      # (backend and worker), so it takes the same shared label for the same reason.
       - ./frontend/src:/app/src:ro,z
     depends_on:
       - backend
