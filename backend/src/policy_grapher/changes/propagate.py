@@ -57,6 +57,8 @@ CALL (ours) {
 }
 MATCH (our_version:DocumentVersion)-[:MANDATES]->(ours)
 MATCH (document:Document)-[:HAS_VERSION]->(our_version)
+MATCH (higher_version:DocumentVersion)-[:MANDATES]->(higher)
+MATCH (higher_document:Document)-[:HAS_VERSION]->(higher_version)
 RETURN c.change_id          AS change_id,
        c.kind               AS kind,
        c.statement          AS higher_statement,
@@ -66,6 +68,7 @@ RETURN c.change_id          AS change_id,
        higher.obligation_id AS higher_obligation_id,
        higher_chunk.section_path AS higher_section_path,
        higher_chunk.page    AS higher_page,
+       higher_document.name AS higher_document,
        ours.obligation_id   AS our_obligation_id,
        ours.statement       AS our_statement,
        our_chunk.section_path AS our_section_path,
@@ -101,6 +104,7 @@ class TriageRow:
     previous_statement: str | None
     higher_section_path: list[str]
     higher_page: int
+    higher_document: str
     modality: str
     summary: str
 
@@ -155,6 +159,7 @@ def triage(
             previous_statement=record["previous_statement"],
             higher_section_path=record["higher_section_path"],
             higher_page=record["higher_page"],
+            higher_document=record["higher_document"],
             modality=record["modality"],
             summary=record["summary"],
         )

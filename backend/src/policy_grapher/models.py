@@ -134,3 +134,42 @@ class VerdictIn(BaseModel):
 
     verdict: str = Field(min_length=1)
     rationale: str = ""
+
+
+class TriageCitationOut(BaseModel):
+    """One side of a triage row, sourced. Nothing in a triage response is
+    unattributed: a row naming a policy without saying which passage of it is
+    affected would send a reviewer hunting."""
+
+    obligation_id: str
+    statement: str
+    document: str
+    section_path: list[str]
+    page: int
+
+
+class TriageRowOut(BaseModel):
+    change_id: str
+    kind: str
+    score: float
+    modality: str
+    summary: str
+    previous_statement: str | None
+    ours: TriageCitationOut
+    higher: TriageCitationOut
+
+
+class TriageOut(BaseModel):
+    """`from_version_id` is echoed back because it may have been defaulted: a
+    caller who omitted it needs to know which earlier edition the answer is about.
+
+    `unlinked_changes` is what keeps an empty `rows` honest. Without it, "nothing
+    you own is affected" and "nothing has been reviewed yet, so this cannot see
+    anything" are the same response, and one of them is a false all-clear.
+    """
+
+    from_version_id: str
+    to_version_id: str
+    rows: list[TriageRowOut]
+    total_changes: int
+    unlinked_changes: int

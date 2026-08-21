@@ -1,5 +1,7 @@
 # DI-2 Phase 5: Change Detection and Propagation — Implementation Plan
 
+**Status:** Complete. Verified on 2026-08-20 with `uv run pytest` (456 passed), including the integration suite against a real `neo4j:2025.10` container.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Answer the question the whole increment exists for — *a higher-level policy changed; which of our policies are affected, and how urgently?*
@@ -21,6 +23,8 @@
 - Documentation updated in the same change.
 
 ## Decisions an executor must not silently change
+
+*Executor's note (2026-08-20):* Decision 1 below could not be implemented as written and was changed on the project owner's decision. An `obligation_id` hashes its version (ADR-013), so a clause reproduced word for word in two editions carries two different ids — verified: the same statement in the same section of two editions hashes to `ee0577cf…` and `c741ac71…`. Matching on id would report every obligation in the document as a removal plus an addition, which is the failure Decision 2 exists to prevent. The diff matches on `(section_path, normalize(statement))` instead — the version-independent part of the same identity. `obligation_id` is unchanged, so Phase 4's decisions still work. See [ADR-015](../../specs/adr/ADR-015-changes-are-detected-and-ranked.md).
 
 **1. The diff matches on obligation id, which is content-derived.** Two obligations with the same id in both versions are unchanged. An id present only in the new version is `ADDED`; only in the old, `REMOVED`. `MODIFIED` needs care — see decision 2.
 
@@ -52,7 +56,7 @@
 **Interfaces:**
 - Produces: `diff_versions(tx, *, from_version_id, to_version_id) -> dict[str, int]` returning counts by kind, having written `:Change` nodes joined by `FROM_VERSION`, `TO_VERSION` and `AFFECTS`
 
-- [ ] **Step 1: Add the constraint**
+- [x] **Step 1: Add the constraint**
 
 ```python
     (
@@ -61,7 +65,7 @@
     ),
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Create `backend/tests/test_diff.py`. Seed two versions of one document with hand-built
 obligations, then assert:
@@ -74,13 +78,13 @@ obligations, then assert:
 - re-running the diff is idempotent: the same `:Change` nodes, not duplicates
 - a change is joined to both versions by `FROM_VERSION` and `TO_VERSION`, and to the affected obligation by `AFFECTS`
 
-- [ ] **Step 3: Run to verify failure, then implement**
+- [x] **Step 3: Run to verify failure, then implement**
 
 `change_id` is `hash(from_version_id, to_version_id, kind, obligation_id)` so re-running is
 idempotent. `MODIFIED` uses the *new* obligation as its `AFFECTS` target, because that is
 the one a reviewer must now act on.
 
-- [ ] **Step 4: Run tests and commit**
+- [x] **Step 4: Run tests and commit**
 
 ```bash
 git add backend/src/policy_grapher/changes backend/src/policy_grapher/db.py backend/tests/test_diff.py
@@ -98,7 +102,7 @@ git commit -m "feat: diff two editions into changes a reviewer can read"
 **Interfaces:**
 - Produces: `MODALITY_WEIGHT`, `KIND_WEIGHT`, `triage(tx, *, from_version_id, to_version_id) -> TriageResult` with ranked rows and an `unlinked_changes` count
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_triage.py` covering:
 - a change to an obligation an org policy `IMPLEMENTS` produces one triage row naming the org document, the org clause, and both citations
@@ -108,12 +112,14 @@ Create `backend/tests/test_triage.py` covering:
 - changes with no reviewed link are counted in `unlinked_changes` rather than dropped
 - an empty result reports `unlinked_changes` so "nothing linked yet" is distinguishable from "nothing affected"
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 ```python
 MODALITY_WEIGHT = {"SHALL": 4.0, "MUST": 4.0, "SHOULD": 2.0, "MAY": 1.0}
 KIND_WEIGHT = {"REMOVED": 3.0, "MODIFIED": 2.0, "ADDED": 1.0}
 ```
+
+*Executor's note:* the third factor Decision 3 names, tier distance, is omitted rather than fixed at 1.0 — nothing in the graph records a policy tier, so including it would mean multiplying by a constant and calling it a factor.
 
 Named because a policy analyst should be able to argue with them. A REMOVED obligation
 outranks a MODIFIED one because an org policy implementing something that no longer exists
@@ -127,7 +133,7 @@ MATCH (c:Change)-[:AFFECTS]->(higher:Obligation)
       <-[:MANDATES]-(v:DocumentVersion)<-[:HAS_VERSION]-(d:Document)
 ```
 
-- [ ] **Step 3: Run tests and commit**
+- [x] **Step 3: Run tests and commit**
 
 ```bash
 git add backend/src/policy_grapher/changes/propagate.py backend/tests/test_triage.py
@@ -146,16 +152,16 @@ git commit -m "feat: propagate a change to the policies that implement it"
 **Interfaces:**
 - Produces: `GET /triage?from_version_id=&to_version_id=` → `TriageOut` with ranked rows and `unlinked_changes`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 - the route requires a principal
 - an unknown version id is a 404, not an empty result — an empty result would read as "nothing affected"
 - omitting `from_version_id` defaults to the version the target supersedes, and the response says which was used
 - every row carries both citations, so nothing in the response is unsourced
 
-- [ ] **Step 2: Implement and wire the router**
+- [x] **Step 2: Implement and wire the router**
 
-- [ ] **Step 3: Write ADR-015**
+- [x] **Step 3: Write ADR-015**
 
 Must state: the diff matches on content-derived ids; `MODIFIED` is detected by section
 because id-matching alone reports every edit as a remove-plus-add; multi-obligation sections
@@ -163,7 +169,7 @@ fall back rather than guess a pairing; ranking weights are named constants so th
 argued with; REMOVED outranks MODIFIED and why; and triage traverses `IMPLEMENTS` only, with
 unlinked changes counted rather than dropped.
 
-- [ ] **Step 4: Run everything and commit**
+- [x] **Step 4: Run everything and commit**
 
 ```bash
 git add backend/src/policy_grapher backend/tests docs/specs/adr/ADR-015-changes-are-detected-and-ranked.md

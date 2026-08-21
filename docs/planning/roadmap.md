@@ -68,6 +68,14 @@ apply rather than passing over them. `GET /review/queue` and
 authenticated principal and never from the request body. See
 [ADR-014](../specs/adr/ADR-014-proposals-and-decisions-are-different-things.md). Phase 5
 ([change detection and propagation](../superpowers/plans/2026-08-20-di-2-phase-5-diff-and-propagation.md))
+has landed, and with it the increment's deliverable: `GET /triage?to_version_id=` diffs an
+edition against the one it supersedes into `:Change` nodes, then walks `IMPLEMENTS` to the
+clauses of ours that have to answer for them, ranked by modality and change kind. A reworded
+obligation in the same section is one `MODIFIED` rather than a remove-plus-add; a section with
+several changes falls back and says so rather than guessing a pairing. Nothing on the path is a
+model call, so every row is explained by a path a person can walk, and unlinked changes are
+counted so an empty answer is never mistaken for an all-clear. See
+[ADR-015](../specs/adr/ADR-015-changes-are-detected-and-ranked.md).
 and Phase 6
 ([retrieval, question answering and the UI](../superpowers/plans/2026-08-20-di-2-phase-6-retrieval-and-ui.md))
 have not started; a `SPEC-002` is not yet written. DI-2 builds the

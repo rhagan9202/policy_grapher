@@ -303,3 +303,149 @@ def test_an_obligation_anchored_to_two_chunks_produces_one_row(clean_graph, data
     result = _triage(clean_graph, database)
 
     assert len(result.rows) == 1
+
+
+# --- the API ------------------------------------------------------------------
+
+
+@pytest.fixture
+def triage_client(client_with_auth):
+    """Two editions of a higher-tier issuance, a reworded obligation, one of our
+    clauses implementing it, and a SUPERSEDES chain between the editions."""
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+
+    _seed_version(
+        driver, database, version_id="higher-v1", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("3.2", HIGHER_OLD, Modality.SHALL)],
+    )
+    new_ids = _seed_version(
+        driver, database, version_id="higher-v2", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("3.2", HIGHER_NEW, Modality.SHALL)],
+    )
+    our_ids = _seed_version(
+        driver, database, version_id="ours-v1", doc_slug="ours",
+        doc_name="ORG 1.0", entries=[("2.4", OURS, Modality.SHALL)],
+    )
+    _link(driver, database, source=our_ids[OURS], target=new_ids[HIGHER_NEW])
+    driver.execute_query(
+        "MATCH (new:DocumentVersion {version_id: 'higher-v2'}) "
+        "MATCH (old:DocumentVersion {version_id: 'higher-v1'}) "
+        "MERGE (new)-[:SUPERSEDES]->(old)",
+        database_=database,
+    )
+    return client_with_auth
+
+
+@pytest.mark.integration
+def test_the_route_answers_with_ranked_rows_and_both_citations(triage_client):
+    """Nothing in the response is unsourced."""
+    response = triage_client.get(
+        "/triage", params={"to_version_id": "higher-v2", "from_version_id": "higher-v1"}
+    )
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["from_version_id"] == "higher-v1"
+    assert body["to_version_id"] == "higher-v2"
+    assert body["total_changes"] == 1
+    assert body["unlinked_changes"] == 0
+
+    row = body["rows"][0]
+    assert row["kind"] == "MODIFIED"
+    assert row["previous_statement"] == HIGHER_OLD
+    assert row["ours"] == {
+        "obligation_id": row["ours"]["obligation_id"],
+        "statement": OURS,
+        "document": "ORG 1.0",
+        "section_path": ["2.4"],
+        "page": 1,
+    }
+    assert row["higher"]["document"] == "DoDI 5000.88"
+    assert row["higher"]["statement"] == HIGHER_NEW
+    assert row["higher"]["section_path"] == ["3.2"]
+
+
+@pytest.mark.integration
+def test_omitting_the_earlier_edition_uses_the_one_it_supersedes(triage_client):
+    """And the response says which, so a caller who did not choose still knows
+    what the answer is about."""
+    response = triage_client.get("/triage", params={"to_version_id": "higher-v2"})
+
+    assert response.status_code == 200
+    assert response.json()["from_version_id"] == "higher-v1"
+    assert len(response.json()["rows"]) == 1
+
+
+@pytest.mark.integration
+def test_an_unknown_edition_is_a_404_not_an_empty_answer(triage_client):
+    """An empty result reads as 'nothing is affected'. A mistyped version id must
+    never be able to produce that."""
+    response = triage_client.get("/triage", params={"to_version_id": "no-such-edition"})
+    assert response.status_code == 404
+
+    response = triage_client.get(
+        "/triage",
+        params={"to_version_id": "higher-v2", "from_version_id": "no-such-edition"},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.integration
+def test_an_edition_with_no_predecessor_is_refused_rather_than_answered(triage_client):
+    """'higher-v1' is the oldest edition. Comparing it against nothing would
+    report every obligation in it as newly added."""
+    response = triage_client.get("/triage", params={"to_version_id": "higher-v1"})
+
+    assert response.status_code == 400
+    assert "supersedes no earlier edition" in response.json()["detail"]
+
+
+@pytest.mark.integration
+def test_the_route_requires_a_principal(client_with_graph):
+    response = client_with_graph.get(
+        "/triage", params={"to_version_id": "higher-v2"}
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.integration
+def test_an_empty_triage_still_reports_what_it_could_not_see(client_with_auth):
+    """The false-all-clear guard, at the API boundary."""
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    _seed_version(
+        driver, database, version_id="higher-v1", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("3.2", HIGHER_OLD, Modality.SHALL)],
+    )
+    _seed_version(
+        driver, database, version_id="higher-v2", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("3.2", HIGHER_NEW, Modality.SHALL)],
+    )
+
+    body = client_with_auth.get(
+        "/triage", params={"to_version_id": "higher-v2", "from_version_id": "higher-v1"}
+    ).json()
+
+    assert body["rows"] == []
+    assert body["total_changes"] == 1
+    assert body["unlinked_changes"] == 1
+
+
+@pytest.mark.integration
+def test_repeating_the_request_does_not_accumulate_changes(triage_client):
+    """The diff runs on a GET. It drops and rewrites its own version pair, so
+    repeating converges rather than piling up."""
+    first = triage_client.get(
+        "/triage", params={"to_version_id": "higher-v2", "from_version_id": "higher-v1"}
+    ).json()
+    second = triage_client.get(
+        "/triage", params={"to_version_id": "higher-v2", "from_version_id": "higher-v1"}
+    ).json()
+
+    assert first == second
+    records, _, _ = triage_client.app.state.driver.execute_query(
+        "MATCH (c:Change) RETURN count(c) AS total",
+        database_=triage_client.app.state.settings.neo4j_database,
+    )
+    assert records[0]["total"] == 1
