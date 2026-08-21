@@ -53,6 +53,10 @@ CONSTRAINTS: tuple[str, ...] = (
         "CREATE CONSTRAINT link_decision_key_unique IF NOT EXISTS "
         "FOR (d:LinkDecision) REQUIRE d.key IS UNIQUE"
     ),
+    (
+        "CREATE CONSTRAINT change_id_unique IF NOT EXISTS "
+        "FOR (c:Change) REQUIRE c.change_id IS UNIQUE"
+    ),
 )
 
 INDEXES: tuple[str, ...] = (

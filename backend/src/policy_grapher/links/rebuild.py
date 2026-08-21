@@ -29,6 +29,7 @@ from urllib.parse import unquote, urlparse
 
 from neo4j import Driver, ManagedTransaction, RoutingControl
 
+from policy_grapher.changes.diff import drop_changes
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import drop_chunks, write_chunks
 from policy_grapher.links.decisions import replay_decisions
@@ -79,6 +80,11 @@ def _write_rebuild(
     # IMPLEMENTS_PROPOSED edges with them, so the derived link layer is cleared
     # by the same statement rather than needing one of its own. Chunks follow,
     # since an obligation anchors to one.
+    # Changes first: a :Change AFFECTS an obligation, so dropping obligations
+    # underneath it would leave a change a reviewer can see and cannot trace.
+    # The diff is cheap to re-run and is not re-run here — a rebuild changes what
+    # the editions say, and which pair to re-diff is the caller's decision.
+    changes_dropped = drop_changes(tx, version_id=version_id)
     obligations_dropped = drop_obligations(tx, version_id=version_id)
     chunks_dropped = drop_chunks(tx, version_id=version_id)
 
@@ -104,6 +110,7 @@ def _write_rebuild(
 
     replayed = replay_decisions(tx)
     return {
+        "changes_dropped": changes_dropped,
         "chunks_dropped": chunks_dropped,
         "obligations_dropped": obligations_dropped,
         "chunks_written": chunks_written,

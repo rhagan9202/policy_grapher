@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from policy_grapher.changes.diff import diff_versions
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.ingest import ingest_file
 from policy_grapher.links.decisions import record_decision
@@ -328,3 +329,37 @@ def test_a_rebuild_of_an_unknown_version_fails_loudly(clean_graph, database):
             version_id="no-such-version",
             extractor=ModalSentenceExtractor(),
         )
+
+
+@pytest.mark.integration
+def test_a_rebuild_takes_the_changes_that_referenced_it(
+    reviewed_graph, clean_graph, database
+):
+    """A :Change AFFECTS an obligation, and a rebuild drops obligations. Left
+    alone, the change would survive pointing at nothing — visible to a reviewer
+    and impossible to trace back to a clause."""
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            diff_versions,
+            from_version_id=reviewed_graph["higher"],
+            to_version_id=reviewed_graph["org"],
+        )
+    before, _, _ = clean_graph.execute_query(
+        "MATCH (c:Change) RETURN count(c) AS total", database_=database
+    )
+    assert before[0]["total"] > 0, "the fixture must actually produce changes"
+
+    report = rebuild_derived(
+        clean_graph,
+        database,
+        version_id=reviewed_graph["org"],
+        extractor=reviewed_graph["extractor"],
+        candidate_version_ids=[reviewed_graph["higher"]],
+        proposer="lexical-v1",
+    )
+
+    assert report["changes_dropped"] == before[0]["total"]
+    after, _, _ = clean_graph.execute_query(
+        "MATCH (c:Change) RETURN count(c) AS total", database_=database
+    )
+    assert after[0]["total"] == 0
