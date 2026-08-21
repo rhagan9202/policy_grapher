@@ -24,6 +24,7 @@ still resolve to a readable file. When it does not, this fails loudly rather tha
 dropping a version's entire text and reporting success.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -128,6 +129,7 @@ def rebuild_derived(
     extractor,
     candidate_version_ids: list[str] | None = None,
     proposer: str = "lexical-v1",
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, int]:
     """Rebuild one edition's derived layer and replay every recorded decision.
 
@@ -143,16 +145,18 @@ def rebuild_derived(
     document = pdf.extract_document(path)
     chunks = chunk_pages(document.pages, version_id=version_id)
 
-    # Outside the transaction on purpose — see the module docstring.
-    extracted = [
-        (
-            chunk.chunk_id,
-            chunk.section_path,
-            extractor.extract(chunk.text, section_path=chunk.section_path),
-        )
-        for chunk in chunks
-    ]
-    extracted = [entry for entry in extracted if entry[2]]
+    # Outside the transaction on purpose — see the module docstring. A loop
+    # rather than a comprehension so progress can be reported per chunk: with a
+    # real model this is one call each over dozens of chunks, and a caller
+    # watching a blank response for minutes cannot tell work from a hang.
+    total = len(chunks)
+    extracted: list[tuple[str, list[str], list]] = []
+    for done, chunk in enumerate(chunks, start=1):
+        found = extractor.extract(chunk.text, section_path=chunk.section_path)
+        if found:
+            extracted.append((chunk.chunk_id, chunk.section_path, found))
+        if on_progress is not None:
+            on_progress(done, total)
 
     with driver.session(database=database) as session:
         return session.execute_write(

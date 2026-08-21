@@ -363,3 +363,39 @@ def test_a_rebuild_takes_the_changes_that_referenced_it(
         "MATCH (c:Change) RETURN count(c) AS total", database_=database
     )
     assert after[0]["total"] == 0
+
+
+@pytest.mark.integration
+def test_a_rebuild_reports_progress_chunk_by_chunk(reviewed_graph, clean_graph, database):
+    """A run over a real edition takes minutes with a real model, and the caller
+    is watching. Progress is reported per chunk, ending at the chunk count."""
+    seen: list[tuple[int, int]] = []
+
+    rebuild_derived(
+        clean_graph,
+        database,
+        version_id=reviewed_graph["org"],
+        extractor=reviewed_graph["extractor"],
+        on_progress=lambda done, total: seen.append((done, total)),
+    )
+
+    assert seen, "no progress was reported"
+    totals = {total for _, total in seen}
+    assert len(totals) == 1, f"the total changed mid-run: {totals}"
+    total = totals.pop()
+    assert [done for done, _ in seen] == list(range(1, total + 1))
+
+
+@pytest.mark.integration
+def test_a_rebuild_without_a_progress_callback_still_works(
+    reviewed_graph, clean_graph, database
+):
+    """The callback is optional — every existing caller passes nothing."""
+    counts = rebuild_derived(
+        clean_graph,
+        database,
+        version_id=reviewed_graph["org"],
+        extractor=reviewed_graph["extractor"],
+    )
+
+    assert counts["chunks_written"] > 0
