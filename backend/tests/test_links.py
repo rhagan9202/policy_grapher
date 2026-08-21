@@ -7,6 +7,11 @@ from policy_grapher.extraction.schema import (
     Modality,
     obligation_id,
 )
+from policy_grapher.links.decisions import (
+    decision_key,
+    record_decision,
+    replay_decisions,
+)
 from policy_grapher.links.propose import (
     content_words,
     designators,
@@ -249,3 +254,207 @@ def test_an_obligation_is_never_proposed_against_itself(clean_graph, database):
     )
     assert all(r["source"] != r["target"] for r in records)
     assert all(r["source"] != self_id or r["target"] != self_id for r in records)
+
+
+# --- decisions and promotion -------------------------------------------------
+
+
+def _decide(driver, database, *, source, target, verdict, actor="alice", rationale="r"):
+    with driver.session(database=database) as session:
+        session.execute_write(
+            record_decision,
+            source_id=source,
+            target_id=target,
+            verdict=verdict,
+            actor=actor,
+            rationale=rationale,
+        )
+
+
+def _replay(driver, database):
+    with driver.session(database=database) as session:
+        return session.execute_write(replay_decisions)
+
+
+def _implements(driver, database):
+    records, _, _ = driver.execute_query(
+        "MATCH (a:Obligation)-[:IMPLEMENTS]->(b:Obligation) "
+        "RETURN a.obligation_id AS source, b.obligation_id AS target",
+        database_=database,
+    )
+    return {(r["source"], r["target"]) for r in records}
+
+
+def _proposed_pair(driver, database):
+    records, _, _ = driver.execute_query(
+        "MATCH (a:Obligation)-[:IMPLEMENTS_PROPOSED]->(b:Obligation) "
+        "RETURN a.obligation_id AS source, b.obligation_id AS target",
+        database_=database,
+    )
+    return records[0]["source"], records[0]["target"]
+
+
+def _seed_proposal(driver, database):
+    _seed_pair(driver, database)
+    with driver.session(database=database) as session:
+        session.execute_write(
+            propose_links,
+            org_version_id="org",
+            candidate_version_ids=["higher"],
+            proposer="lexical-v1",
+        )
+    return _proposed_pair(driver, database)
+
+
+def test_the_decision_key_is_directional():
+    """'A implements B' is not 'B implements A'. A symmetric key would let a
+    verdict on one direction silently decide the other."""
+    assert decision_key("a", "b") != decision_key("b", "a")
+
+
+def test_the_decision_key_is_stable():
+    assert decision_key("a", "b") == decision_key("a", "b")
+
+
+@pytest.mark.integration
+def test_approving_promotes_the_proposal_and_leaves_it_in_place(clean_graph, database):
+    """The proposal is derived evidence of how the link was found; promotion adds
+    the human's edge beside it rather than consuming it."""
+    source, target = _seed_proposal(clean_graph, database)
+    _decide(clean_graph, database, source=source, target=target, verdict="approve")
+
+    promoted = _replay(clean_graph, database)
+
+    assert promoted["promoted"] == 1
+    assert _implements(clean_graph, database) == {(source, target)}
+    records, _, _ = clean_graph.execute_query(
+        "MATCH ()-[r:IMPLEMENTS_PROPOSED]->() RETURN count(r) AS total",
+        database_=database,
+    )
+    assert records[0]["total"] == 1
+
+
+@pytest.mark.integration
+def test_rejecting_promotes_nothing_and_stays_rejected_across_replays(
+    clean_graph, database
+):
+    """A rebuild that resurrects a rejected link silently re-adds work a human
+    already did and dismissed — worse than forgetting an approval."""
+    source, target = _seed_proposal(clean_graph, database)
+    _decide(clean_graph, database, source=source, target=target, verdict="reject")
+
+    first = _replay(clean_graph, database)
+    second = _replay(clean_graph, database)
+
+    assert first["suppressed"] == 1
+    assert second["suppressed"] == 1
+    assert _implements(clean_graph, database) == set()
+
+
+@pytest.mark.integration
+def test_a_decision_records_who_decided_and_when(clean_graph, database):
+    source, target = _seed_proposal(clean_graph, database)
+    _decide(
+        clean_graph, database, source=source, target=target,
+        verdict="approve", actor="alice", rationale="Discharges the duty.",
+    )
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN d.actor AS actor, d.at AS at, "
+        "d.verdict AS verdict, d.rationale AS rationale",
+        database_=database,
+    )
+    assert records[0]["actor"] == "alice"
+    assert records[0]["verdict"] == "approve"
+    assert records[0]["rationale"] == "Discharges the duty."
+    assert records[0]["at"] is not None
+
+
+@pytest.mark.integration
+def test_re_deciding_updates_the_verdict_rather_than_adding_a_second(
+    clean_graph, database
+):
+    """A reviewer who changes their mind must leave one current verdict, not two
+    contradictory records for a replay to choose between."""
+    source, target = _seed_proposal(clean_graph, database)
+    _decide(clean_graph, database, source=source, target=target, verdict="approve")
+    _decide(
+        clean_graph, database, source=source, target=target,
+        verdict="reject", actor="bob",
+    )
+
+    _replay(clean_graph, database)
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total, "
+        "collect(d.verdict) AS verdicts, collect(d.actor) AS actors",
+        database_=database,
+    )
+    assert records[0]["total"] == 1
+    assert records[0]["verdicts"] == ["reject"]
+    assert records[0]["actors"] == ["bob"]
+    assert _implements(clean_graph, database) == set()
+
+
+@pytest.mark.integration
+def test_reversing_a_rejection_promotes_it(clean_graph, database):
+    """The other direction of the same path: reject then approve must promote."""
+    source, target = _seed_proposal(clean_graph, database)
+    _decide(clean_graph, database, source=source, target=target, verdict="reject")
+    _replay(clean_graph, database)
+    _decide(clean_graph, database, source=source, target=target, verdict="approve")
+
+    _replay(clean_graph, database)
+
+    assert _implements(clean_graph, database) == {(source, target)}
+
+
+@pytest.mark.integration
+def test_replay_is_idempotent(clean_graph, database):
+    source, target = _seed_proposal(clean_graph, database)
+    _decide(clean_graph, database, source=source, target=target, verdict="approve")
+
+    first = _replay(clean_graph, database)
+    second = _replay(clean_graph, database)
+
+    assert first == second
+    records, _, _ = clean_graph.execute_query(
+        "MATCH ()-[r:IMPLEMENTS]->() RETURN count(r) AS total", database_=database
+    )
+    assert records[0]["total"] == 1
+
+
+@pytest.mark.integration
+def test_an_approval_whose_obligations_are_gone_is_reported_not_dropped(
+    clean_graph, database
+):
+    """After a re-extraction that no longer produces one side, the decision is
+    still a fact a human established. Replay cannot promote it, and must say so
+    rather than passing over it in silence."""
+    source, target = _seed_proposal(clean_graph, database)
+    _decide(clean_graph, database, source=source, target=target, verdict="approve")
+    clean_graph.execute_query(
+        "MATCH (o:Obligation {obligation_id: $id}) DETACH DELETE o",
+        {"id": target},
+        database_=database,
+    )
+
+    result = _replay(clean_graph, database)
+
+    assert result["promoted"] == 0
+    assert result["unpromotable"] == 1
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 1
+
+
+@pytest.mark.integration
+def test_an_unknown_verdict_is_refused(clean_graph, database):
+    """The verdict vocabulary is closed: replay branches on it, and a value it
+    does not know would be silently ignored — an approval that never promotes."""
+    source, target = _seed_proposal(clean_graph, database)
+    with pytest.raises(ValueError, match="verdict"):
+        _decide(
+            clean_graph, database, source=source, target=target, verdict="maybe"
+        )

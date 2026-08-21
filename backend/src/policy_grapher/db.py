@@ -45,6 +45,14 @@ CONSTRAINTS: tuple[str, ...] = (
         "CREATE CONSTRAINT extraction_cache_key_unique IF NOT EXISTS "
         "FOR (e:ExtractionCache) REQUIRE e.key IS UNIQUE"
     ),
+    # :LinkDecision is canonical, not derived — it records what a human decided
+    # and no rebuild may drop it. Uniqueness on the content-derived key is what
+    # lets a re-decision update a verdict in place instead of accumulating a
+    # second, contradictory record beside the first.
+    (
+        "CREATE CONSTRAINT link_decision_key_unique IF NOT EXISTS "
+        "FOR (d:LinkDecision) REQUIRE d.key IS UNIQUE"
+    ),
 )
 
 INDEXES: tuple[str, ...] = (
