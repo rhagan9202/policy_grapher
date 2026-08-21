@@ -1,6 +1,6 @@
 # Roadmap
 
-*Living document — edit in place. Last reviewed: 2026-08-20*
+*Living document — edit in place. Last reviewed: 2026-08-21*
 
 Sequencing and intent, not commitments with dates. Individual work items live in the
 [backlog](../backlog/backlog.md); this is the altitude above that.
@@ -78,12 +78,44 @@ counted so an empty answer is never mistaken for an all-clear. See
 [ADR-015](../specs/adr/ADR-015-changes-are-detected-and-ranked.md).
 and Phase 6
 ([retrieval, question answering and the UI](../superpowers/plans/2026-08-20-di-2-phase-6-retrieval-and-ui.md))
-has landed, and with it DI-2. Its backend brought the embedding port and vector index,
+has landed, and with it DI-2 — **as a library**. Its backend brought the embedding port and vector index,
 three-signal hybrid retrieval, and grounded question answering at `POST /ask` — see
 [ADR-016](../specs/adr/ADR-016-embeddings-are-a-port.md) and
 [ADR-017](../specs/adr/ADR-017-answers-select-templates.md). Its UI brought Triage, Review and
 Ask screens, and the navigation DI-1 never shipped: routes and links are declared from one
-list, so a screen cannot exist without a way to reach it. A `SPEC-002` is not yet written. DI-2 builds the
+list, so a screen cannot exist without a way to reach it. A `SPEC-002` is not yet written.
+
+**What DI-2 did not deliver, found on 2026-08-21:** none of that machinery is reachable from
+the running application. `rebuild_derived`, `embed_chunks`, `CachedExtractor` and
+`GraphCacheStore` have no caller in `src/` — only in tests — and auto-ingest loads a CSV
+manifest, which by design records no edition and no text. So a clean `docker compose up`
+yields 439 documents, zero chunks and zero obligations, and Triage, Review and Ask are empty
+with no product action that can fill them. Every phase's tests pass; nothing composes them.
+Closing that is [STORY-048](../backlog/stories/STORY-048-derived-layer-buildable-from-the-app.md)
+and the reason for the surge below.
+
+## The tech-debt surge
+
+Planned 2026-08-21. Three sequenced sprints against one standing goal: **a stable, runnable
+base, combed for bugs, that does what these planning documents say it does.** Every item is
+in [Ready](../backlog/backlog.md#ready) with a size. The arc lives here, in a living
+document; each sprint's plan is written at its own start and frozen
+([why](../sprints/README.md#cadence)).
+
+| Sprint | Goal | Items |
+| --- | --- | --- |
+| **3 — Truth and reachability** | A cold start reaches a populated Triage, Review and Ask through product actions alone, and the docs stop claiming more than the app does | STORY-048, 049, 050, 053, 038 |
+| **4 — Combed for bugs** | Every defect the 2026-08-21 audit found is closed, the unmeasured gates are measured, and a check exists that would catch the next one | STORY-039, 040, 041, 051, 052, 054, 055 |
+| **5 — The UI reaches the whole API** | No backend capability is left without a way to reach it; the corpus-management bar in [What success looks like](vision.md#what-success-looks-like) is met | STORY-017, 042, 043, 044, 046 |
+
+**What the surge deliberately does not close.** Two MVP bars in the
+[vision](vision.md#what-success-looks-like) stay open, because they are feature work rather
+than debt: DOCX ingestion ([STORY-035](../backlog/backlog.md#refining), blocked on having no
+DOCX sample to design against) and XLSX manifests ([STORY-036](../backlog/backlog.md#refining)).
+[STORY-047](../backlog/stories/STORY-047-reissues-read-as-replacement.md) — a reissue's edits
+reading as wholesale replacement — also stays in Refining: its open questions reopen a frozen
+decision in [ADR-015](../specs/adr/ADR-015-changes-are-detected-and-ranked.md), and that is an
+ADR to write, not a sprint item to commit. DI-2 builds the
 semantic substrate that turns DI-1's bibliographic graph into a policy knowledge graph —
 document text, the obligations inside that text, and version supersession — proven by one
 deliverable, **impact triage**: *a higher-level policy changed; which of our policies are

@@ -32,12 +32,24 @@ developer machines via Docker Compose. There is no hosted environment and no CI.
 
 ## Estimation
 
-**TODO:** Not yet decided. The team hasn't sized anything, so no item in the
-[backlog](backlog.md) formally meets the Definition of Ready above.
+**T-shirt sizes: S, M, L.** Decided 2026-08-21, at the planning session for the tech-debt
+surge, after two sprints in which nothing was sized and the Definition of Ready above was
+therefore never actually met.
 
-Pick an approach at the first planning session — story points against a reference item, or
-t-shirt sizes — and record it here. Whatever the unit, [velocity](../sprints/velocity.md)
-only becomes useful once it's consistent across sprints.
+| Size | Means | Rough shape |
+| --- | --- | --- |
+| **S** | Understood, contained, one file or one obvious change | A defect with a known cause, a config fix |
+| **M** | Understood, but touches several files or needs new tests to design | A new endpoint, a new screen, a wired-up pipeline stage |
+| **L** | Contains a decision that is not yet made, or crosses backend and frontend | Anything needing an ADR first, or a rework of something already shipped |
+
+Points were considered and rejected for now: [velocity](../sprints/velocity.md) has two data
+points and one of them is known to be understated, so a numeric scale would imply a precision
+the history cannot support. Sizes are comparable enough to stop a sprint being overcommitted,
+which is the only job estimation has here.
+
+**An L in a sprint is a warning, not a plan.** If an item is L because a decision is missing,
+the decision is the work — split the ADR out as its own item rather than committing to the
+implementation and discovering the question mid-sprint.
 
 ## Writing an item
 

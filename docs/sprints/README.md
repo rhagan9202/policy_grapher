@@ -7,14 +7,23 @@ the team actually thought at the time.
 
 ## Cadence
 
-**TODO:** Not yet set — nothing in the repo indicates how this team works, and inventing a
-cadence nobody agreed to is worse than leaving it blank. Fill these in at the first planning
-session.
+Set 2026-08-21, at the tech-debt surge planning session. This project is worked in
+agent-driven sessions rather than by a standing team, so the cadence is written in terms of
+sessions rather than days — a calendar cadence nobody keeps is worse than an honest one.
 
-- **Length:** TBD
-- **Planning:** TBD
-- **Daily standup:** TBD
-- **Review and retro:** TBD
+- **Length:** one working session per sprint. Sprints 1 and 2 each ran this way and
+  delivered 13 and 7 stories respectively, which is the only throughput evidence there is.
+- **Planning:** before any code, and it produces `plan.md` with a one-sentence goal and every
+  committed item sized. A plan written after the work is a report.
+- **Standup:** not applicable to a single-session sprint. The equivalent is that a change of
+  plan mid-session gets written into the review, not silently absorbed.
+- **Review and retro:** at the end of the same session, before the next sprint's plan is
+  written. Both are frozen once written.
+
+**Sprint plans are written at sprint start, one at a time.** A multi-sprint surge records its
+*arc* in the [roadmap](../planning/roadmap.md), which is a living document; it does not
+pre-write dated records for sprints that have not begun. Sprint 3's plan exists because
+sprint 3 has begun.
 
 ## Ceremonies, briefly
 
