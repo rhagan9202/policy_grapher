@@ -1,5 +1,5 @@
 import pytest
-from neo4j import RoutingControl
+from neo4j import NotificationClassification, RoutingControl
 from neo4j.exceptions import ConstraintError
 
 from policy_grapher.db import apply_schema, is_graph_empty
@@ -124,3 +124,36 @@ def test_a_graph_holding_only_an_orphan_source_is_empty(
     assert records[0]["sources"] == 1, "the orphan :Source this test is about is gone"
 
     assert is_graph_empty(driver, database) is True
+
+
+@pytest.mark.integration
+def test_unrecognised_notifications_are_not_requested(clean_graph, database):
+    """Neo4j deletes a property when it is set to null, so an optional field that
+    has never once been non-null in a database has no property key — and every
+    query naming one warns `01N52`, at WARNING, with the whole query text inline.
+
+    Four of ours are legitimately unwritten on a fresh graph: `previous_statement`
+    (only set for MODIFIED changes), `embedding` (the default embedder produces
+    none), and `deadline`/`conditions` on an obligation. None is a typo, and none
+    resolves on its own, so the notifications are pure noise on a data model built
+    around optional fields.
+
+    Turning the class off costs the one thing it also catches — a genuinely
+    misspelled property — and that is covered better elsewhere: a typo returns
+    null, and these suites assert real values against real containers, so it fails
+    a test rather than merely logging.
+    """
+    _, summary, _ = clean_graph.execute_query(
+        "MATCH (n:Document) RETURN n.a_property_nobody_has_ever_written AS x LIMIT 1",
+        database_=database,
+    )
+
+    unrecognised = [
+        status
+        for status in summary.gql_status_objects
+        if getattr(status, "classification", None) == NotificationClassification.UNRECOGNIZED
+    ]
+    assert unrecognised == [], (
+        "the driver is still requesting UNRECOGNIZED notifications: "
+        f"{[s.status_description for s in unrecognised]}"
+    )

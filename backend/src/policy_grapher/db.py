@@ -1,6 +1,11 @@
 """Neo4j driver lifecycle and schema."""
 
-from neo4j import Driver, GraphDatabase, RoutingControl
+from neo4j import (
+    Driver,
+    GraphDatabase,
+    NotificationClassification,
+    RoutingControl,
+)
 
 from policy_grapher.config import Settings
 
@@ -70,9 +75,34 @@ INDEXES: tuple[str, ...] = (
 
 
 def create_driver(settings: Settings) -> Driver:
+    """The driver every caller shares.
+
+    `UNRECOGNIZED` notifications are switched off, and the reason is a property of
+    Neo4j rather than of this code: **setting a property to null deletes it**, so
+    an optional field that has never once been non-null in a database has no
+    property key at all — and every query naming one is answered with an `01N52`
+    warning carrying the whole query text inline.
+
+    This data model is full of such fields, and several are legitimately unwritten
+    for as long as a feature is unused: `Change.previous_statement` exists only for
+    a MODIFIED change (STORY-047 records why a reissue produces none),
+    `Chunk.embedding` only once a real embedder runs, and an obligation's
+    `deadline` and `conditions` only when the extractor finds them. None of those
+    is a typo, and none clears on its own, so the warnings are unactionable noise
+    that grows with every optional field added.
+
+    What this gives up is that the same class catches a genuinely misspelled
+    property — and that is covered better elsewhere. A typo returns null, and the
+    integration suites assert real values against real containers, so it fails a
+    test instead of being logged where nobody greps. `tests/test_db.py` pins this
+    configuration so it cannot be quietly undone.
+    """
     return GraphDatabase.driver(
         settings.neo4j_uri,
         auth=(settings.neo4j_user, settings.neo4j_password),
+        notifications_disabled_classifications=[
+            NotificationClassification.UNRECOGNIZED
+        ],
     )
 
 
