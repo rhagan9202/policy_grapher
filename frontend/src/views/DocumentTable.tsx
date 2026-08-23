@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   addReference,
   createDocument,
@@ -188,7 +189,9 @@ export default function DocumentTable() {
             {visible.map((document) => (
               <tr key={document.slug}>
                 <td>
-                  <span>{document.name}</span>
+                  {/* STORY-017's detail view is reached from here: the table is the
+                      only place a reader already has the document in front of them. */}
+                  <Link to={`/documents/${document.slug}`}>{document.name}</Link>
                   {document.is_external && <span> (external)</span>}
                 </td>
                 {/* ADR-006: standing among other documents is read off the edges. */}

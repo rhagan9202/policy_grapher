@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentOut } from '../api/types'
@@ -18,6 +19,16 @@ vi.mock('../api/client', () => ({
 }))
 
 import DocumentTable from './DocumentTable'
+
+// A row's name links to its detail page (STORY-017), so the table needs router
+// context. MemoryRouter rather than a real one: these tests are about the table.
+function renderTable() {
+  return render(
+    <MemoryRouter>
+      <DocumentTable />
+    </MemoryRouter>,
+  )
+}
 
 const documents: DocumentOut[] = [
   {
@@ -57,7 +68,7 @@ afterEach(() => {
 describe('DocumentTable', () => {
   it('renders a row per document with its name', async () => {
     listDocuments.mockResolvedValue(documents)
-    render(<DocumentTable />)
+    renderTable()
 
     await waitFor(() => expect(screen.getByText('DoDD 5000.01')).toBeInTheDocument())
     expect(screen.getAllByRole('row')).toHaveLength(documents.length + 1) // + header
@@ -67,7 +78,7 @@ describe('DocumentTable', () => {
     // ADR-006: a document's standing among others is read off the edges, not a
     // stored label. public-law-116-92 is cited once; dodd-5000-01 by nobody.
     listDocuments.mockResolvedValue(documents)
-    render(<DocumentTable />)
+    renderTable()
 
     const cited = await screen.findByRole('row', { name: /^Public Law 116-92/ })
     expect(cited).toHaveTextContent('1')
@@ -77,7 +88,7 @@ describe('DocumentTable', () => {
 
   it('still marks which documents are external', async () => {
     listDocuments.mockResolvedValue(documents)
-    render(<DocumentTable />)
+    renderTable()
 
     // Anchored: the DoDD 5000.01 row also names Public Law 116-92, in its
     // References cell. Only the external document's own row starts with it.
@@ -88,7 +99,7 @@ describe('DocumentTable', () => {
 
   it('resolves reference slugs to document names', async () => {
     listDocuments.mockResolvedValue(documents)
-    render(<DocumentTable />)
+    renderTable()
 
     const row = await screen.findByRole('row', { name: /DoDD 5000.01/ })
     expect(row).toHaveTextContent('Public Law 116-92')
@@ -97,7 +108,7 @@ describe('DocumentTable', () => {
 
   it('filters by name as the user types', async () => {
     listDocuments.mockResolvedValue(documents)
-    render(<DocumentTable />)
+    renderTable()
     await waitFor(() => screen.getByText('DoDD 5000.01'))
 
     await userEvent.type(screen.getByRole('searchbox'), 'DoDI')
@@ -108,7 +119,7 @@ describe('DocumentTable', () => {
 
   it('filters case-insensitively', async () => {
     listDocuments.mockResolvedValue(documents)
-    render(<DocumentTable />)
+    renderTable()
     await waitFor(() => screen.getByText('DoDD 5000.01'))
 
     await userEvent.type(screen.getByRole('searchbox'), 'public law')
@@ -118,7 +129,7 @@ describe('DocumentTable', () => {
 
   it('says so when a filter matches nothing', async () => {
     listDocuments.mockResolvedValue(documents)
-    render(<DocumentTable />)
+    renderTable()
     await waitFor(() => screen.getByText('DoDD 5000.01'))
 
     await userEvent.type(screen.getByRole('searchbox'), 'zzzz')
@@ -128,7 +139,7 @@ describe('DocumentTable', () => {
 
   it('surfaces a fetch failure', async () => {
     listDocuments.mockRejectedValue(new Error('backend down'))
-    render(<DocumentTable />)
+    renderTable()
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend down/i)
   })
@@ -138,7 +149,7 @@ describe('DocumentTable when nothing has been ingested', () => {
   it('says the corpus is empty rather than showing a table of nothing', async () => {
     // ADR-019: "Showing 0 of 0" over empty headers reads as a broken fetch.
     listDocuments.mockResolvedValue([])
-    render(<DocumentTable />)
+    renderTable()
 
     expect(await screen.findByRole('status')).toHaveTextContent(
       /no documents have been ingested yet/i,
@@ -148,7 +159,7 @@ describe('DocumentTable when nothing has been ingested', () => {
 
   it('does not offer a filter over an empty corpus', async () => {
     listDocuments.mockResolvedValue([])
-    render(<DocumentTable />)
+    renderTable()
     await screen.findByRole('status')
 
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
@@ -172,7 +183,7 @@ describe('DocumentTable — creating a document', () => {
       referenced_by: [],
       version_count: 0,
     })
-    render(<DocumentTable />)
+    renderTable()
     await screen.findByRole('table')
 
     await userEvent.type(screen.getByLabelText(/name of the document to add/i), 'DoDI 5000.02')
@@ -184,7 +195,7 @@ describe('DocumentTable — creating a document', () => {
 
   it('refuses to submit a blank name rather than asking the API to', async () => {
     listDocuments.mockResolvedValue(documents)
-    render(<DocumentTable />)
+    renderTable()
     await screen.findByRole('table')
 
     await userEvent.click(screen.getByRole('button', { name: /add document/i }))
@@ -195,7 +206,7 @@ describe('DocumentTable — creating a document', () => {
   it('reports a failed create instead of pretending it worked', async () => {
     listDocuments.mockResolvedValue(documents)
     createDocument.mockRejectedValue(new Error('name already exists'))
-    render(<DocumentTable />)
+    renderTable()
     await screen.findByRole('table')
 
     await userEvent.type(screen.getByLabelText(/name of the document to add/i), 'DoDD 5000.01')
@@ -208,7 +219,7 @@ describe('DocumentTable — creating a document', () => {
 describe('DocumentTable — deleting a document', () => {
   it('asks before deleting, and names what it will delete', async () => {
     listDocuments.mockResolvedValue(documents)
-    render(<DocumentTable />)
+    renderTable()
     await screen.findByRole('table')
 
     await userEvent.click(screen.getByRole('button', { name: /delete DoDD 5000\.01/i }))
@@ -220,7 +231,7 @@ describe('DocumentTable — deleting a document', () => {
   it('deletes on confirmation and drops the row', async () => {
     listDocuments.mockResolvedValue(documents)
     deleteDocument.mockResolvedValue(undefined)
-    render(<DocumentTable />)
+    renderTable()
     await screen.findByRole('table')
 
     await userEvent.click(screen.getByRole('button', { name: /delete DoDD 5000\.01/i }))
@@ -234,7 +245,7 @@ describe('DocumentTable — deleting a document', () => {
 
   it('keeps the row when the delete is cancelled', async () => {
     listDocuments.mockResolvedValue(documents)
-    render(<DocumentTable />)
+    renderTable()
     await screen.findByRole('table')
 
     await userEvent.click(screen.getByRole('button', { name: /delete DoDD 5000\.01/i }))
@@ -249,7 +260,7 @@ describe('DocumentTable — cross-referencing', () => {
   it('adds a reference between two documents', async () => {
     listDocuments.mockResolvedValue(documents)
     addReference.mockResolvedValue(undefined)
-    render(<DocumentTable />)
+    renderTable()
     await screen.findByRole('table')
 
     await userEvent.click(screen.getByRole('button', { name: /references of DoDI 3115\.14/i }))
@@ -264,7 +275,7 @@ describe('DocumentTable — cross-referencing', () => {
 
   it('does not offer a document a reference to itself', async () => {
     listDocuments.mockResolvedValue(documents)
-    render(<DocumentTable />)
+    renderTable()
     await screen.findByRole('table')
 
     await userEvent.click(screen.getByRole('button', { name: /references of DoDI 3115\.14/i }))
@@ -276,7 +287,7 @@ describe('DocumentTable — cross-referencing', () => {
   it('removes an existing reference', async () => {
     listDocuments.mockResolvedValue(documents)
     removeReference.mockResolvedValue(undefined)
-    render(<DocumentTable />)
+    renderTable()
     await screen.findByRole('table')
 
     await userEvent.click(screen.getByRole('button', { name: /references of DoDD 5000\.01/i }))

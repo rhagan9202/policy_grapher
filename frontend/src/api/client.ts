@@ -1,5 +1,6 @@
 import type {
   Answer,
+  ChunkOut,
   DocumentIn,
   DocumentOut,
   DocumentVersionOut,
@@ -116,6 +117,18 @@ export function runQuery(cypher: string): Promise<QueryResult> {
     method: 'POST',
     body: JSON.stringify({ cypher }),
   })
+}
+
+// The route has served ordered text with page and section_path since ADR-012 and
+// had no client function at all until STORY-017 — the only route in the API that
+// nothing here could call. `versionId` omitted means the newest edition, which the
+// API resolves by the same ordering `link_supersession` uses; the client must not
+// try to work that out for itself.
+export function listChunks(slug: string, versionId?: string): Promise<ChunkOut[]> {
+  const path = `/documents/${encodeURIComponent(slug)}/chunks`
+  return request<ChunkOut[]>(
+    versionId ? `${path}?version_id=${encodeURIComponent(versionId)}` : path,
+  )
 }
 
 export function listVersions(slug: string): Promise<DocumentVersionOut[]> {

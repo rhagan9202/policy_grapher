@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
 import Ask from './views/Ask'
+import DocumentDetail from './views/DocumentDetail'
 import DocumentTable from './views/DocumentTable'
 import GraphExplorer from './views/GraphExplorer'
 import Ingest from './views/Ingest'
@@ -38,6 +39,10 @@ export default function App() {
         {ROUTES.map((route) => (
           <Route key={route.to} path={route.to} element={route.element} />
         ))}
+        {/* Not in ROUTES: ROUTES is the navigation, and App.test.tsx asserts one
+            link per entry. A document's detail page is reached from its row, not
+            from a nav item that would need a document to point at. */}
+        <Route path="/documents/:slug" element={<DocumentDetail />} />
       </Routes>
     </>
   )

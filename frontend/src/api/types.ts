@@ -141,3 +141,11 @@ export interface Answer {
   citations: Citation[]
   template_used: string
 }
+
+export interface ChunkOut {
+  chunk_id: string
+  text: string
+  page: number
+  section_path: string[]
+  ordinal: number
+}
