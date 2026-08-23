@@ -2,6 +2,7 @@ import { NavLink, Route, Routes } from 'react-router-dom'
 import Ask from './views/Ask'
 import DocumentTable from './views/DocumentTable'
 import GraphExplorer from './views/GraphExplorer'
+import Ingest from './views/Ingest'
 import Review from './views/Review'
 import Triage from './views/Triage'
 
@@ -11,6 +12,7 @@ import Triage from './views/Triage'
 const ROUTES = [
   { to: '/', label: 'Graph', element: <GraphExplorer /> },
   { to: '/documents', label: 'Documents', element: <DocumentTable /> },
+  { to: '/ingest', label: 'Ingest', element: <Ingest /> },
   { to: '/triage', label: 'Triage', element: <Triage /> },
   { to: '/review', label: 'Review', element: <Review /> },
   { to: '/ask', label: 'Ask', element: <Ask /> },

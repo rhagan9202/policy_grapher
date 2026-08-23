@@ -17,12 +17,30 @@ export interface GraphOut {
   truncated: boolean
 }
 
-export interface IngestResult {
+// `POST /ingest` returns one of two shapes and says which in `source`. The type
+// modelled only the manifest one until STORY-043, so a PDF ingest resolved to an
+// object the compiler believed had no `document` and no `references_unattributed`.
+// Nothing caught it because nothing called `ingest()`.
+export interface ManifestIngestResult {
+  source: 'manifest'
   nodes_created: number
   relationships_created: number
   self_references_skipped: number
   suspected_duplicates: string[][]
 }
+
+export interface DocumentIngestResult {
+  source: 'document'
+  format: string
+  document: { slug: string; name: string }
+  nodes_created: number
+  relationships_created: number
+  references_attributed: number
+  references_unattributed: string[]
+  self_references_skipped: number
+}
+
+export type IngestResult = ManifestIngestResult | DocumentIngestResult
 
 export interface DocumentIn {
   name: string
