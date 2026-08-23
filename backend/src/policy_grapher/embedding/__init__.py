@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from neo4j import Driver, RoutingControl
 
+from policy_grapher.embedding.local import MissingEmbeddingDependency
 from policy_grapher.embedding.schema import (
     INDEX_NAME,
     EmbeddingModelMismatch,
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 __all__ = [
     "Embedder",
     "EmbeddingModelMismatch",
+    "MissingEmbeddingDependency",
     "build_embedder",
     "embed_chunks",
     "ensure_vector_index",
@@ -70,12 +72,19 @@ SET c.embedding = row.embedding,
 
 def build_embedder(settings: Settings) -> Embedder:
     """Resolve the configured adapter. Unknown names fail at startup, not mid-run."""
-    from policy_grapher.embedding.local import LocalEmbedder
+    from policy_grapher.embedding.local import (
+        LocalEmbedder,
+        require_sentence_transformers,
+    )
     from policy_grapher.embedding.null import NullEmbedder
 
     if settings.embedder_adapter == "null":
         return NullEmbedder()
     if settings.embedder_adapter == "local":
+        # Absence of the optional library is checked here, not on first use: this is
+        # the function `lifespan` calls, so a misconfigured container refuses to start
+        # rather than starting clean and failing inside a queued rebuild (STORY-052).
+        require_sentence_transformers()
         return LocalEmbedder(model=settings.embedder_model)
     raise ValueError(f"unknown embedder adapter: {settings.embedder_adapter!r}")
 

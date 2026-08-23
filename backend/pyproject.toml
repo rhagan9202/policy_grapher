@@ -11,13 +11,26 @@ dependencies = [
     "neo4j>=6.2",
     "pypdf>=6.0",
     "uvicorn[standard]>=0.52",
-    "sentence-transformers>=5.0",
     "rq>=2.11",
     "redis>=8.1",
 ]
 
+[project.optional-dependencies]
+# Out of the default dependencies since STORY-052. sentence-transformers pulls
+# torch, transformers and scikit-learn — about 4.5GB of virtualenv, and 16.2GB of
+# backend image once the build layers are counted — for a library the default
+# EMBEDDER_ADAPTER=null never loads. Configuring `local` without it raises
+# MissingEmbeddingDependency at startup, naming this extra. See ADR-021.
+local-embeddings = [
+    "sentence-transformers>=5.0",
+]
+
 [dependency-groups]
 dev = [
+    # The extra, not a second copy of its contents: a developer's suite exercises
+    # the real model in `local_or_skip`, and duplicating the floor here is exactly
+    # the two-homes-for-one-fact problem that lets versions drift apart.
+    "policy-grapher[local-embeddings]",
     "pytest>=9.1",
     "pytest-asyncio>=1.0",
     "testcontainers[neo4j,redis]>=4.0",

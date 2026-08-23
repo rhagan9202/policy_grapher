@@ -7,6 +7,7 @@ from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.config import Settings
 from policy_grapher.embedding import build_embedder, embed_chunks, ensure_vector_index
+from policy_grapher.embedding.local import MissingEmbeddingDependency
 from policy_grapher.embedding.null import NullEmbedder
 from policy_grapher.embedding.schema import EmbeddingModelMismatch
 
@@ -217,3 +218,43 @@ def test_an_index_left_behind_by_a_reset_is_rebuilt_not_inherited(
         database_=database,
     )
     assert (marker[0]["model"], marker[0]["dims"]) == ("fake-wide", 16)
+
+
+# --- the dependency that the default image does not carry ---------------------
+
+
+def test_a_local_embedder_without_its_library_names_the_extra_that_supplies_it(
+    monkeypatch,
+):
+    """The failure STORY-052 creates, and the message that makes it survivable.
+
+    `sentence-transformers` left the default dependencies so the image could stop
+    carrying torch. That is only safe if configuring `local` without it reports
+    something a human can act on: the lazy import means the naive failure is a
+    ModuleNotFoundError raised inside `encode`, on the first rebuild, long after
+    startup said the configuration was fine.
+    """
+    from policy_grapher.embedding import local as local_module
+
+    monkeypatch.setattr(local_module, "find_spec", lambda name: None)
+
+    with pytest.raises(MissingEmbeddingDependency) as caught:
+        build_embedder(Settings(_env_file=None, embedder_adapter="local"))
+
+    message = str(caught.value)
+    assert "local-embeddings" in message, "the message must name the extra to install"
+    assert "EMBEDDER_ADAPTER" in message, "and the setting that asked for it"
+
+
+def test_the_missing_library_is_reported_at_startup_not_at_first_use(monkeypatch):
+    """`build_embedder` is what `lifespan` calls, so it is where this has to fail.
+
+    Deferring the check to `embed()` would let a misconfigured container start
+    clean and fail hours later inside a queued rebuild.
+    """
+    from policy_grapher.embedding import local as local_module
+
+    monkeypatch.setattr(local_module, "find_spec", lambda name: None)
+
+    with pytest.raises(MissingEmbeddingDependency):
+        build_embedder(Settings(_env_file=None, embedder_adapter="local"))
