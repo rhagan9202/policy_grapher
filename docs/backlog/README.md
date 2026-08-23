@@ -27,8 +27,12 @@ work from entering a sprint and half-finished work from leaving one.
 - [ ] Runs under `docker compose up` from a clean checkout
 
 The last gate is the only deployment target that exists today: DI-1 ships to local
-developer machines via Docker Compose. There is no hosted environment and no CI.
-**TODO:** revisit this line if either appears.
+developer machines via Docker Compose. There is still no hosted environment.
+
+There *is* CI as of sprint 4 (STORY-051): both suites run on every push and pull request, so
+"tests written and passing" is now checked rather than attested. It does not cover the last
+gate — nothing automated brings the stack up — so that one remains a human step. See
+[ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md).
 
 ## Estimation
 

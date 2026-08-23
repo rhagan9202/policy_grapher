@@ -1,0 +1,92 @@
+# STORY-051. Until this file existed, every check in the project depended on a
+# person choosing to run `uv run pytest` and `npm test`.
+#
+# The shape here is not accidental. See ADR-022.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Least privilege: nothing here writes to the repository.
+permissions:
+  contents: read
+
+# A second push to the same branch makes the first run's answer irrelevant.
+# Cancelling it is not a speedup so much as a way of keeping the queue honest —
+# the run people wait on should be the one describing the current commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (539 tests, ruff among them)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          # Pinned for the same reason backend/Dockerfile pins it: `latest` makes
+          # the build depend on when it last ran.
+          version: "0.12.3"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      # The full developer environment, not `--no-dev`. `dev` pulls the
+      # `local-embeddings` extra and therefore torch, which is heavy and
+      # deliberate: two tests can only be demonstrated by a real model, and
+      # ADR-021 made that library optional for the *image*, not for the suite.
+      # Without it those two skip, and a skip nobody reads is how a check dies.
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # Split from the integration run below so a failure says which half broke
+      # without anyone opening the log. Lint rides along here as test_lint.py —
+      # this subset needs no container, so it is also the fastest possible "is
+      # the tree even sane" answer.
+      - name: Unit tests and lint
+        run: uv run pytest -m "not integration" -rs
+
+      # The load-bearing step. Selecting by marker means pytest exits 5 — "no
+      # tests ran" — if the marker ever selects nothing, so this step fails
+      # rather than passes when the integration suite goes missing. Testcontainers
+      # starts real Neo4j and Redis against the Docker daemon on the runner.
+      # `-rs` prints skip reasons, because a silent skip here is the exact
+      # failure this job exists to prevent.
+      - name: Integration tests (real Neo4j and Redis)
+        run: uv run pytest -m integration -rs
+
+  frontend:
+    name: Frontend (eslint, tsc, vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches frontend/Dockerfile, so CI and the container agree on the
+          # runtime rather than differing by whatever the runner ships.
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `ci` rather than `install`: it installs the lockfile exactly and fails if
+      # package.json and package-lock.json disagree, which `install` would
+      # silently reconcile.
+      - name: Install dependencies
+        run: npm ci
+
+      # One command, three gates, each gating the next: eslint --max-warnings=0,
+      # then tsc -b, then vitest. STORY-032 made the type check part of `npm test`
+      # precisely so it could not be skipped independently.
+      - name: Lint, typecheck and test
+        run: npm test
