@@ -341,6 +341,17 @@ consequences are easy to miss and both are guarded:
   start, and since `dev` now depends on the extra, downloads torch with them. `tests/test_image.py`
   guards the line. See [ADR-021](adr/ADR-021-the-default-image-carries-no-model-runtime.md).
 
+**Model provenance is enforced for both kinds of weights, and by tests that can see the
+deployment.** [ADR-020](adr/ADR-020-model-weights-come-from-us-organisations.md) constrains
+extraction weights to US-published models; [ADR-024](adr/ADR-024-embedding-weights-come-from-us-organisations-too.md)
+extends the same rule to embedding weights, which ADR-020 had explicitly left open — the default
+is now `Snowflake/snowflake-arctic-embed-s` (Snowflake Inc.), replacing a model published by UKP
+Lab at TU Darmstadt. Both constraints are asserted against `config.py` *and* against
+`docker-compose.yml`, because a setting has two homes and for the whole life of ADR-020 only one
+of them was checked: the test read a developer's shell while every container ran `qwen3:8b`.
+`tests/test_config_composition.py` now fails when any compose default disagrees with its
+application default, unless the difference is listed with a reason (STORY-060).
+
 **A model server is available, and off by default.** `ollama` and a one-shot `ollama-pull`
 sit behind the `models` compose profile, so `docker compose up` pulls neither the 8.4GB image
 nor the 4.9GB model — the default `EXTRACTOR_ADAPTER=null` needs neither. Ollama publishes on

@@ -39,6 +39,18 @@ US_ORIGIN_MODELS = frozenset(
     }
 )
 
+# The same constraint, applied to the other kind of weights this system loads.
+# ADR-020 governed extraction only and said so, naming the embedding default as "a
+# related gap this ADR does not close" and "the first thing to check if this
+# constraint is ever audited". STORY-060 is that audit. See ADR-024.
+US_ORIGIN_EMBEDDING_MODELS = frozenset(
+    {
+        "Snowflake/snowflake-arctic-embed-s",  # Snowflake Inc.
+        "Snowflake/snowflake-arctic-embed-m",  # Snowflake Inc.
+        "nomic-ai/nomic-embed-text-v1.5",  # Nomic AI
+    }
+)
+
 # Per adapter. The local model is for iteration speed; a hosted adapter must
 # clear the production bar before it is promoted.
 #
@@ -216,6 +228,21 @@ def test_the_default_extraction_model_is_us_origin():
     assert Settings(_env_file=None).extractor_model in US_ORIGIN_MODELS, (
         f"{Settings(_env_file=None).extractor_model!r} is not in the US-origin set "
         f"{sorted(US_ORIGIN_MODELS)}"
+    )
+
+
+def test_the_default_embedding_model_is_us_origin():
+    """ADR-024, extending ADR-020 to the weights that produce vectors.
+
+    `all-MiniLM-L6-v2` is published by UKP Lab at TU Darmstadt and was the default
+    until STORY-060's audit. ADR-020 named it as the gap to check first.
+    """
+    model = Settings(_env_file=None).embedder_model
+    assert model in US_ORIGIN_EMBEDDING_MODELS, (
+        f"{model!r} is not in the US-origin embedding set "
+        f"{sorted(US_ORIGIN_EMBEDDING_MODELS)}. Changing it after a corpus is "
+        "embedded means re-embedding that corpus (ADR-016), so this is cheap to get "
+        "right and expensive to get wrong."
     )
 
 

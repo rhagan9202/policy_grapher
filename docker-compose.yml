@@ -74,7 +74,7 @@ services:
       # ~7 tokens/second exceeded the old hardcoded 120s and killed the run (STORY-058).
       EXTRACTOR_TIMEOUT_SECONDS: ${EXTRACTOR_TIMEOUT_SECONDS:-600}
       EMBEDDER_ADAPTER: ${EMBEDDER_ADAPTER:-null}
-      EMBEDDER_MODEL: ${EMBEDDER_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      EMBEDDER_MODEL: ${EMBEDDER_MODEL:-Snowflake/snowflake-arctic-embed-s}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     volumes:
       # Lowercase :z (shared label), not :Z (private label): this path now has two
@@ -150,7 +150,7 @@ services:
       # ~7 tokens/second exceeded the old hardcoded 120s and killed the run (STORY-058).
       EXTRACTOR_TIMEOUT_SECONDS: ${EXTRACTOR_TIMEOUT_SECONDS:-600}
       EMBEDDER_ADAPTER: ${EMBEDDER_ADAPTER:-null}
-      EMBEDDER_MODEL: ${EMBEDDER_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      EMBEDDER_MODEL: ${EMBEDDER_MODEL:-Snowflake/snowflake-arctic-embed-s}
     volumes:
       # Load-bearing, not incidental: rebuild_derived re-reads the source PDF
       # from `file:///data/samples/...`, a path inside a container. The route's

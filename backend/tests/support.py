@@ -23,7 +23,7 @@ class FakeEmbedder:
         ]
 
 
-LOCAL_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+LOCAL_MODEL = "Snowflake/snowflake-arctic-embed-s"
 
 
 def local_or_skip():

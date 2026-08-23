@@ -70,3 +70,38 @@ def test_every_job_checks_the_repository_out_before_running_anything(workflow):
         assert any(u.startswith("actions/checkout") for u in uses), (
             f"job {name!r} runs without checking the repository out"
         )
+
+
+def test_the_workflow_proves_the_stack_builds(workflow):
+    """STORY-059. The last Definition-of-Done gate nothing automated covered.
+
+    "Runs under `docker compose up` from a clean checkout" was verified by a person
+    running one command, in a sprint that changed the backend image, both `uv sync`
+    stages and the build arguments for two services. Building through compose rather
+    than `docker build` is the point: the build arguments and the two services that
+    share the image are declared in compose and nowhere else.
+    """
+    commands = _run_commands(workflow["jobs"]["compose"])
+
+    assert any("docker compose build" in c for c in commands), (
+        "no step builds the images through compose"
+    )
+
+
+def test_the_compose_build_covers_every_service_that_is_built(workflow):
+    """A job that builds one of three images proves a third of what it claims."""
+    built = {
+        name
+        for name, service in yaml.safe_load(
+            (REPO_ROOT / "docker-compose.yml").read_text()
+        )["services"].items()
+        if "build" in service
+    }
+    commands = " ".join(_run_commands(workflow["jobs"]["compose"]))
+
+    missing = sorted(s for s in built if s not in commands)
+    assert not missing, (
+        f"docker-compose.yml builds {sorted(built)} but the compose job never names "
+        f"{missing}. Either build them or drop them from compose."
+    )
+

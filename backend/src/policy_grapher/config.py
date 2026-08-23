@@ -63,7 +63,13 @@ class Settings(BaseSettings):
     # an option (ADR-016). `embedder_model` is recorded on the vector index, and
     # a later run under a different one is refused rather than silently mixed.
     embedder_adapter: str = "null"          # "null" | "local"
-    embedder_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # Snowflake Inc. (US), Apache 2.0, 384 dimensions — the same index width as the
+    # `all-MiniLM-L6-v2` it replaces, which was published by UKP Lab at TU Darmstadt
+    # and therefore never met ADR-020's provenance bar. ADR-020 governed extraction
+    # only and named this as the gap to check first; STORY-060's audit checked it.
+    # Changed while nothing was embedded, which is the only moment it is free
+    # (ADR-016 makes a later change a corpus re-embed). See ADR-024.
+    embedder_model: str = "Snowflake/snowflake-arctic-embed-s"
 
     # The rebuild queue (STORY-048). Unreachable Redis fails only the rebuild
     # routes — the connection is lazy and every other route talks to Neo4j.
