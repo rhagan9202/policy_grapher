@@ -1,11 +1,19 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentOut } from '../api/types'
 
 const listDocuments = vi.fn()
+const createDocument = vi.fn()
+const deleteDocument = vi.fn()
+const addReference = vi.fn()
+const removeReference = vi.fn()
 vi.mock('../api/client', () => ({
   listDocuments: () => listDocuments(),
+  createDocument: (document: { name: string }) => createDocument(document),
+  deleteDocument: (slug: string) => deleteDocument(slug),
+  addReference: (slug: string, target: string) => addReference(slug, target),
+  removeReference: (slug: string, target: string) => removeReference(slug, target),
   ApiError: class extends Error {},
 }))
 
@@ -38,7 +46,13 @@ const documents: DocumentOut[] = [
   },
 ]
 
-afterEach(() => listDocuments.mockReset())
+afterEach(() => {
+  listDocuments.mockReset()
+  createDocument.mockReset()
+  deleteDocument.mockReset()
+  addReference.mockReset()
+  removeReference.mockReset()
+})
 
 describe('DocumentTable', () => {
   it('renders a row per document with its name', async () => {
@@ -138,5 +152,138 @@ describe('DocumentTable when nothing has been ingested', () => {
     await screen.findByRole('status')
 
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+  })
+})
+
+// --- STORY-044: corpus editing ------------------------------------------------
+//
+// createDocument, deleteDocument, addReference and removeReference have been built,
+// tested and unreachable since STORY-026. The 2026-08-21 audit counted them among
+// nine client functions with no UI caller. These tests are what makes them callable.
+
+describe('DocumentTable — creating a document', () => {
+  it('creates a document and shows it without a reload', async () => {
+    listDocuments.mockResolvedValue(documents)
+    createDocument.mockResolvedValue({
+      slug: 'dodi-5000-02',
+      name: 'DoDI 5000.02',
+      is_external: false,
+      references: [],
+      referenced_by: [],
+      version_count: 0,
+    })
+    render(<DocumentTable />)
+    await screen.findByRole('table')
+
+    await userEvent.type(screen.getByLabelText(/name of the document to add/i), 'DoDI 5000.02')
+    await userEvent.click(screen.getByRole('button', { name: /add document/i }))
+
+    expect(createDocument).toHaveBeenCalledWith({ name: 'DoDI 5000.02' })
+    expect(await screen.findByRole('cell', { name: 'DoDI 5000.02' })).toBeInTheDocument()
+  })
+
+  it('refuses to submit a blank name rather than asking the API to', async () => {
+    listDocuments.mockResolvedValue(documents)
+    render(<DocumentTable />)
+    await screen.findByRole('table')
+
+    await userEvent.click(screen.getByRole('button', { name: /add document/i }))
+
+    expect(createDocument).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed create instead of pretending it worked', async () => {
+    listDocuments.mockResolvedValue(documents)
+    createDocument.mockRejectedValue(new Error('name already exists'))
+    render(<DocumentTable />)
+    await screen.findByRole('table')
+
+    await userEvent.type(screen.getByLabelText(/name of the document to add/i), 'DoDD 5000.01')
+    await userEvent.click(screen.getByRole('button', { name: /add document/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/name already exists/i)
+  })
+})
+
+describe('DocumentTable — deleting a document', () => {
+  it('asks before deleting, and names what it will delete', async () => {
+    listDocuments.mockResolvedValue(documents)
+    render(<DocumentTable />)
+    await screen.findByRole('table')
+
+    await userEvent.click(screen.getByRole('button', { name: /delete DoDD 5000\.01/i }))
+
+    expect(deleteDocument).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toHaveTextContent(/DoDD 5000\.01/)
+  })
+
+  it('deletes on confirmation and drops the row', async () => {
+    listDocuments.mockResolvedValue(documents)
+    deleteDocument.mockResolvedValue(undefined)
+    render(<DocumentTable />)
+    await screen.findByRole('table')
+
+    await userEvent.click(screen.getByRole('button', { name: /delete DoDD 5000\.01/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+
+    expect(deleteDocument).toHaveBeenCalledWith('dodd-5000-01')
+    await waitFor(() =>
+      expect(screen.queryByRole('cell', { name: 'DoDD 5000.01' })).not.toBeInTheDocument(),
+    )
+  })
+
+  it('keeps the row when the delete is cancelled', async () => {
+    listDocuments.mockResolvedValue(documents)
+    render(<DocumentTable />)
+    await screen.findByRole('table')
+
+    await userEvent.click(screen.getByRole('button', { name: /delete DoDD 5000\.01/i }))
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+    expect(deleteDocument).not.toHaveBeenCalled()
+    expect(screen.getByRole('cell', { name: 'DoDD 5000.01' })).toBeInTheDocument()
+  })
+})
+
+describe('DocumentTable — cross-referencing', () => {
+  it('adds a reference between two documents', async () => {
+    listDocuments.mockResolvedValue(documents)
+    addReference.mockResolvedValue(undefined)
+    render(<DocumentTable />)
+    await screen.findByRole('table')
+
+    await userEvent.click(screen.getByRole('button', { name: /references of DoDI 3115\.14/i }))
+    await userEvent.selectOptions(
+      screen.getByLabelText(/document DoDI 3115\.14 should reference/i),
+      'dodd-5000-01',
+    )
+    await userEvent.click(screen.getByRole('button', { name: /^add reference$/i }))
+
+    expect(addReference).toHaveBeenCalledWith('dodi-3115-14', 'dodd-5000-01')
+  })
+
+  it('does not offer a document a reference to itself', async () => {
+    listDocuments.mockResolvedValue(documents)
+    render(<DocumentTable />)
+    await screen.findByRole('table')
+
+    await userEvent.click(screen.getByRole('button', { name: /references of DoDI 3115\.14/i }))
+    const picker = screen.getByLabelText(/document DoDI 3115\.14 should reference/i)
+
+    expect(within(picker).queryByRole('option', { name: 'DoDI 3115.14' })).not.toBeInTheDocument()
+  })
+
+  it('removes an existing reference', async () => {
+    listDocuments.mockResolvedValue(documents)
+    removeReference.mockResolvedValue(undefined)
+    render(<DocumentTable />)
+    await screen.findByRole('table')
+
+    await userEvent.click(screen.getByRole('button', { name: /references of DoDD 5000\.01/i }))
+    await userEvent.click(
+      screen.getByRole('button', { name: /remove reference to Public Law 116-92/i }),
+    )
+
+    expect(removeReference).toHaveBeenCalledWith('dodd-5000-01', 'public-law-116-92')
   })
 })
