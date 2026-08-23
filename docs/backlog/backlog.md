@@ -31,6 +31,19 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
+**Ready is empty.** Sprint 5 delivered every item in it, and the
+[tech-debt surge](../planning/roadmap.md#the-tech-debt-surge) is over. Nothing is refined enough
+to pick up: sprint 6's planning session has to start from [Refining](#refining) and
+[Ideas](#ideas), and the [Definition of Ready](README.md#definition-of-ready) has to be met
+before anything moves. That is a real state, not an oversight — three sprints of debt work
+consumed a backlog that was written for it.
+
+Two things sprint 5 found and closed that were never in it: **STORY-061**, because sprint 4's
+rebuild routes had no client function and so the app could not build its own derived layer; and
+the **embedding model's provenance**, which [ADR-020](../specs/adr/ADR-020-model-weights-come-from-us-organisations.md)
+had named as the first thing to check if its constraint were ever audited, and STORY-060 was
+that audit ([ADR-024](../specs/adr/ADR-024-embedding-weights-come-from-us-organisations-too.md)).
+
 **Sprint 4 closed on 2026-08-22**, but only after its Definition-of-Done walkthrough found two
 defects and both were fixed rather than filed — STORY-057 and STORY-058
 ([ADR-023](../specs/adr/ADR-023-a-rejected-item-costs-its-chunk-not-the-run.md)). With those in,
@@ -40,14 +53,6 @@ row** through product actions alone; the sequence is in the
 
 | ID | Item | Epic | Est. | Sprint | Notes |
 | --- | --- | --- | --- | --- | --- |
-| STORY-055 | Extraction recognises the modality this corpus actually uses | — | M | 5 | `Modality` is closed to `SHALL \| MUST \| SHOULD \| MAY`. Counted across the seven sample PDFs, **`will` appears 458 times against `shall` 93** — and it is generational, not incidental: the 2003 edition of DoDD 5000.01 uses `shall` 92 times and `must` never, while its 2020 re-issue uses `shall` zero times and `will` 44. DoD's plain-language drafting replaced the directive `shall` with `will`, so on five of the seven samples an extractor obeying the enum can only report a minority of the document's duties. ADR-013 records this as a known limitation and names widening the enum as the first thing to consider next. Needs its own ratchet leg, and a superseding ADR |
-| STORY-059 | The stack coming up is proved by a check, not by a person | — | S | 5 | "Runs under `docker compose up` from a clean checkout" is the last [Definition of Done](README.md#definition-of-done) gate nothing automated covers — deliberately left out of STORY-051 and named as follow-up in [ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md). More urgent than it was: sprint 4 changed the backend image, both Dockerfile stages, and the compose build arguments for two services, and a person running one command is all that proved any of it |
-| STORY-060 | No decision is enforced against a default the deployment overrides | — | S | 5 | Sprint 4 found [ADR-020](../specs/adr/ADR-020-model-weights-come-from-us-organisations.md) enforced by a test asserting on `Settings(_env_file=None)`, which resolves a developer's shell, while `docker-compose.yml` supplied `qwen3:8b` to every container. The test passed everywhere it ran; the deployed configuration violated the ADR everywhere it ran. That instance is fixed. **Nobody has checked the other settings** — every `Settings` field compose overrides is a place the same gap can hide, and the retrospective asked for the sweep |
-| STORY-017 | A user can review the extracted text and metadata of any ingested document | — | M | 5 | The "corpus management" MVP item. **No longer blocked:** the decision it was waiting on is made and built — [ADR-012](../specs/adr/ADR-012-chunks-follow-sections.md) stores text as `:Chunk` nodes and `GET /documents/{slug}/chunks` serves them, ordered, with `page` and `section_path`. What is missing is only the front end: `api/client.ts` has no function for that route at all, so nothing in the UI can read a document's text — confirmed by the 2026-08-21 UI audit. Needs a `listChunks` client function and a document-detail view; `GET /documents/{slug}/versions` (already wired for STORY-040) gives the edition picker |
-| STORY-042 | A reviewer can work through the whole queue, not just its head | — | M | 5 | `Review.tsx` fetches the queue but renders `queue[0]` only, with Approve and Reject as the only actions. A proposal the reviewer cannot judge — needing a colleague, or a document they do not have — blocks every proposal behind it, because the only way to move on is to record a verdict, and [ADR-014](../specs/adr/ADR-014-proposals-and-decisions-are-different-things.md) makes a verdict permanent and replayed on every rebuild. Wants a skip (client-side, recording nothing) or a list view. Note that "skip" must not become a third verdict: the decision vocabulary is closed on purpose |
-| STORY-043 | A user can ingest a document from the UI | — | M | 5 | `POST /ingest` has existed since DI-1 and `api/client.ts` has exposed `ingest()` since then; nothing calls it. Loading the corpus is currently a `curl` command or the startup auto-ingest, which means the person the tool is for cannot add a document to it. One of nine client functions with no UI caller as of the 2026-08-21 audit (DI-1 shipped 2 of 11 used; DI-2 phase 6 reached 7 of 16) |
-| STORY-044 | A user can create, delete and cross-reference documents from the UI | — | L | 5 | `createDocument`, `deleteDocument`, `getDocument`, `addReference` and `removeReference` are all built, tested and unreachable — the API has supported corpus editing since STORY-026 and no screen offers it. Depends on [STORY-038](#refining) for `createDocument` to be transactional first, or the UI will expose the partial-write bug that story describes to real users |
-| STORY-046 | A user can empty the graph from the UI | — | S | 5 | `POST /reset` and the `reset()` client function are both built and unreachable. Destructive, so it needs a confirmation step and a clear statement of what it deletes — and note it does *not* clear the vector index, which `ensure_vector_index` rebuilds on the next embed precisely because [ADR-016](../specs/adr/ADR-016-embeddings-are-a-port.md) treats a reset-orphaned index as the failure it is |
 
 ## Refining
 
@@ -80,6 +85,15 @@ sprint reviews.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-061 | The derived layer can be built from the UI | 5 |
+| STORY-055 | Extraction recognises the modality this corpus actually uses | 5 |
+| STORY-046 | A user can empty the graph from the UI | 5 |
+| STORY-042 | A reviewer can work through the whole queue, not just its head | 5 |
+| STORY-017 | A user can review the extracted text and metadata of any ingested document | 5 |
+| STORY-043 | A user can ingest a document from the UI | 5 |
+| STORY-044 | A user can create, delete and cross-reference documents from the UI | 5 |
+| STORY-060 | No decision is enforced against a default the deployment overrides | 5 |
+| STORY-059 | The stack coming up is proved by a check, not by a person | 5 |
 | STORY-057 | One unparseable item does not destroy the whole rebuild | 4 |
 | STORY-058 | The extractor's per-call timeout is configurable, and long enough for CPU inference | 4 |
 | STORY-051 | Both suites run on a check nobody has to remember | 4 |

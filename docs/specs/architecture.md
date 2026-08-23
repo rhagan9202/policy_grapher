@@ -341,6 +341,21 @@ consequences are easy to miss and both are guarded:
   start, and since `dev` now depends on the extra, downloads torch with them. `tests/test_image.py`
   guards the line. See [ADR-021](adr/ADR-021-the-default-image-carries-no-model-runtime.md).
 
+**Every backend route has a UI caller.** Checked by comparing the routers' declared
+paths against `api/client.ts`, which is the check that matters — the earlier version compared
+`client.ts` against itself and therefore could not see a route the client had never modelled.
+That is how sprint 4's rebuild routes went a whole sprint with no way to reach them, and how
+`GET /documents/{slug}/chunks` went several. Nineteen routes, nineteen callers. `POST /query`
+is the single deliberate exception at the *screen* level: `runQuery` exists and
+[ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md) parks the screen on purpose.
+
+**The screens, and what each one is the only way to reach:** Graph, Documents (create, delete,
+cross-reference — STORY-044), a document's detail page (its text by edition, and the control
+that builds its derived layer — STORY-017 and STORY-061), Ingest, Triage, Review (with skip and
+previous, which record nothing — STORY-042), Ask, and Reset behind a typed confirmation
+(STORY-046). A banner appears when `/health` does not answer, so a stack that is down reads as
+one cause rather than as several broken screens.
+
 **Model provenance is enforced for both kinds of weights, and by tests that can see the
 deployment.** [ADR-020](adr/ADR-020-model-weights-come-from-us-organisations.md) constrains
 extraction weights to US-published models; [ADR-024](adr/ADR-024-embedding-weights-come-from-us-organisations-too.md)
