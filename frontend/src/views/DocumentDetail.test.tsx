@@ -258,4 +258,23 @@ describe('DocumentDetail — building the derived layer', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/did not match/i)
   })
+
+  it('says a run is queued rather than reporting "0 of 0"', async () => {
+    // Found by the sprint 5 walkthrough. A run reports chunks_total 0 until the
+    // worker picks it up, and "Building: 0 of 0 chunks" reads as a rebuild that
+    // found nothing to do rather than one that has not started.
+    loaded()
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'started',
+      chunks_done: 0, chunks_total: 0, counts: {}, error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent(/queued/i)
+    expect(status).not.toHaveTextContent(/0 of 0/)
+  })
 })

@@ -220,7 +220,12 @@ export default function DocumentDetail() {
 
           {run && (run.state === 'started' || run.state === 'queued') && (
             <p role="status">
-              Building: {run.chunks_done} of {run.chunks_total} chunks.
+              {run.chunks_total === 0
+                ? // A run reports no total until a worker picks it up. "0 of 0"
+                  // reads as a rebuild that found nothing to do, which is a
+                  // different and much worse thing than one that has not started.
+                  'Queued — waiting for a worker to pick this run up.'
+                : `Building: ${run.chunks_done} of ${run.chunks_total} chunks.`}
             </p>
           )}
 
