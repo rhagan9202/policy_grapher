@@ -6,10 +6,15 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 const getDocument = vi.fn()
 const listVersions = vi.fn()
 const listChunks = vi.fn()
+const startRebuild = vi.fn()
+const getRebuild = vi.fn()
 vi.mock('../api/client', () => ({
   getDocument: (slug: string) => getDocument(slug),
   listVersions: (slug: string) => listVersions(slug),
   listChunks: (slug: string, versionId?: string) => listChunks(slug, versionId),
+  startRebuild: (slug: string, versionId: string, candidates: string[]) =>
+    startRebuild(slug, versionId, candidates),
+  getRebuild: (runId: string) => getRebuild(runId),
   ApiError: class extends Error {},
 }))
 
@@ -72,6 +77,8 @@ afterEach(() => {
   getDocument.mockReset()
   listVersions.mockReset()
   listChunks.mockReset()
+  startRebuild.mockReset()
+  getRebuild.mockReset()
 })
 
 // STORY-017, the "corpus management" MVP item. `GET /documents/{slug}/chunks` has
@@ -147,5 +154,108 @@ describe('DocumentDetail', () => {
     renderAt('nope')
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/No document with slug/)
+  })
+})
+
+// --- STORY-061: the derived layer can be built from the UI ---------------------
+//
+// `POST .../rebuild` and `GET /rebuilds/{run_id}` shipped in sprint 4 and
+// `api/client.ts` modelled neither, so sprint 4's whole deliverable could only be
+// reached with curl. The same class of gap `listChunks` was, one sprint newer.
+
+describe('DocumentDetail — building the derived layer', () => {
+  function loaded() {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+  }
+
+  it('queues a rebuild for the edition being read', async () => {
+    loaded()
+    startRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [],
+    })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'started',
+      chunks_done: 0, chunks_total: 34, counts: {}, error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+
+    await userEvent.selectOptions(screen.getByLabelText(/edition/i), 'dodd-5000-01@2020-09-09')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    expect(startRebuild).toHaveBeenCalledWith('dodd-5000-01', 'dodd-5000-01@2020-09-09', [])
+  })
+
+  it('proposes against the editions the reader chose', async () => {
+    loaded()
+    startRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09',
+      candidate_version_ids: ['dodd-5000-01@2018-08-31'],
+    })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'started',
+      chunks_done: 0, chunks_total: 34, counts: {}, error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+
+    await userEvent.selectOptions(screen.getByLabelText(/edition/i), 'dodd-5000-01@2020-09-09')
+    await userEvent.click(screen.getByRole('checkbox', { name: /2018-08-31/ }))
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    expect(startRebuild).toHaveBeenCalledWith('dodd-5000-01', 'dodd-5000-01@2020-09-09', [
+      'dodd-5000-01@2018-08-31',
+    ])
+  })
+
+  it('reports progress while the run is in flight', async () => {
+    loaded()
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'started',
+      chunks_done: 5, chunks_total: 34, counts: {}, error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    expect(await screen.findByText(/5 of 34/)).toBeInTheDocument()
+  })
+
+  it('reports what a finished run produced, including what it rejected', async () => {
+    loaded()
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'finished',
+      chunks_done: 34, chunks_total: 34,
+      counts: { chunks_written: 34, obligations_written: 121, proposed: 313, chunks_rejected: 1 },
+      error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent(/121/)
+    expect(status).toHaveTextContent(/313/)
+    // A rejected chunk is silent incompleteness unless the number is shown (ADR-023).
+    expect(status).toHaveTextContent(/1 chunk/i)
+  })
+
+  it('surfaces a failed run rather than leaving it spinning', async () => {
+    loaded()
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'failed',
+      chunks_done: 5, chunks_total: 38, counts: {},
+      error: 'model output did not match the obligation schema',
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/did not match/i)
   })
 })

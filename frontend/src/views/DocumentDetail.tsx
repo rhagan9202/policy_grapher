@@ -1,7 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { getDocument, listChunks, listVersions } from '../api/client'
-import type { ChunkOut, DocumentOut, DocumentVersionOut } from '../api/types'
+import {
+  getDocument,
+  getRebuild,
+  listChunks,
+  listVersions,
+  startRebuild,
+} from '../api/client'
+import type {
+  ChunkOut,
+  DocumentOut,
+  DocumentVersionOut,
+  RebuildStatus,
+} from '../api/types'
 
 // STORY-017, the "corpus management" MVP item. `GET /documents/{slug}/chunks` has
 // served ordered text with `page` and `section_path` since ADR-012, and `client.ts`
@@ -16,6 +27,14 @@ export default function DocumentDetail() {
   const [chunks, setChunks] = useState<ChunkOut[] | null>(null)
   const [edition, setEdition] = useState<string | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
+
+  // Building the derived layer (STORY-061). The routes shipped in sprint 4 and the
+  // client modelled neither, so this — sprint 4's whole deliverable — could only be
+  // reached with curl.
+  const [candidates, setCandidates] = useState<string[]>([])
+  const [run, setRun] = useState<RebuildStatus | null>(null)
+  const [runError, setRunError] = useState<string | null>(null)
+  const [building, setBuilding] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -57,6 +76,52 @@ export default function DocumentDetail() {
       cancelled = true
     }
   }, [slug, edition])
+
+  // Polls until the run leaves a running state. Deliberately not a fixed number of
+  // attempts: with a real model a rebuild is one call per chunk over dozens of
+  // chunks and takes tens of minutes (ADR-023), so a poll budget would time out on
+  // exactly the runs worth watching.
+  useEffect(() => {
+    if (!run || (run.state !== 'started' && run.state !== 'queued')) return
+
+    let cancelled = false
+    const timer = setTimeout(() => {
+      getRebuild(run.run_id)
+        .then((next) => {
+          if (!cancelled) setRun(next)
+        })
+        .catch((cause: unknown) => {
+          if (!cancelled) {
+            setRunError(cause instanceof Error ? cause.message : 'Lost track of the run.')
+          }
+        })
+    }, 2000)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [run])
+
+  async function onRebuild() {
+    // The edition being read. `edition` is undefined when the picker says "newest",
+    // so fall back to the newest version rather than sending nothing — the route
+    // takes a version_id in its path and has no "newest" form.
+    const target = edition ?? versions[versions.length - 1]?.version_id
+    if (!target) return
+
+    setBuilding(true)
+    setRunError(null)
+    setRun(null)
+    try {
+      const started = await startRebuild(slug, target, candidates)
+      setRun(await getRebuild(started.run_id))
+    } catch (cause: unknown) {
+      setRunError(cause instanceof Error ? cause.message : 'Could not start the rebuild.')
+    } finally {
+      setBuilding(false)
+    }
+  }
 
   if (error) return <div role="alert">Could not load this document: {error}</div>
   if (!document) return <p>Loading document…</p>
@@ -100,6 +165,82 @@ export default function DocumentDetail() {
             ))}
           </select>
         </p>
+      )}
+
+      {versions.length > 0 && (
+        <section>
+          <h3>Derived layer</h3>
+          <p>
+            Chunks the text, extracts obligations, and — for each edition named below
+            — proposes links between them. With a real extractor this is one model
+            call per chunk and takes tens of minutes.
+          </p>
+
+          {versions.length > 1 && (
+            <fieldset>
+              <legend>Propose links against</legend>
+              {versions
+                .filter((v) => v.version_id !== (edition ?? versions[versions.length - 1]?.version_id))
+                .map((v) => (
+                  <label key={v.version_id} style={{ display: 'block' }}>
+                    <input
+                      type="checkbox"
+                      checked={candidates.includes(v.version_id)}
+                      onChange={(event) =>
+                        setCandidates((current) =>
+                          event.target.checked
+                            ? [...current, v.version_id]
+                            : current.filter((c) => c !== v.version_id),
+                        )
+                      }
+                    />{' '}
+                    {v.version_id}
+                  </label>
+                ))}
+              {/* Naming candidates is the only way proposals are generated: nothing
+                  in the graph records which documents are higher-tier, so the caller
+                  states it and the route does not guess. Choosing none is a valid
+                  request that rebuilds without proposing. */}
+              <p>Choosing none rebuilds the edition without proposing any links.</p>
+            </fieldset>
+          )}
+
+          <button type="button" onClick={onRebuild} disabled={building}>
+            Build derived layer
+          </button>
+
+          {runError && <div role="alert">Rebuild failed: {runError}</div>}
+
+          {run && run.state === 'failed' && (
+            <div role="alert">
+              The run failed after {run.chunks_done} of {run.chunks_total} chunks:{' '}
+              {run.error}
+            </div>
+          )}
+
+          {run && (run.state === 'started' || run.state === 'queued') && (
+            <p role="status">
+              Building: {run.chunks_done} of {run.chunks_total} chunks.
+            </p>
+          )}
+
+          {run && run.state === 'finished' && (
+            <div role="status">
+              <p>
+                Finished. {run.counts.chunks_written ?? 0} chunks,{' '}
+                {run.counts.obligations_written ?? 0} obligations,{' '}
+                {run.counts.proposed ?? 0} link proposals.
+              </p>
+              {/* Not optional. A rejected chunk is silent incompleteness unless the
+                  number is on screen — the reason ADR-023 reports it at all. */}
+              <p>
+                {run.counts.chunks_rejected ?? 0} chunk
+                {(run.counts.chunks_rejected ?? 0) === 1 ? '' : 's'} rejected by the
+                schema and skipped.
+              </p>
+            </div>
+          )}
+        </section>
       )}
 
       {chunks === null ? (

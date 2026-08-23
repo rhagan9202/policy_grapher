@@ -7,6 +7,8 @@ import type {
   GraphOut,
   IngestResult,
   QueryResult,
+  RebuildStarted,
+  RebuildStatus,
   ResetResult,
   ReviewItem,
   TriageOut,
@@ -135,6 +137,28 @@ export function listVersions(slug: string): Promise<DocumentVersionOut[]> {
   return request<DocumentVersionOut[]>(
     `/documents/${encodeURIComponent(slug)}/versions`,
   )
+}
+
+// Queues a rebuild of one edition's derived layer. Naming candidates is the only
+// way proposals are generated: nothing in the graph records which documents are
+// higher-tier (ADR-015 drops tier distance from ranking for exactly that reason), so
+// the caller states it and the route does not guess.
+export function startRebuild(
+  slug: string,
+  versionId: string,
+  candidateVersionIds: string[] = [],
+): Promise<RebuildStarted> {
+  return request<RebuildStarted>(
+    `/documents/${encodeURIComponent(slug)}/versions/${encodeURIComponent(versionId)}/rebuild`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ candidate_version_ids: candidateVersionIds }),
+    },
+  )
+}
+
+export function getRebuild(runId: string): Promise<RebuildStatus> {
+  return request<RebuildStatus>(`/rebuilds/${encodeURIComponent(runId)}`)
 }
 
 export function getReviewQueue(limit?: number): Promise<ReviewItem[]> {

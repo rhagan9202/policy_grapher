@@ -11,8 +11,10 @@ import {
   getTriage,
   ingest,
   listDocuments,
+  getRebuild,
   recordVerdict,
   runQuery,
+  startRebuild,
 } from './client'
 
 function mockJson(body: unknown, status = 200) {
@@ -252,5 +254,47 @@ describe('the phase-6 endpoints', () => {
     expect(fetchMock.mock.calls[0][0]).toBe(
       '/api/triage?to_version_id=v2&from_version_id=v1',
     )
+  })
+})
+
+// STORY-061. The rebuild routes shipped in sprint 4 and `client.ts` modelled
+// neither, so the derived layer could only ever be built with curl.
+describe('rebuild', () => {
+  it('queues a rebuild for one edition, naming its candidates', async () => {
+    const fetchMock = mockJson({
+      run_id: 'r1',
+      version_id: 'd@2020-09-09',
+      candidate_version_ids: ['d@2018-08-31'],
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await startRebuild('d', 'd@2020-09-09', ['d@2018-08-31'])
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/documents/d/versions/d%402020-09-09/rebuild')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({ candidate_version_ids: ['d@2018-08-31'] })
+  })
+
+  it('defaults to no candidates, which the route reads as rebuild-only', async () => {
+    const fetchMock = mockJson({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await startRebuild('d', 'v')
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ candidate_version_ids: [] })
+  })
+
+  it('reads a run by id', async () => {
+    const fetchMock = mockJson({
+      run_id: 'r1', version_id: 'v', state: 'finished',
+      chunks_done: 34, chunks_total: 34, counts: {}, error: null,
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const status = await getRebuild('r1')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/rebuilds/r1')
+    expect(status.state).toBe('finished')
   })
 })

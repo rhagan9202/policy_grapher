@@ -149,3 +149,21 @@ export interface ChunkOut {
   section_path: string[]
   ordinal: number
 }
+
+// The rebuild routes have existed since STORY-048 and `client.ts` modelled neither,
+// so sprint 4's whole deliverable was unreachable from the UI (STORY-061).
+export interface RebuildStarted {
+  run_id: string
+  version_id: string
+  candidate_version_ids: string[]
+}
+
+export interface RebuildStatus {
+  run_id: string
+  version_id: string
+  state: string
+  chunks_done: number
+  chunks_total: number
+  counts: Record<string, number>
+  error: string | null
+}
