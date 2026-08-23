@@ -217,3 +217,38 @@ def test_the_default_extraction_model_is_us_origin():
         f"{Settings(_env_file=None).extractor_model!r} is not in the US-origin set "
         f"{sorted(US_ORIGIN_MODELS)}"
     )
+
+
+def test_compose_does_not_override_the_default_with_an_ineligible_model():
+    """The gap the test above cannot see, found by sprint 4's walkthrough.
+
+    `Settings` reads the environment, and compose supplies one. Asserting on
+    `Settings(_env_file=None)` therefore checks what a *developer's shell* resolves,
+    not what a *container* resolves — and those disagreed: `config.py` defaulted to
+    llama3.1:8b while docker-compose.yml passed `EXTRACTOR_MODEL:
+    ${EXTRACTOR_MODEL:-qwen3:8b}` to both backend and worker. Any machine whose .env
+    predated that key ran the exact model ADR-020 forbids, while the test above
+    passed on every developer's host, because `EXTRACTOR_MODEL` is unset there.
+
+    ADR-020 says the constraint is enforced by a test rather than a convention. It
+    was only enforced for one of the two places the value comes from.
+    """
+    import re
+
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text()
+
+    defaults = re.findall(r"EXTRACTOR_MODEL:\s*\$\{EXTRACTOR_MODEL:-([^}]+)\}", compose)
+    assert defaults, "no EXTRACTOR_MODEL default found in docker-compose.yml"
+
+    ineligible = sorted({d for d in defaults if d not in US_ORIGIN_MODELS})
+    assert not ineligible, (
+        f"docker-compose.yml defaults EXTRACTOR_MODEL to {ineligible}, which ADR-020 "
+        f"excludes. The allowed set is {sorted(US_ORIGIN_MODELS)}."
+    )
+
+    assert set(defaults) == {Settings(_env_file=None).extractor_model}, (
+        f"compose defaults {sorted(set(defaults))} disagree with the application "
+        f"default {Settings(_env_file=None).extractor_model!r}. They must agree, or "
+        "the model a container requests is not the model anything else describes — "
+        "and `ollama-pull` would pull one model while the worker asked for another."
+    )

@@ -22,7 +22,15 @@ services:
       - neo4j-data:/data
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        # Empty by default, which is what keeps this image at ~399MB rather than
+        # 16.6GB (STORY-052, ADR-021). Set BACKEND_EXTRAS to
+        # `--extra local-embeddings` when EMBEDDER_ADAPTER is `local`; the worker
+        # below reads the same variable, because both run the same image and the
+        # rebuild that needs the embedder runs in the worker.
+        EXTRAS: ${BACKEND_EXTRAS:-}
     # The healthcheck above probes HTTP; backend connects over bolt (7687) in
     # lifespan. If bolt isn't ready yet when neo4j reports HTTP-healthy,
     # verify_connectivity() raises and the container exits — restart instead of
@@ -56,8 +64,15 @@ services:
       # configured extractor at boot and would raise. The default extracts nothing
       # and needs no model server, so the stack still comes up on one command.
       EXTRACTOR_ADAPTER: ${EXTRACTOR_ADAPTER:-null}
-      EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-qwen3:8b}
+      # llama3.1:8b, not qwen3:8b: ADR-020 constrains weights to US-published
+      # models, and this default disagreed with config.py's until sprint 4's
+      # walkthrough caught it. It must also match `ollama-pull` below, or the
+      # worker asks for a model that was never pulled.
+      EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-llama3.1:8b}
       EXTRACTOR_BASE_URL: ${EXTRACTOR_BASE_URL:-http://ollama:11434}
+      # Per model call. 600s because CPU inference is slow — a chunk measured at
+      # ~7 tokens/second exceeded the old hardcoded 120s and killed the run (STORY-058).
+      EXTRACTOR_TIMEOUT_SECONDS: ${EXTRACTOR_TIMEOUT_SECONDS:-600}
       EMBEDDER_ADAPTER: ${EMBEDDER_ADAPTER:-null}
       EMBEDDER_MODEL: ${EMBEDDER_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
@@ -92,7 +107,13 @@ services:
       retries: 10
 
   worker:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        # Must match the backend's, above: both services run the same image, and a
+        # worker built without the extra would fail every rebuild that embeds while
+        # the backend started clean.
+        EXTRAS: ${BACKEND_EXTRAS:-}
     restart: on-failure
     # "rebuilds" must equal QUEUE_NAME in backend/src/policy_grapher/jobs/queue.py,
     # where the same warning is written. The `rq` CLI takes queue names as
@@ -119,8 +140,15 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       RQ_REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       EXTRACTOR_ADAPTER: ${EXTRACTOR_ADAPTER:-null}
-      EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-qwen3:8b}
+      # llama3.1:8b, not qwen3:8b: ADR-020 constrains weights to US-published
+      # models, and this default disagreed with config.py's until sprint 4's
+      # walkthrough caught it. It must also match `ollama-pull` below, or the
+      # worker asks for a model that was never pulled.
+      EXTRACTOR_MODEL: ${EXTRACTOR_MODEL:-llama3.1:8b}
       EXTRACTOR_BASE_URL: ${EXTRACTOR_BASE_URL:-http://ollama:11434}
+      # Per model call. 600s because CPU inference is slow — a chunk measured at
+      # ~7 tokens/second exceeded the old hardcoded 120s and killed the run (STORY-058).
+      EXTRACTOR_TIMEOUT_SECONDS: ${EXTRACTOR_TIMEOUT_SECONDS:-600}
       EMBEDDER_ADAPTER: ${EMBEDDER_ADAPTER:-null}
       EMBEDDER_MODEL: ${EMBEDDER_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
     volumes:
