@@ -243,6 +243,19 @@ export default function DocumentDetail() {
                 {(run.counts.chunks_rejected ?? 0) === 1 ? '' : 's'} rejected by the
                 schema and skipped.
               </p>
+
+              {/* The count says the edition is incomplete; these say what is
+                  missing from it. Reading container logs is not an answer for an
+                  operator, which is what STORY-057's criteria asked for. */}
+              {run.rejections.length > 0 && (
+                <ul>
+                  {run.rejections.map((rejection) => (
+                    <li key={rejection.chunk_id}>
+                      <code>{rejection.chunk_id}</code>: {rejection.reason}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </section>

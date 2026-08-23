@@ -165,5 +165,6 @@ export interface RebuildStatus {
   chunks_done: number
   chunks_total: number
   counts: Record<string, number>
+  rejections: { chunk_id: string; reason: string }[]
   error: string | null
 }

@@ -36,6 +36,32 @@ def _progress_reporter():
     return report
 
 
+# Enough to see the shape of a failure without letting a pathological run write an
+# unbounded blob into Redis. A run rejecting more than this has a systemic problem,
+# and the count still reports the true total.
+REPORTED_REJECTIONS = 20
+
+
+def _rejection_reporter():
+    """Records why chunks were rejected, onto the same job meta progress uses.
+
+    Meta rather than the return value because `counts` is `dict[str, int]`, and
+    because meta is written during the run — so an operator watching a long
+    rebuild sees the reasons as they happen rather than an hour later.
+    """
+    job = get_current_job()
+    if job is None:
+        return None
+
+    def report(chunk_id: str, reason: str) -> None:
+        rejections = job.meta.setdefault("rejections", [])
+        if len(rejections) < REPORTED_REJECTIONS:
+            rejections.append({"chunk_id": chunk_id, "reason": reason})
+            job.save_meta()
+
+    return report
+
+
 def _run(
     driver: Driver, database: str, settings: Settings, **kwargs
 ) -> dict[str, int]:
@@ -50,6 +76,7 @@ def _run(
         database,
         extractor=extractor,
         on_progress=_progress_reporter(),
+        on_rejection=_rejection_reporter(),
         **kwargs,
     )
     counts["embedded"] = embed_chunks(

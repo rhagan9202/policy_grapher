@@ -491,3 +491,42 @@ def test_a_rebuild_in_which_every_chunk_failed_does_not_report_success(
             version_id=reviewed_graph["org"],
             extractor=AlwaysBadExtractor(),
         )
+
+
+@pytest.mark.integration
+def test_a_rebuild_reports_why_it_rejected_a_chunk(reviewed_graph, clean_graph, database):
+    """STORY-057 asked for the count *and why*, and for rejected items to be
+    visible without reading container logs. The count alone says an edition is
+    incomplete without saying what is missing from it — which is the shape of
+    answer ADR-023 exists to avoid, one level down.
+    """
+    seen: list[tuple[str, str]] = []
+
+    report = rebuild_derived(
+        clean_graph,
+        database,
+        version_id=reviewed_graph["org"],
+        extractor=OneBadChunkExtractor(fail_on=1),
+        on_rejection=lambda chunk_id, reason: seen.append((chunk_id, reason)),
+    )
+
+    assert report["chunks_rejected"] == 1
+    assert len(seen) == 1
+    chunk_id, reason = seen[0]
+    assert chunk_id, "the rejection does not say which chunk it was"
+    assert "modality" in reason, f"the reason does not describe the failure: {reason!r}"
+
+
+@pytest.mark.integration
+def test_a_clean_rebuild_reports_no_rejections(reviewed_graph, clean_graph, database):
+    seen: list[tuple[str, str]] = []
+
+    rebuild_derived(
+        clean_graph,
+        database,
+        version_id=reviewed_graph["org"],
+        extractor=ModalSentenceExtractor(),
+        on_rejection=lambda chunk_id, reason: seen.append((chunk_id, reason)),
+    )
+
+    assert seen == []

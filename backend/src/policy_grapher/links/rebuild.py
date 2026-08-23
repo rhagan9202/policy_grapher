@@ -145,6 +145,7 @@ def rebuild_derived(
     candidate_version_ids: list[str] | None = None,
     proposer: str = "lexical-v1",
     on_progress: Callable[[int, int], None] | None = None,
+    on_rejection: Callable[[str, str], None] | None = None,
 ) -> dict[str, int]:
     """Rebuild one edition's derived layer and replay every recorded decision.
 
@@ -184,8 +185,14 @@ def rebuild_derived(
         # keeps measuring extraction honestly (ADR-023).
         try:
             found = extractor.extract(chunk.text, section_path=chunk.section_path)
-        except ValueError:
+        except ValueError as exc:
             rejected += 1
+            # The count says an edition is incomplete; the reason says what is
+            # missing from it. Reported per chunk rather than collected and
+            # returned, so a caller watching a long run sees them as they happen
+            # rather than only in the result (STORY-057).
+            if on_rejection is not None:
+                on_rejection(chunk.chunk_id, str(exc))
         else:
             if found:
                 extracted.append((chunk.chunk_id, chunk.section_path, found))

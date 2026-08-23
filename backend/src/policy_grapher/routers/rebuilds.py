@@ -184,5 +184,6 @@ def read_rebuild(
         chunks_done=job.meta.get("chunks_done", 0),
         chunks_total=job.meta.get("chunks_total", 0),
         counts=returned if isinstance(returned, dict) else {},
+        rejections=job.meta.get("rejections", []),
         error=(latest.exc_string if latest is not None else None) if job.is_failed else None,
     )

@@ -245,4 +245,9 @@ class RebuildStatus(BaseModel):
     chunks_done: int = 0
     chunks_total: int = 0
     counts: dict[str, int] = Field(default_factory=dict)
+    # Why chunks were rejected, capped. `chunks_rejected` in `counts` is the true
+    # total; this says what the failures looked like. STORY-057 asked for both —
+    # a count alone reports that an edition is incomplete without saying what is
+    # missing from it, and reading container logs is not an answer for an operator.
+    rejections: list[dict[str, str]] = Field(default_factory=list)
     error: str | None = None

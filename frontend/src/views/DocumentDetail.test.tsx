@@ -177,7 +177,7 @@ describe('DocumentDetail — building the derived layer', () => {
     })
     getRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'started',
-      chunks_done: 0, chunks_total: 34, counts: {}, error: null,
+      chunks_done: 0, chunks_total: 34, counts: {}, rejections: [], error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -196,7 +196,7 @@ describe('DocumentDetail — building the derived layer', () => {
     })
     getRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'v', state: 'started',
-      chunks_done: 0, chunks_total: 34, counts: {}, error: null,
+      chunks_done: 0, chunks_total: 34, counts: {}, rejections: [], error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -215,7 +215,7 @@ describe('DocumentDetail — building the derived layer', () => {
     startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'v', state: 'started',
-      chunks_done: 5, chunks_total: 34, counts: {}, error: null,
+      chunks_done: 5, chunks_total: 34, counts: {}, rejections: [], error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -231,6 +231,7 @@ describe('DocumentDetail — building the derived layer', () => {
       run_id: 'r1', version_id: 'v', state: 'finished',
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 121, proposed: 313, chunks_rejected: 1 },
+      rejections: [{ chunk_id: 'c9', reason: 'modality: Input should be SHALL, MUST, WILL, SHOULD or MAY' }],
       error: null,
     })
     renderAt()
@@ -249,7 +250,7 @@ describe('DocumentDetail — building the derived layer', () => {
     startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'v', state: 'failed',
-      chunks_done: 5, chunks_total: 38, counts: {},
+      chunks_done: 5, chunks_total: 38, counts: {}, rejections: [],
       error: 'model output did not match the obligation schema',
     })
     renderAt()
@@ -267,7 +268,7 @@ describe('DocumentDetail — building the derived layer', () => {
     startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'v', state: 'started',
-      chunks_done: 0, chunks_total: 0, counts: {}, error: null,
+      chunks_done: 0, chunks_total: 0, counts: {}, rejections: [], error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -276,5 +277,26 @@ describe('DocumentDetail — building the derived layer', () => {
     const status = await screen.findByRole('status')
     expect(status).toHaveTextContent(/queued/i)
     expect(status).not.toHaveTextContent(/0 of 0/)
+  })
+
+  it('says why chunks were rejected, not only how many', async () => {
+    loaded()
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'finished',
+      chunks_done: 34, chunks_total: 34,
+      counts: { chunks_written: 34, obligations_written: 115, proposed: 0, chunks_rejected: 2 },
+      rejections: [
+        { chunk_id: 'c9', reason: 'modality: Input should be SHALL, MUST, WILL, SHOULD or MAY' },
+      ],
+      error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent(/2 chunks rejected/i)
+    expect(status).toHaveTextContent(/Input should be SHALL/)
   })
 })
