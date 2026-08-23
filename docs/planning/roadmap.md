@@ -1,6 +1,6 @@
 # Roadmap
 
-*Living document — edit in place. Last reviewed: 2026-08-21*
+*Living document — edit in place. Last reviewed: 2026-08-23*
 
 Sequencing and intent, not commitments with dates. Individual work items live in the
 [backlog](../backlog/backlog.md); this is the altitude above that.
@@ -103,7 +103,7 @@ sequence.
 
 ## The tech-debt surge
 
-Planned 2026-08-21. Three sequenced sprints against one standing goal: **a stable, runnable
+Planned 2026-08-21, revised 2026-08-23. Three sequenced sprints against one standing goal: **a stable, runnable
 base, combed for bugs, that does what these planning documents say it does.** Every item is
 in [Ready](../backlog/backlog.md#ready) with a size. The arc lives here, in a living
 document; each sprint's plan is written at its own start and frozen
@@ -112,9 +112,17 @@ document; each sprint's plan is written at its own start and frozen
 | Sprint | Goal | Items |
 | --- | --- | --- |
 | **3 — Truth and reachability** ✅ | The app tells the truth about its own state: starts empty, says so, and carries none of the audit's UI defects | STORY-038, 039, 040, 041, 049, 050, 053 |
-| **4 — The app can fill its own screens** | The derived layer is buildable from the application, and a check exists that would catch the next regression | STORY-048 ✅, 051, 052, 056 |
-| **5 — The UI reaches the whole API** | No backend capability is left without a way to reach it; the corpus-management bar in [What success looks like](vision.md#what-success-looks-like) is met | STORY-017, 042, 043, 044, 046 |
-| **6 — Extraction quality** | The ratchet measures a real model, and the modality enum recognises the word this corpus actually uses | STORY-054, 055 |
+| **4 — The app can fill its own screens** ✅ | The derived layer is buildable from the application, and a check exists that would catch the next regression | STORY-048 ✅, 051 ✅, 052 ✅, 056 ✅, plus stretch 054 ✅ and two defects found by its own walkthrough, 057 ✅ and 058 ✅ |
+| **5 — The UI reaches the whole API** | No backend capability is left without a way to reach it; the corpus-management bar in [What success looks like](vision.md#what-success-looks-like) is met | STORY-017, 042, 043, 044, 046, plus 055 pulled forward and 059, 060 from sprint 4's retrospective |
+
+**The surge is three sprints after all, and the fourth row is gone.** It was planned as three
+and drawn as four. STORY-054 landed as sprint 4's stretch and STORY-055 moved into sprint 5 at
+that sprint's planning session — the retrospective asked for it once there were real numbers to
+argue from, and nothing else was left in the row. Sprint 5 is therefore the last of the surge,
+and it carries the largest commitment this project has made: eight items against a session that
+has delivered six item-equivalents. That is recorded as a deliberate overcommit in the
+[sprint 5 plan](../sprints/sprint-05/plan.md#committed), with STORY-055 named as the item
+expected to slip if one has to.
 
 **What the surge deliberately does not close.** Two MVP bars in the
 [vision](vision.md#what-success-looks-like) stay open, because they are feature work rather
