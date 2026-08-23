@@ -16,7 +16,11 @@ from policy_grapher.changes.diff import diff_versions
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.ingest import ingest_file
 from policy_grapher.links.decisions import record_decision
-from policy_grapher.links.rebuild import MissingSourceError, rebuild_derived
+from policy_grapher.links.rebuild import (
+    ExtractionFailed,
+    MissingSourceError,
+    rebuild_derived,
+)
 
 SAMPLES = Path(__file__).resolve().parents[2] / "data" / "samples"
 
@@ -399,3 +403,91 @@ def test_a_rebuild_without_a_progress_callback_still_works(
     )
 
     assert counts["chunks_written"] > 0
+
+
+# --- one bad item does not destroy the run (STORY-057) ------------------------
+
+
+class OneBadChunkExtractor:
+    """A model that returns something unparseable on the Nth chunk it sees.
+
+    Not hypothetical. Sprint 4's walkthrough ran DoDD 5000.01 through
+    `llama3.1:8b` and the model answered `modality: null` for one clause, which
+    `ExtractedObligation` rejects — correctly, the enum is closed on purpose so
+    an adapter cannot invent a binding level. `LocalExtractor` re-raises that as
+    ValueError, and the run died at chunk 5 of 38.
+    """
+
+    adapter_id = "one-bad-chunk-stub"
+
+    def __init__(self, *, fail_on: int, inner=None) -> None:
+        self._fail_on = fail_on
+        self._inner = inner or ModalSentenceExtractor()
+        self.seen = 0
+
+    def extract(self, chunk_text: str, *, section_path: list[str]):
+        self.seen += 1
+        if self.seen == self._fail_on:
+            raise ValueError(
+                "model output did not match the obligation schema: modality was null"
+            )
+        return self._inner.extract(chunk_text, section_path=section_path)
+
+
+class AlwaysBadExtractor:
+    adapter_id = "always-bad-stub"
+
+    def extract(self, chunk_text: str, *, section_path: list[str]):
+        raise ValueError("model output did not match the obligation schema")
+
+
+@pytest.mark.integration
+def test_one_unparseable_chunk_does_not_fail_the_whole_rebuild(
+    reviewed_graph, clean_graph, database
+):
+    extractor = OneBadChunkExtractor(fail_on=1)
+
+    report = rebuild_derived(
+        clean_graph,
+        database,
+        version_id=reviewed_graph["org"],
+        extractor=extractor,
+    )
+
+    assert report["chunks_written"] > 0, "the run produced nothing"
+    assert extractor.seen > 1, "extraction stopped at the failing chunk"
+
+
+@pytest.mark.integration
+def test_a_rebuild_counts_the_chunks_it_rejected(reviewed_graph, clean_graph, database):
+    """A count of zero must be distinguishable from 'nothing was checked'."""
+    report = rebuild_derived(
+        clean_graph,
+        database,
+        version_id=reviewed_graph["org"],
+        extractor=OneBadChunkExtractor(fail_on=1),
+    )
+
+    assert report["chunks_rejected"] == 1
+
+    clean = rebuild_derived(
+        clean_graph,
+        database,
+        version_id=reviewed_graph["org"],
+        extractor=ModalSentenceExtractor(),
+    )
+    assert clean["chunks_rejected"] == 0
+
+
+@pytest.mark.integration
+def test_a_rebuild_in_which_every_chunk_failed_does_not_report_success(
+    reviewed_graph, clean_graph, database
+):
+    """Tolerating one bad item must not turn a wholly broken model into a green run."""
+    with pytest.raises(ExtractionFailed):
+        rebuild_derived(
+            clean_graph,
+            database,
+            version_id=reviewed_graph["org"],
+            extractor=AlwaysBadExtractor(),
+        )

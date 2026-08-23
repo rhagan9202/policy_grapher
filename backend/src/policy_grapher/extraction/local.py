@@ -13,7 +13,10 @@ from pydantic import ValidationError
 from policy_grapher.extraction.prompt import EXTRACTION_PROMPT
 from policy_grapher.extraction.schema import ExtractedObligation
 
-TIMEOUT_SECONDS = 120.0
+# Only the fallback for a caller that does not pass one; `build_extractor` always
+# passes `Settings.extractor_timeout_seconds`. Kept generous for the same reason that
+# setting is (STORY-058).
+DEFAULT_TIMEOUT_SECONDS = 600.0
 
 
 class LocalExtractor:
@@ -22,11 +25,12 @@ class LocalExtractor:
         *,
         base_url: str,
         model: str,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
-        self._client = httpx.Client(transport=transport, timeout=TIMEOUT_SECONDS)
+        self._client = httpx.Client(transport=transport, timeout=timeout_seconds)
 
     @property
     def adapter_id(self) -> str:

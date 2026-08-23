@@ -31,6 +31,8 @@ def build_extractor(settings: Settings) -> ObligationExtractor:
         return NullExtractor()
     if settings.extractor_adapter == "local":
         return LocalExtractor(
-            base_url=settings.extractor_base_url, model=settings.extractor_model
+            base_url=settings.extractor_base_url,
+            model=settings.extractor_model,
+            timeout_seconds=settings.extractor_timeout_seconds,
         )
     raise ValueError(f"unknown extractor adapter: {settings.extractor_adapter!r}")

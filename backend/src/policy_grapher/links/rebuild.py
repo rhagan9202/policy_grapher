@@ -44,6 +44,10 @@ RETURN v.source_uri AS source_uri
 """
 
 
+class ExtractionFailed(RuntimeError):
+    """Every chunk was rejected — an extractor failure, not an empty edition."""
+
+
 class MissingSourceError(Exception):
     """The edition, or the file it was read from, is not there to rebuild from."""
 
@@ -169,15 +173,37 @@ def rebuild_derived(
     # watching a blank response for minutes cannot tell work from a hang.
     total = len(chunks)
     extracted: list[tuple[str, list[str], list]] = []
+    rejected = 0
     for done, chunk in enumerate(chunks, start=1):
-        found = extractor.extract(chunk.text, section_path=chunk.section_path)
-        if found:
-            extracted.append((chunk.chunk_id, chunk.section_path, found))
+        # A chunk the extractor cannot parse costs that chunk, not the run. The
+        # strictness is still the adapter's: `Modality` is closed on purpose, so a
+        # model that invents a binding level must fail loudly, and it does. What
+        # STORY-057 fixed is the blast radius — this loop used to let one rejected
+        # item end a 38-chunk run and discard every chunk before it. Caught here
+        # rather than inside the adapter so the port stays strict and the ratchet
+        # keeps measuring extraction honestly (ADR-023).
+        try:
+            found = extractor.extract(chunk.text, section_path=chunk.section_path)
+        except ValueError:
+            rejected += 1
+        else:
+            if found:
+                extracted.append((chunk.chunk_id, chunk.section_path, found))
         if on_progress is not None:
             on_progress(done, total)
 
+    # Tolerating a bad item must not turn a wholly broken model into a green run.
+    # Nothing downstream can tell "this edition states no obligations" from "the
+    # extractor answered garbage every time", and the second is not a result.
+    if chunks and rejected == total:
+        raise ExtractionFailed(
+            f"every one of {total} chunks was rejected by {getattr(extractor, 'adapter_id', extractor)!r}. "
+            "Nothing was extracted, so this is an extractor failure rather than an "
+            "edition that states no obligations."
+        )
+
     with driver.session(database=database) as session:
-        return session.execute_write(
+        counts = session.execute_write(
             _write_rebuild,
             version_id=version_id,
             chunks=chunks,
@@ -185,3 +211,7 @@ def rebuild_derived(
             candidate_version_ids=list(candidate_version_ids or []),
             proposer=proposer,
         )
+    # Always present, so a caller can tell zero rejections from a run by an older
+    # build that never counted them.
+    counts["chunks_rejected"] = rejected
+    return counts

@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     # are ineligible regardless of how they score.
     extractor_model: str = "llama3.1:8b"
     extractor_base_url: str = "http://localhost:11434"
+    # Per model call, not per rebuild. 120s was hardcoded in extraction/local.py until
+    # sprint 4's walkthrough hit it: a rebuild of DoDD 5000.01 died on chunk 1 of 34
+    # with httpx.ReadTimeout on a CPU-only host measured at ~7 tokens/second. The
+    # reasoning already written on `rebuild_job_timeout_seconds` applies here too —
+    # with a real model there is no short timeout that is not a false alarm — and it
+    # had been applied to the job but not to the HTTP call inside it (STORY-058).
+    extractor_timeout_seconds: float = 600.0
 
     # Embedding (DI-2 phase 6). "null" produces no vectors and needs no model —
     # the default, so a fresh clone and CI pass without a download. "local" runs

@@ -94,3 +94,42 @@ def test_an_unknown_adapter_name_fails_loudly():
     """Better at startup than mid-ingest, halfway through a document."""
     with pytest.raises(ValueError, match="unknown extractor adapter"):
         build_extractor(Settings(_env_file=None, extractor_adapter="gpt-9"))
+
+
+# --- the per-call timeout (STORY-058) -----------------------------------------
+
+
+def test_the_extractor_timeout_is_configurable():
+    """Found by sprint 4's walkthrough: a rebuild died on chunk 1 of 34 with
+    httpx.ReadTimeout against a CPU-only host measured at ~7 tokens/second.
+
+    `rebuild_job_timeout_seconds` is a setting, defaulted to 1800, whose comment
+    says a real-model rebuild admits no short timeout that is not a false alarm.
+    That reasoning applies to the HTTP call inside the job just as much.
+    """
+    from policy_grapher.config import Settings
+
+    settings = Settings(_env_file=None, extractor_timeout_seconds=42.0)
+
+    assert settings.extractor_timeout_seconds == 42.0
+
+
+def test_the_default_extractor_timeout_survives_cpu_inference():
+    """A default a CPU host can actually meet. 120s could not."""
+    from policy_grapher.config import Settings
+
+    assert Settings(_env_file=None).extractor_timeout_seconds >= 600.0
+
+
+def test_the_configured_timeout_reaches_the_http_client():
+    """A setting nothing reads is not a fix."""
+    from policy_grapher.config import Settings
+    from policy_grapher.extraction import build_extractor
+
+    extractor = build_extractor(
+        Settings(
+            _env_file=None, extractor_adapter="local", extractor_timeout_seconds=37.0
+        )
+    )
+
+    assert extractor._client.timeout.read == 37.0
