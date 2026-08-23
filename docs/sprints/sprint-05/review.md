@@ -14,8 +14,16 @@ is met.
 exception at the screen level, on [ADR-008](../../specs/adr/ADR-008-authenticated-non-cypher-audience.md)'s
 grounds; its client function exists.
 
-Suites at close: **574 backend tests** (550 at sprint start), **141 frontend tests** (90 at
-start), both green, output pristine.
+Suites at close: **574 backend tests** (550 at sprint start) — 569 passing and **5 skipped by
+design** — and **141 frontend tests** (90 at start), green, output pristine.
+
+The five skips are named rather than left to be discovered. `tests/test_config_composition.py`
+parametrises over every defaulted variable in `docker-compose.yml`; three are not `Settings`
+fields at all (`EXTRAS` is a build argument, `RQ_REDIS_URL` is read by the `rq` CLI,
+`VITE_ALLOWED_HOSTS` belongs to the frontend), and two — `EXTRACTOR_BASE_URL` and `REDIS_URL` —
+are listed in `DELIBERATE_DIFFERENCES` because a container reaches those services by name and a
+host reaches them on loopback. Each skip prints its reason. A skip nobody reads is how the
+ADR-020 gap survived for a whole ADR's lifetime, so these say why they are skipping.
 
 ## Completed
 
