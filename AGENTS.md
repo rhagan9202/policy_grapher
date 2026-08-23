@@ -17,6 +17,23 @@ Policy Grapher is split into a FastAPI backend and a Vite/React frontend. Backen
 
 Use 4-space indentation for Python and type-annotated Pydantic/FastAPI patterns already present in `backend/src/policy_grapher/`. Python modules and tests use snake_case names. Ruff is the backend lint gate. Frontend code is TypeScript/TSX with ESLint, React Hooks rules, and React Refresh checks. Keep React components in PascalCase and view tests named `*.test.tsx`.
 
+## Standing rules
+
+Set by the project owner on 2026-08-22. These are not judgement calls, and are not weighed
+against other considerations.
+
+1. **Never close an unfinished sprint.** If any committed item, acceptance criterion, or
+   [Definition of Done](docs/backlog/README.md#definition-of-done) gate is unmet, the sprint
+   stays open. Do not close it "with caveats", do not record it as delivered-with-exceptions,
+   and do not hand the decision back as a judgement call. Walk the gates literally before
+   writing any `review.md`, `retrospective.md`, velocity row, or next sprint folder.
+
+2. **Never leave a known bug unfixed.** A defect discovered while working is fixed in the code
+   before that work is reported finished — whether it is in new code, pre-existing code, or
+   someone else's. Filing a backlog story is not a substitute. Writing it into a sprint review
+   or retrospective is not a substitute. If the fix needs a decision recorded, write the ADR
+   *and* the fix, not one instead of the other.
+
 ## Testing Guidelines
 
 Backend tests use pytest and `test_*.py` naming. Mark tests that need live Neo4j or Testcontainers with `@pytest.mark.integration`; keep unit tests runnable without Docker where possible. Frontend tests use Vitest and Testing Library. Add tests for behavior changes, and run the smallest relevant test before the full suite.

@@ -48,6 +48,70 @@ Model weights are constrained to US-published models
 Llama 3.1 8B. Neither the image nor the model is on the default startup path — a plain
 `docker compose up` pulls neither.
 
+## Running a real embedding model
+
+Embeddings are separate from extraction and off by the same principle. `sentence-transformers`
+is not in the backend image: it pulls torch, and carrying it took the image from 399MB to
+**16.6GB** for a library the default `EMBEDDER_ADAPTER=null` never loads
+([ADR-021](docs/specs/adr/ADR-021-the-default-image-carries-no-model-runtime.md)). Turning it
+on therefore takes a rebuild as well as a setting:
+
+```bash
+echo 'BACKEND_EXTRAS=--extra local-embeddings' >> .env   # adds ~16GB to backend and worker
+docker compose up -d --build backend worker
+```
+
+Then set `EMBEDDER_ADAPTER=local` in `.env` and restart. If you set it without the rebuild the
+container refuses to start and says so, naming this flag — the failure is deliberate, because
+the library is imported lazily and would otherwise surface as a `ModuleNotFoundError` inside a
+queued rebuild long after startup reported itself healthy.
+
+## Filling Triage and Review
+
+The derived layer — chunks, obligations, proposed links — is built by the application, not by
+running Python. This is the sequence, verified end to end on 2026-08-22 from a wiped volume
+against `llama3.1:8b`. Every step is a product action; nothing here touches Bolt directly.
+
+```bash
+TOKEN=$(grep -E '^API_TOKEN=' .env | cut -d= -f2)      # printed by init-env.sh
+H="Authorization: Bearer $TOKEN"
+
+# 1. Load the corpus, then two editions of one document
+curl -X POST -H "$H" -H 'Content-Type: application/json' \
+  -d '{"filename":"dod_policy_references_08122026.csv"}' localhost:8000/ingest
+curl -X POST -H "$H" -H 'Content-Type: application/json' \
+  -d '{"filename":"500001p_2003.pdf"}' localhost:8000/ingest
+curl -X POST -H "$H" -H 'Content-Type: application/json' \
+  -d '{"filename":"500001p_2020.pdf"}' localhost:8000/ingest
+
+# 2. Build each edition's derived layer. Naming candidates is what produces proposals.
+curl -X POST -H "$H" -H 'Content-Type: application/json' -d '{}' \
+  "localhost:8000/documents/dodd-5000-01/versions/dodd-5000-01@2018-08-31/rebuild"
+curl -X POST -H "$H" -H 'Content-Type: application/json' \
+  -d '{"candidate_version_ids":["dodd-5000-01@2018-08-31"]}' \
+  "localhost:8000/documents/dodd-5000-01/versions/dodd-5000-01@2020-09-09/rebuild"
+
+# 3. Each returns a run_id. Poll it — with a real model this takes tens of minutes.
+curl -H "$H" localhost:8000/rebuilds/<run_id>
+
+# 4. Approve a proposal in Review. This is what puts a row in Triage: a change is
+#    only actionable once it reaches a clause something of yours implements.
+curl -H "$H" localhost:8000/review/queue
+curl -X POST -H "$H" -H 'Content-Type: application/json' \
+  -d '{"verdict":"approve"}' localhost:8000/review/<source_id>/<target_id>
+
+curl -H "$H" "localhost:8000/triage?to_version_id=dodd-5000-01@2020-09-09"
+```
+
+Measured on that run: **38 and 34 chunks**, **120 and 121 obligations**, **313 proposals**, and
+one chunk rejected by the schema — which costs that chunk and not the run
+([ADR-023](docs/specs/adr/ADR-023-a-rejected-item-costs-its-chunk-not-the-run.md)). Triage
+reports 234 changes; they stay *unlinked*, and therefore off the ranked list, until a proposal
+is approved. That is deliberate — a change nothing of yours implements is not yet your problem.
+
+With the default `EXTRACTOR_ADAPTER=null` every step still works and produces chunks, but no
+obligations, so Triage and Review stay empty.
+
 ## Quickstart
 
 ```bash

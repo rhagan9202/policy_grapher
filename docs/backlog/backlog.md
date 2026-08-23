@@ -1,6 +1,6 @@
 # Backlog
 
-*Living document — edit in place. Last reviewed: 2026-08-21*
+*Living document — edit in place. Last reviewed: 2026-08-22*
 
 Ordered by priority: the top row is the next thing to pick up. See
 [README](README.md) for how items move through this list, and
@@ -24,12 +24,22 @@ Sprint 3 closed on 2026-08-21 with all seven of its items delivered; they have m
 queue that a `worker` service drains, and `GET /rebuilds/{run_id}` reports its progress —
 so `rebuild_derived`, `embed_chunks`, `CachedExtractor` and `GraphCacheStore` all have a
 caller in the running application now, and Triage, Review and Ask can be filled without
-running Python by hand. What remains is the rest of sprint 4, and sprint 5.
+running Python by hand. STORY-052 has since landed too: the backend and worker images are
+**399MB** against the 16.6GB measured at sprint start, and `sentence-transformers` is an
+optional extra ([ADR-021](../specs/adr/ADR-021-the-default-image-carries-no-model-runtime.md)).
+STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push and pull
+request, with the integration half as its own marker-selected step so it cannot go quiet
+([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
+
+**Sprint 4 closed on 2026-08-22**, but only after its Definition-of-Done walkthrough found two
+defects and both were fixed rather than filed — STORY-057 and STORY-058
+([ADR-023](../specs/adr/ADR-023-a-rejected-item-costs-its-chunk-not-the-run.md)). With those in,
+a wiped volume reaches **38 and 34 chunks, 241 obligations, 313 proposals and a ranked Triage
+row** through product actions alone; the sequence is in the
+[README](../../README.md#filling-triage-and-review). What remains is sprint 5.
 
 | ID | Item | Epic | Est. | Sprint | Notes |
 | --- | --- | --- | --- | --- | --- |
-| STORY-051 | Both suites run on a check nobody has to remember | — | M | 4 | [architecture.md](../specs/architecture.md) states plainly that there is no CI, and the [Definition of Done](README.md#definition-of-done) has carried a TODO about it since it was written. Every check currently depends on a person choosing to run `uv run pytest` and `npm test`. The surge is the point at which that stops being tenable: it will close a dozen defects, and nothing would catch the thirteenth |
-| STORY-052 | The backend image carries only what it needs to run | — | M | 4 | Adding `sentence-transformers` for [ADR-016](../specs/adr/ADR-016-embeddings-are-a-port.md) pulled `torch`, `transformers` and `scikit-learn`: the backend virtualenv measures **4.9 GB** and importing the library costs ~9s. `LocalEmbedder` already imports lazily so the default `null` configuration pays neither cost at runtime, but the image carries the weight regardless, against a vision constraint of a stack that comes up on one command. Options: an optional dependency group, a multi-stage build, or a lighter static-embedding library behind the same port — the port exists precisely to keep that swap small |
 | STORY-055 | Extraction recognises the modality this corpus actually uses | — | M | 6 | `Modality` is closed to `SHALL \| MUST \| SHOULD \| MAY`. Counted across the seven sample PDFs, **`will` appears 458 times against `shall` 93** — and it is generational, not incidental: the 2003 edition of DoDD 5000.01 uses `shall` 92 times and `must` never, while its 2020 re-issue uses `shall` zero times and `will` 44. DoD's plain-language drafting replaced the directive `shall` with `will`, so on five of the seven samples an extractor obeying the enum can only report a minority of the document's duties. ADR-013 records this as a known limitation and names widening the enum as the first thing to consider next. Needs its own ratchet leg, and a superseding ADR |
 | STORY-017 | A user can review the extracted text and metadata of any ingested document | — | M | 5 | The "corpus management" MVP item. **No longer blocked:** the decision it was waiting on is made and built — [ADR-012](../specs/adr/ADR-012-chunks-follow-sections.md) stores text as `:Chunk` nodes and `GET /documents/{slug}/chunks` serves them, ordered, with `page` and `section_path`. What is missing is only the front end: `api/client.ts` has no function for that route at all, so nothing in the UI can read a document's text — confirmed by the 2026-08-21 UI audit. Needs a `listChunks` client function and a document-detail view; `GET /documents/{slug}/versions` (already wired for STORY-040) gives the edition picker |
 | STORY-042 | A reviewer can work through the whole queue, not just its head | — | M | 5 | `Review.tsx` fetches the queue but renders `queue[0]` only, with Approve and Reject as the only actions. A proposal the reviewer cannot judge — needing a colleague, or a document they do not have — blocks every proposal behind it, because the only way to move on is to record a verdict, and [ADR-014](../specs/adr/ADR-014-proposals-and-decisions-are-different-things.md) makes a verdict permanent and replayed on every rebuild. Wants a skip (client-side, recording nothing) or a list view. Note that "skip" must not become a third verdict: the decision vocabulary is closed on purpose |
@@ -68,6 +78,10 @@ sprint reviews.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-057 | One unparseable item does not destroy the whole rebuild | 4 |
+| STORY-058 | The extractor's per-call timeout is configurable, and long enough for CPU inference | 4 |
+| STORY-051 | Both suites run on a check nobody has to remember | 4 |
+| STORY-052 | The backend image carries only what it needs to run | 4 |
 | STORY-056 | A model server is available without installing anything on the host | 4 |
 | STORY-054 | The extraction ratchet has been run against a real model at least once | 4 |
 | STORY-048 | An ingested edition's derived layer can be built from the running app | 4 |

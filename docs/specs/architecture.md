@@ -260,19 +260,31 @@ bind-mounted into `frontend` with the same shared label (`:z`), because tooling
 containers (`docker compose run`/`build`, ad-hoc `docker run`) also read that path and a
 private label lets one steal exclusive access from the other.
 
-> **Assumption:** Local developer machines are the only deployment target for DI-1. Nothing
-> in the source material mentions a hosted environment or CI. Confirm before anyone builds
-> a pipeline against it.
+> **Assumption:** Local developer machines are the only *deployment* target for DI-1. There is
+> still no hosted environment. CI is no longer hypothetical — see [Checks](#checks) — but it
+> runs the suites, not the product: nothing deploys anywhere.
 
 ## Checks
 
-There is no CI, so every check hangs off one command per side and nothing sits behind a
-command someone has to remember.
+Every check hangs off one command per side, and since STORY-051 a GitHub Actions workflow
+runs both on every push and every pull request — so nothing depends on a person remembering
+either command.
 
 | Side | Command | Runs |
 | --- | --- | --- |
 | Backend | `uv run pytest` | The suite, with ruff among it as `test_lint.py`. pytest collects alphabetically, so lint lands mid-run — after the first integration test has already started the Neo4j container. For a fast lint-only answer use `-m "not integration"`, which runs the Docker-free subset, lint included |
 | Frontend | `npm test` | `eslint . --max-warnings=0`, then `tsc -b`, then vitest — in that order, each gating the next |
+
+`.github/workflows/ci.yml` runs exactly those two commands, in two jobs. The backend job
+splits its side in half — `-m "not integration"` then `-m integration` — because `pytest`
+exits 5 when a marker selects nothing, so the integration suite cannot go missing without the
+step that selects it failing. That is the whole reason for the split, and `tests/test_ci.py`
+guards it. Both steps pass `-rs` so skip reasons reach the log. See
+[ADR-022](adr/ADR-022-both-suites-run-on-every-push.md).
+
+**Nothing yet proves the Definition of Done's last gate.** "Runs under `docker compose up` from
+a clean checkout" is still verified by a person doing it. A third job that builds the images
+would close that, and is deliberately left as follow-up work rather than folded into STORY-051.
 
 Ruff takes its default rule set with one exemption: `Depends()` and `Query()` in a parameter
 default are FastAPI's idiom, not the mutable-default bug B008 catches. ESLint runs
@@ -285,7 +297,8 @@ the rule most likely to catch a stale closure could never fail the build.
 
 Lint is enforced as a test rather than offered as a command because a check behind its own
 command stops being run — the lesson STORY-032 recorded when a type error reached a commit.
-Both linters are dev-only: ruff never enters the backend image (`uv sync --no-dev`), and
+Both linters are dev-only: ruff never enters the backend image (`uv sync --no-dev`, and
+`UV_NO_SYNC=1` so that `uv run` does not quietly put it back at startup — see below), and
 ESLint reaches the frontend container only through an image rebuild, since `package.json`
 and `eslint.config.js` are baked in rather than bind-mounted.
 
@@ -300,6 +313,33 @@ the CSV manifest alone produces. See [ADR-019](adr/ADR-019-the-first-run-is-empt
 canvas to `window.innerWidth`/`innerHeight` when given neither, which pushed the 320px detail
 panel beside it off-screen at every viewport width measured — 1280 through 2560. A
 `ResizeObserver` on the container feeds explicit `width`/`height` instead (STORY-039).
+
+**A rebuild survives a model that answers badly.** `rebuild_derived` catches a per-chunk
+`ValueError` from the extractor, counts it as `chunks_rejected`, and carries on; a run in which
+*every* chunk was rejected raises `ExtractionFailed` rather than reporting an edition with no
+obligations. The strictness stays in the adapter — `Modality` is closed on purpose so a model
+cannot invent a binding level — and only the blast radius changed. Before STORY-057 one
+unparseable item ended a 38-chunk run and discarded everything before it, which is how it was
+found. See [ADR-023](adr/ADR-023-a-rejected-item-costs-its-chunk-not-the-run.md). The per-call
+HTTP timeout is `EXTRACTOR_TIMEOUT_SECONDS`, defaulted to 600s: CPU inference on this corpus
+runs at roughly 7 tokens/second and the previous hardcoded 120s could not meet it.
+
+**The backend image carries no model runtime, and its containers do not add one.** The
+backend and worker images measure **399MB**; before STORY-052 they measured **16.6GB**, because
+`sentence-transformers` was a hard dependency and pulls torch. It now ships in an optional
+`local-embeddings` extra that the Dockerfile installs only when passed
+`--build-arg EXTRAS`, which compose supplies to both services from `BACKEND_EXTRAS`. Two
+consequences are easy to miss and both are guarded:
+
+- **`EMBEDDER_ADAPTER=local` without the extra fails at startup**, with a message naming the
+  extra, the build argument and the `null` alternative. It has to, because `LocalEmbedder`
+  imports lazily: the unguarded failure is a `ModuleNotFoundError` raised inside `encode`,
+  during a queued rebuild, on a container that started clean.
+- **`UV_NO_SYNC=1` is what makes the small image small at run time.** `uv run` syncs the
+  project's default dependency groups before running anything, and `dev` is one of them — so
+  without it, a container built `--no-dev` reinstalls ruff, pytest and testcontainers on every
+  start, and since `dev` now depends on the extra, downloads torch with them. `tests/test_image.py`
+  guards the line. See [ADR-021](adr/ADR-021-the-default-image-carries-no-model-runtime.md).
 
 **A model server is available, and off by default.** `ollama` and a one-shot `ollama-pull`
 sit behind the `models` compose profile, so `docker compose up` pulls neither the 8.4GB image
@@ -346,6 +386,14 @@ turns a surprise outage into a planned piece of work.
   every view. An existing stack needs `docker compose down -v` first: `NEO4J_AUTH` sets the
   Neo4j password when the data volume is created and never re-keys an existing one. See
   [ADR-010](adr/ADR-010-secrets-leave-the-repository.md).
+
+  **`key.txt` was the same lesson a second time, and it was missed for longer.** A 24-character
+  string in exactly the shape `init-env.sh` mints API tokens sat tracked in the repository root
+  from `c69018a` until 2026-08-23, on a **public** remote. Nothing referenced it — not code, not
+  compose, not the docs — which is why nothing caught it. ADR-010 taught `.gitignore` about
+  `.env` and only `.env`; the file is now untracked and `.gitignore` covers `key.txt`, `*.key`
+  and `*.pem`. **It remains in git history and must be treated as compromised**, on the same
+  reasoning ADR-010 applied to the old Neo4j password. Untracking is not redaction.
 - **Graph size grows with citation breadth, not corpus size.** One 23-row CSV yields 438
   nodes. The 300-node figure is a configurable render cap (`GRAPH_RENDER_CAP`), not a
   storage limit, so this is bounded rather than dangerous — but it means corpus size is a
