@@ -170,3 +170,101 @@ describe('Review when nothing has been ingested', () => {
     expect(screen.queryByText(/nothing is waiting for review/i)).not.toBeInTheDocument()
   })
 })
+
+// --- STORY-042: the whole queue, not just its head ----------------------------
+//
+// Review rendered `queue[0]` with Approve and Reject as the only actions, so a
+// proposal the reviewer could not judge — needing a colleague, or a document they do
+// not have — blocked every proposal behind it. The only way past was to record a
+// verdict, and ADR-014 makes a verdict permanent and replayed on every rebuild.
+//
+// Skip is therefore client-side and records nothing. It must not become a third
+// verdict: the decision vocabulary is closed on purpose.
+
+function queueOf(n: number): ReviewItem[] {
+  return Array.from({ length: n }, (_, i) => ({
+    ...item,
+    source: { ...item.source, obligation_id: `ours-${i}`, statement: `Our clause ${i}.` },
+    target: { ...item.target, obligation_id: `higher-${i}` },
+  }))
+}
+
+describe('Review — working through the queue', () => {
+  beforeEach(() => listDocuments.mockResolvedValue([{ slug: 'a' }]))
+
+  it('says where in the queue the reviewer is', async () => {
+    getReviewQueue.mockResolvedValue(queueOf(3))
+    render(<Review />)
+
+    expect(await screen.findByText(/proposal 1 of 3/i)).toBeInTheDocument()
+  })
+
+  it('skips to the next proposal without recording anything', async () => {
+    getReviewQueue.mockResolvedValue(queueOf(3))
+    render(<Review />)
+    await screen.findByText(/Our clause 0\./)
+
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }))
+
+    expect(await screen.findByText(/Our clause 1\./)).toBeInTheDocument()
+    expect(recordVerdict).not.toHaveBeenCalled()
+    expect(screen.getByText(/proposal 2 of 3/i)).toBeInTheDocument()
+  })
+
+  it('goes back to a proposal it skipped past', async () => {
+    getReviewQueue.mockResolvedValue(queueOf(3))
+    render(<Review />)
+    await screen.findByText(/Our clause 0\./)
+
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }))
+    await userEvent.click(screen.getByRole('button', { name: /previous/i }))
+
+    expect(await screen.findByText(/Our clause 0\./)).toBeInTheDocument()
+    expect(recordVerdict).not.toHaveBeenCalled()
+  })
+
+  it('wraps to the first proposal after the last, and says so', async () => {
+    getReviewQueue.mockResolvedValue(queueOf(2))
+    render(<Review />)
+    await screen.findByText(/Our clause 0\./)
+
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }))
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }))
+
+    expect(await screen.findByText(/Our clause 0\./)).toBeInTheDocument()
+    expect(screen.getByText(/back at the start/i)).toBeInTheDocument()
+  })
+
+  it('offers no skip when there is only one proposal', async () => {
+    getReviewQueue.mockResolvedValue(queueOf(1))
+    render(<Review />)
+    await screen.findByText(/Our clause 0\./)
+
+    expect(screen.queryByRole('button', { name: /skip/i })).not.toBeInTheDocument()
+  })
+
+  it('still records a verdict on the proposal actually being shown', async () => {
+    getReviewQueue.mockResolvedValue(queueOf(3))
+    recordVerdict.mockResolvedValue({ promoted: 1 })
+    render(<Review />)
+    await screen.findByText(/Our clause 0\./)
+
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }))
+    await userEvent.click(screen.getByRole('button', { name: /approve/i }))
+
+    expect(recordVerdict).toHaveBeenCalledWith('ours-1', 'higher-1', 'approve', '')
+  })
+
+  it('does not run off the end when the queue shrinks under the cursor', async () => {
+    // Deciding removes the item, so the index can point past the new last one.
+    getReviewQueue.mockResolvedValueOnce(queueOf(2)).mockResolvedValueOnce(queueOf(1))
+    recordVerdict.mockResolvedValue({ promoted: 1 })
+    render(<Review />)
+    await screen.findByText(/Our clause 0\./)
+
+    await userEvent.click(screen.getByRole('button', { name: /skip/i }))
+    await userEvent.click(screen.getByRole('button', { name: /approve/i }))
+
+    await waitFor(() => expect(screen.getByText(/proposal 1 of 1/i)).toBeInTheDocument())
+  })
+})

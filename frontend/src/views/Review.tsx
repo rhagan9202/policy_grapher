@@ -30,6 +30,12 @@ export default function Review() {
   const [rationale, setRationale] = useState('')
   const [pending, setPending] = useState(false)
   const [corpusEmpty, setCorpusEmpty] = useState<boolean | null>(null)
+  // Where in the queue the reviewer is (STORY-042). Client-side and recorded
+  // nowhere: skipping must not become a third verdict. ADR-014 keeps the decision
+  // vocabulary closed at approve/reject because a verdict is permanent and replayed
+  // on every rebuild, and "I could not judge this today" is not a judgement.
+  const [index, setIndex] = useState(0)
+  const [wrapped, setWrapped] = useState(false)
 
   const load = useCallback(() => {
     return getReviewQueue()
@@ -85,7 +91,11 @@ export default function Review() {
 
   if (!queue && !error) return <p>Loading the review queue…</p>
 
-  const item = queue?.[0]
+  // Deciding removes an item, so the cursor can be left pointing past the end.
+  // Clamping at render rather than in the reload keeps the two independent.
+  const total = queue?.length ?? 0
+  const position = total === 0 ? 0 : Math.min(index, total - 1)
+  const item = queue?.[position]
 
   return (
     <div style={{ padding: '1rem' }}>
@@ -99,10 +109,16 @@ export default function Review() {
       ) : (
         <article>
           <p>
-            {queue.length} proposal{queue.length === 1 ? '' : 's'} waiting.
-            Proposed by {item.proposer} at {Math.round(item.confidence * 100)}%
-            confidence.
+            Proposal {position + 1} of {total}. Proposed by {item.proposer} at{' '}
+            {Math.round(item.confidence * 100)}% confidence.
           </p>
+
+          {wrapped && (
+            <p role="status">
+              Back at the start — every proposal in the queue has been offered at
+              least once. Skipping records nothing, so these are all still waiting.
+            </p>
+          )}
 
           <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
             <Side heading="Our clause" of={item.source} />
@@ -126,6 +142,34 @@ export default function Review() {
             <button type="button" disabled={pending} onClick={() => decide(item, 'reject')}>
               Reject
             </button>
+            {/* Only when there is somewhere to go. A skip button over a queue of one
+                offers a way past a proposal and then does nothing. */}
+            {total > 1 && (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    setWrapped(false)
+                    setIndex((current) => (current - 1 + total) % total)
+                  }}
+                >
+                  Previous
+                </button>{' '}
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    const next = (position + 1) % total
+                    setWrapped(next === 0)
+                    setIndex(next)
+                  }}
+                >
+                  Skip
+                </button>
+              </>
+            )}
           </p>
         </article>
       )}
