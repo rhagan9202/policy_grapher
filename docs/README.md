@@ -16,7 +16,7 @@ Each question below has exactly one authoritative answer. Everything else refere
 | What work is queued up? | [Backlog](backlog/backlog.md) |
 | How is the system put together? | [Architecture](specs/architecture.md) |
 | Why was it built that way? | [Decision records](specs/adr/) |
-| What are we doing right now? | [Sprint 5 plan](sprints/sprint-05/plan.md) — last of the [tech-debt surge](planning/roadmap.md#the-tech-debt-surge) |
+| What are we doing right now? | [Sprint 6 plan](sprints/sprint-06/plan.md) — unplanned; the [tech-debt surge](planning/roadmap.md#the-tech-debt-surge) closed at sprint 5 and Ready is empty |
 | Where does this new document go? | [Conventions](CONVENTIONS.md) |
 
 ## Layout

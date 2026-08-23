@@ -8,8 +8,9 @@
 | 2 | 7 stories | 7 stories | Closed EPIC-001 at 18 of 18. Also delivered two non-story items that no row can count: the router refactor and ADR-005. **Sprint 1 actually delivered 13, not 11** — STORY-004 and STORY-015 were recognised as complete only after its review was frozen ([sprint 2 review](sprint-02/review.md)). The row above is left as written; treat 11 as an undercount when reading the trend. |
 | 3 | 7 stories | 7 stories | First sprint with every item estimated (1M + 6S, [t-shirt scale](../backlog/README.md#estimation)) and the first where Ready met its own Definition of Ready. One closed as *no change required* after inspection disproved its premise — counted as delivered, since deciding not to act is the work. Stretch (STORY-051) not started. |
 | 4 | 4 stories | 7 stories | 1L + 2M + 1S committed, all four delivered, plus the stretch (STORY-054) and two defects found by the closing walkthrough and fixed in-sprint (STORY-057, STORY-058). Deliberately the smallest commitment yet, because of the L. **All four committed items were finished a day before the sprint could close:** its Definition-of-Done walkthrough was what surfaced the two defects, and the gate was only met once they were fixed. Third consecutive sprint in which the defect that mattered was found by running the product, not the suite. |
+| 5 | 8 stories | 9 stories | 1L + 4M + 3S committed — the largest commitment in the project's history, [recorded at planning as a deliberate overcommit](sprint-05/plan.md#committed) at roughly ten item-equivalents against a session that had delivered six. All eight landed, plus STORY-061, found while preparing the walkthrough and without which the sprint goal was unreachable. The plan's reasoning for why the overcommit might hold is what held: five of eight were UI work over an API that already existed, and the L was breadth rather than an unmade decision. **Item-equivalents are not the unit** — sprint 4's four items took longer than sprint 5's nine. |
 
-**Rolling average (last 3):** 7 stories (7, 7, 7) — and read it loosely. Sprint 1's row still
+**Rolling average (last 3):** 7.7 stories (7, 7, 9) — and read it loosely. Sprint 1's row still
 says 11 against a true 13, sprints 1 and 2 counted unestimated items, and sprint 3 is the first
 sized one. Counting *stories* is now actively misleading in a second way: sprint 4's seven
 includes one L that consumed a design session, a spec and a plan before any code, and two
@@ -20,6 +21,12 @@ S, and an L displaces roughly three of them.**
 **A row is added when a sprint closes, and a sprint closes when its Definition of Done is met** —
 not when its committed items are individually finished. Sprint 4 had all four committed items
 done a day before it could be closed. See [AGENTS.md](../../AGENTS.md#standing-rules).
+
+**Sprint 5 is where counting stories stopped meaning anything.** It delivered nine against sprint
+4's seven and was the easier session, because eight of its nine were UI work over an API that
+already existed, while sprint 4's four included a queue, a worker and the removal of a 16GB
+dependency. Use this table to notice a sprint committing far more than the last one — which is
+all it caught for sprint 5, correctly — and not to predict how long anything takes.
 
 Use this to sanity-check how much to commit to. Early sprints are noisy — three or four
 data points in, it starts to mean something. It measures this team's throughput on this

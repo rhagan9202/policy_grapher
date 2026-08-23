@@ -113,9 +113,11 @@ document; each sprint's plan is written at its own start and frozen
 | --- | --- | --- |
 | **3 — Truth and reachability** ✅ | The app tells the truth about its own state: starts empty, says so, and carries none of the audit's UI defects | STORY-038, 039, 040, 041, 049, 050, 053 |
 | **4 — The app can fill its own screens** ✅ | The derived layer is buildable from the application, and a check exists that would catch the next regression | STORY-048 ✅, 051 ✅, 052 ✅, 056 ✅, plus stretch 054 ✅ and two defects found by its own walkthrough, 057 ✅ and 058 ✅ |
-| **5 — The UI reaches the whole API** | No backend capability is left without a way to reach it; the corpus-management bar in [What success looks like](vision.md#what-success-looks-like) is met | STORY-017, 042, 043, 044, 046, plus 055 pulled forward and 059, 060 from sprint 4's retrospective |
+| **5 — The UI reaches the whole API** ✅ | No backend capability is left without a way to reach it; the corpus-management bar in [What success looks like](vision.md#what-success-looks-like) is met | STORY-017, 042, 043, 044, 046, plus 055 pulled forward and 059, 060 from sprint 4's retrospective |
 
-**The surge is three sprints after all, and the fourth row is gone.** It was planned as three
+**The surge is over.** Sprint 5 closed on 2026-08-23 with all eight committed items plus STORY-061, and [Ready](../backlog/backlog.md#ready) is now empty — the backlog written for this surge is exhausted, so sprint 6 plans from Refining and Ideas.
+
+**It was three sprints after all, and the fourth row is gone.** It was planned as three
 and drawn as four. STORY-054 landed as sprint 4's stretch and STORY-055 moved into sprint 5 at
 that sprint's planning session — the retrospective asked for it once there were real numbers to
 argue from, and nothing else was left in the row. Sprint 5 is therefore the last of the surge,
