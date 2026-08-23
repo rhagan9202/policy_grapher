@@ -1,0 +1,62 @@
+{
+  "note": "Six WILL duties and not one SHALL, from the 2020 re-issue of DoDD 5000.01 \u2014 an edition that uses `shall` zero times and `will` 44. This is the fixture STORY-055 exists for: before ADR-025 widened the enum, the correct answer here was structurally unreachable, because every duty in the passage uses a word the schema rejected. Labelled by reading the passage, not by correcting an extractor.",
+  "source": {
+    "file": "500001p_2020.pdf",
+    "page": 5,
+    "document": "DoDD 5000.01 (2020)"
+  },
+  "section_path": [
+    "SECTION 1"
+  ],
+  "chunk_text": "SECTION 1:  GENERAL ISSUANCE INFORMATION 5 \nc.  Develop a Culture of Innovation.   \nCreativity and critical thinking will guide acquisition business practice.  Acquisition \nprofessionals will seek, develop, and implement initiatives to streamline and improve the DAS.  \nManagers at every level will consider and adopt innovative practices, including best commercial \npractices and electronic business solutions, that reduce cycle time and cost, and encourage \nteamwork. \nd.  Develop and Deliver Secure Capabilities.   \nSecurity, cybersecurity, and protection of critical technologies at all phases of acquisition are \nthe foundation for uncompromised delivery and sustainment of warfighting capability.  \nAcquisition managers, in coordination with security and counterintelligence (CI) professionals, \nwill implement initiatives and processes for the identification, integration and continual \nevaluation of security and CI requirements throughout the life cycle of a system, service, or \ncritical technology. \ne.  Emphasize Competition. \nThe DoD Components will acquire systems, subsystems, equipment, supplies, product \nsupport, sustainment, and services in accordance with the statutory requirements for competition. \n(1)  Acquisition managers will take all necessary actions to promote a competitive \nenvironment, including consideration of alternative systems, data rights, and modular design to \nmeet current and future mission needs. \n(2)  Planning and contracting for appropriate amounts of data rights, and incorporating a \nmodular and open design to enable upgrades, technology refreshes, and future re-competes may \nenhance competition throughout the life cycle. \nf.  Be Responsive.   \nAdvanced technology will be integrated into developmental prototypes and production \nsystems, and deployed to the operational community as soon as possible. ",
+  "obligations": [
+    {
+      "statement": "Creativity and critical thinking will guide acquisition business practice.",
+      "modality": "WILL",
+      "actor": "Creativity and critical thinking",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Acquisition professionals will seek, develop, and implement initiatives to streamline and improve the DAS.",
+      "modality": "WILL",
+      "actor": "Acquisition professionals",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Managers at every level will consider and adopt innovative practices, including best commercial practices and electronic business solutions, that reduce cycle time and cost, and encourage teamwork.",
+      "modality": "WILL",
+      "actor": "Managers at every level",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Acquisition managers, in coordination with security and counterintelligence (CI) professionals, will implement initiatives and processes for the identification, integration and continual evaluation of security and CI requirements throughout the life cycle of a system, service, or critical technology.",
+      "modality": "WILL",
+      "actor": "Acquisition managers",
+      "deadline": null,
+      "conditions": "in coordination with security and counterintelligence (CI) professionals",
+      "confidence": 1.0
+    },
+    {
+      "statement": "The DoD Components will acquire systems, subsystems, equipment, supplies, product support, sustainment, and services in accordance with the statutory requirements for competition.",
+      "modality": "WILL",
+      "actor": "The DoD Components",
+      "deadline": null,
+      "conditions": "in accordance with the statutory requirements for competition",
+      "confidence": 1.0
+    },
+    {
+      "statement": "Acquisition managers will take all necessary actions to promote a competitive environment, including consideration of alternative systems, data rights, and modular design to meet current and future mission needs.",
+      "modality": "WILL",
+      "actor": "Acquisition managers",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    }
+  ]
+}

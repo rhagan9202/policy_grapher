@@ -22,6 +22,13 @@ from policy_grapher.obligations import primary_anchor
 MODALITY_WEIGHT: dict[str, float] = {
     "SHALL": 4.0,
     "MUST": 4.0,
+    # Equal to SHALL, and that is the ranking claim ADR-025 makes: DoD's
+    # plain-language drafting replaced the directive `shall` with `will`, so the
+    # two impose the same duty and a reviewer should see them at the same
+    # urgency. Weighting WILL below SHALL would rank the 2020 re-issue of an
+    # issuance as less urgent than its 2003 edition purely because the drafting
+    # convention changed underneath it.
+    "WILL": 4.0,
     "SHOULD": 2.0,
     "MAY": 1.0,
 }
