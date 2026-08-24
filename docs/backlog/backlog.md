@@ -93,15 +93,25 @@ Unrefined. No commitment implied.
 Closed items, most recent first. Trim to the last two sprints — older history lives in
 sprint reviews.
 
+A `—` in the Sprint column means the item was not delivered inside a sprint. The rule above
+trims to sprint reviews, so a row with no sprint behind it has nowhere to be trimmed to and
+stays here.
+
 Sprint 3's rows were trimmed on 2026-08-24, seven of eleven: [sprint 3's
 review](../sprints/sprint-03/review.md) records STORY-038, 039, 040, 041, 049, 050 and 053, so
-removing them here loses nothing. The other four stay, because no sprint review records their
-delivery and this table is currently the only place they are written down —
-STORY-016, STORY-033, STORY-034 and STORY-037. (STORY-033 is named in [sprint 2's
-review](../sprints/sprint-02/review.md), but as a stretch item that was never started, so that
-is not a record of it being delivered.) They are the rule's own condition, not an exception to
-it: the rule trims to sprint reviews, and a row with no review behind it has nowhere to be
-trimmed to.
+removing them here loses nothing. Four more had been carrying a `3` that was never true —
+STORY-016, STORY-033, STORY-034 and STORY-037 — and they now carry `—` instead. Git dates all
+four to **2026-08-13**: sprint 2's review was written at 05:51 that morning and STORY-033
+closed at 06:16, twenty-five minutes after the record was frozen. Sprint 3 did not begin until
+2026-08-21 and delivered a disjoint set. The `3` was written on 2026-08-13, before
+`docs/sprints/sprint-03/` existed, and has pointed at the wrong sprint ever since.
+
+Neither review is wrong and neither was edited. Sprint 2's names STORY-033 as a stretch item
+that was never started, which was true when it was written. These four are the DI-1 completion
+work done between the two sprints, and they are documented — see
+[the DI-1 completion design](../superpowers/specs/2026-08-13-di-1-completion-design.md), [the
+PDF extraction design](../superpowers/specs/2026-08-13-story-016-pdf-extraction-design.md) and
+the implementation plans beside them.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
@@ -135,10 +145,10 @@ trimmed to.
 | STORY-048 | An ingested edition's derived layer can be built from the running app | 4 |
 | STORY-019 | Authentication on the API | — |
 | STORY-024 | `POST /query` constrains what a generated query may do | — |
-| STORY-037 | A CSV re-ingest stops demoting a PDF-ingested document to `:External` | 3 |
-| STORY-016 | Ingestion accepts a PDF issuance and extracts its references | 3 |
-| STORY-034 | Relational facts move off `Document` and onto typed edges | 3 |
-| STORY-033 | Linting runs over both backend and frontend | 3 |
+| STORY-037 | A CSV re-ingest stops demoting a PDF-ingested document to `:External` | — |
+| STORY-016 | Ingestion accepts a PDF issuance and extracts its references | — |
+| STORY-034 | Relational facts move off `Document` and onto typed edges | — |
+| STORY-033 | Linting runs over both backend and frontend | — |
 | STORY-010 | A user can browse and filter the document table by name | 2 |
 | STORY-008 | An agent can run a raw Cypher query against the graph | 2 |
 | STORY-027 | A user can add and remove a reference between two documents | 2 |
