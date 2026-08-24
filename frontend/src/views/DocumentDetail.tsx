@@ -270,6 +270,28 @@ export default function DocumentDetail() {
                   ))}
                 </ul>
               )}
+
+              {/* ADR-027. A rebuild re-keys obligations when the chunker changes,
+                  and carries the verdicts recorded against them across. What it
+                  could not carry is the one number a healthy-looking rebuild
+                  would otherwise hide. */}
+              {(run.counts.decisions_repointed ?? 0) > 0 && (
+                <p>
+                  {run.counts.decisions_repointed} review decision
+                  {run.counts.decisions_repointed === 1 ? ' was' : 's were'} carried across
+                  a change of obligation identity.
+                </p>
+              )}
+
+              {(run.counts.unpromotable ?? 0) > 0 && (
+                <p>
+                  {run.counts.unpromotable} recorded approval
+                  {run.counts.unpromotable === 1 ? '' : 's'} could not be replayed — the
+                  obligations they refer to no longer exist under those ids, and the
+                  statements no longer match. They are still recorded, and need
+                  re-reviewing.
+                </p>
+              )}
             </div>
           )}
         </section>

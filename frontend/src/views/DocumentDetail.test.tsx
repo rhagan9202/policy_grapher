@@ -338,4 +338,45 @@ describe('DocumentDetail — building the derived layer', () => {
     expect(status).toHaveTextContent(/2 chunks rejected/i)
     expect(status).toHaveTextContent(/Input should be SHALL/)
   })
+
+  it('says when a recorded approval could not be replayed', async () => {
+    // replay_decisions has returned this count since it was written and nothing
+    // has ever shown it. An approval that stopped being represented in the graph
+    // is exactly the case a healthy-looking rebuild must not hide (ADR-027).
+    loaded()
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'finished',
+      chunks_done: 34, chunks_total: 34,
+      counts: { chunks_written: 34, obligations_written: 115, proposed: 265,
+                chunks_rejected: 0, decisions_repointed: 2, unpromotable: 3 },
+      rejections: [], extractor_adapter: 'local', embedder_adapter: 'null', error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent(/3 recorded approvals could not be replayed/i)
+    expect(status).toHaveTextContent(/2 .*carried across/i)
+  })
+
+  it('stays quiet about decisions when there were none to carry or lose', async () => {
+    loaded()
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'finished',
+      chunks_done: 34, chunks_total: 34,
+      counts: { chunks_written: 34, obligations_written: 115, proposed: 265,
+                chunks_rejected: 0, decisions_repointed: 0, unpromotable: 0 },
+      rejections: [], extractor_adapter: 'local', embedder_adapter: 'null', error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    const status = await screen.findByRole('status')
+    expect(status).not.toHaveTextContent(/could not be replayed/i)
+    expect(status).not.toHaveTextContent(/carried across/i)
+  })
 })
