@@ -15,6 +15,8 @@ from enum import StrEnum
 
 from neo4j import ManagedTransaction
 
+from policy_grapher.extraction.schema import normalize
+
 
 class Verdict(StrEnum):
     """Closed on purpose: `replay_decisions` branches on this value, so a verdict
@@ -66,6 +68,104 @@ WHERE NOT EXISTS { MATCH (:Obligation {obligation_id: d.source_obligation_id}) }
    OR NOT EXISTS { MATCH (:Obligation {obligation_id: d.target_obligation_id}) }
 RETURN count(d) AS unpromotable
 """
+
+
+READ_OBLIGATION_STATEMENTS = """
+MATCH (:DocumentVersion {version_id: $version_id})-[:MANDATES]->(o:Obligation)
+RETURN o.obligation_id AS obligation_id, o.statement AS statement
+"""
+
+READ_DECISIONS_FOR = """
+UNWIND $ids AS id
+MATCH (d:LinkDecision)
+WHERE d.source_obligation_id = id OR d.target_obligation_id = id
+RETURN DISTINCT d.key AS key,
+       d.source_obligation_id AS source_id,
+       d.target_obligation_id AS target_id
+"""
+
+APPLY_REPOINT = """
+UNWIND $moves AS m
+MATCH (d:LinkDecision {key: m.old_key})
+SET d.source_obligation_id = m.source_id,
+    d.target_obligation_id = m.target_id,
+    d.key                  = m.new_key
+RETURN count(d) AS repointed
+"""
+
+EXISTING_KEYS = """
+UNWIND $keys AS key
+MATCH (d:LinkDecision {key: key})
+RETURN collect(d.key) AS present
+"""
+
+
+def read_obligation_statements(tx: ManagedTransaction, *, version_id: str) -> dict[str, str]:
+    """One edition's obligations as `{obligation_id: normalized statement}`.
+
+    Read *before* `drop_obligations`, because that is the only moment the old
+    ids and their statements exist together: `:LinkDecision` stores no
+    statement, and the obligation carrying it is about to be deleted.
+    """
+    return {
+        record["obligation_id"]: normalize(record["statement"])
+        for record in tx.run(READ_OBLIGATION_STATEMENTS, {"version_id": version_id})
+    }
+
+
+def repoint_decisions(
+    tx: ManagedTransaction, *, before: dict[str, str], after: dict[str, str]
+) -> int:
+    """Carry recorded verdicts across a change of obligation identity (ADR-027).
+
+    `before` maps each old obligation id to its normalized statement; `after`
+    maps each normalized statement to the id the rebuild has just written for
+    it. A statement that did not move produces the same id on both sides and is
+    skipped.
+
+    A decision whose new key already belongs to another decision is left
+    exactly as it was. Merging two human verdicts into one is the single
+    outcome this must not have, and an unrepaired decision is still counted by
+    `replay_decisions` as `unpromotable`.
+    """
+    moved = {
+        old_id: after[statement]
+        for old_id, statement in before.items()
+        if statement in after and after[statement] != old_id
+    }
+    if not moved:
+        return 0
+
+    decisions = list(tx.run(READ_DECISIONS_FOR, {"ids": list(moved)}))
+    if not decisions:
+        return 0
+
+    proposed = []
+    for record in decisions:
+        source_id = moved.get(record["source_id"], record["source_id"])
+        target_id = moved.get(record["target_id"], record["target_id"])
+        new_key = decision_key(source_id, target_id)
+        if new_key == record["key"]:
+            continue
+        proposed.append(
+            {
+                "old_key": record["key"],
+                "new_key": new_key,
+                "source_id": source_id,
+                "target_id": target_id,
+            }
+        )
+    if not proposed:
+        return 0
+
+    taken = set(
+        tx.run(EXISTING_KEYS, {"keys": [m["new_key"] for m in proposed]}).single()["present"]
+    )
+    moves = [m for m in proposed if m["new_key"] not in taken]
+    if not moves:
+        return 0
+
+    return tx.run(APPLY_REPOINT, {"moves": moves}).single()["repointed"]
 
 
 def decision_key(source_id: str, target_id: str) -> str:

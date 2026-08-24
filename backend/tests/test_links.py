@@ -458,3 +458,81 @@ def test_an_unknown_verdict_is_refused(clean_graph, database):
         _decide(
             clean_graph, database, source=source, target=target, verdict="maybe"
         )
+
+
+# --- re-pointing decisions across a change of identity (ADR-027) ------------
+
+
+@pytest.mark.integration
+def test_a_decision_survives_its_obligations_being_re_keyed(clean_graph, database):
+    """The identity of an obligation contains its section_path, so a chunker
+    change re-keys it and strands the verdict a human recorded against it. The
+    decision is a fact a human established (ADR-014); a re-key does not make it
+    untrue, and ADR-027 requires the rebuild to carry it across."""
+    from policy_grapher.links.decisions import repoint_decisions
+
+    old_source, old_target = "old-source-id", "old-target-id"
+    new_source, new_target = "new-source-id", "new-target-id"
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_decision,
+            source_id=old_source,
+            target_id=old_target,
+            verdict="approve",
+            actor="reviewer",
+            rationale="checked against the source",
+        )
+
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={old_source: "the director shall report", old_target: "components shall comply"},
+            after={"the director shall report": new_source, "components shall comply": new_target},
+        )
+
+    assert repointed == 1
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN d.source_obligation_id AS s, "
+        "d.target_obligation_id AS t, d.key AS key, d.verdict AS verdict",
+        database_=database,
+    )
+    assert len(records) == 1
+    assert records[0]["s"] == new_source
+    assert records[0]["t"] == new_target
+    assert records[0]["key"] == decision_key(new_source, new_target)
+    # The verdict is what must survive. Re-pointing that dropped it would be
+    # worse than not re-pointing at all.
+    assert records[0]["verdict"] == "approve"
+
+
+@pytest.mark.integration
+def test_a_repoint_that_would_collide_leaves_the_existing_verdict_alone(clean_graph, database):
+    """Two human verdicts must never be silently merged into one. If a stale
+    decision would re-key onto a decision that already exists, the existing one
+    wins and the stale one is left for the unpromotable count."""
+    from policy_grapher.links.decisions import repoint_decisions
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_decision, source_id="old-a", target_id="old-b",
+            verdict="approve", actor="reviewer", rationale="stale",
+        )
+        session.execute_write(
+            record_decision, source_id="new-a", target_id="new-b",
+            verdict="reject", actor="reviewer", rationale="current",
+        )
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={"old-a": "statement one", "old-b": "statement two"},
+            after={"statement one": "new-a", "statement two": "new-b"},
+        )
+
+    assert repointed == 0
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision {key: $key}) RETURN d.verdict AS verdict",
+        {"key": decision_key("new-a", "new-b")},
+        database_=database,
+    )
+    assert records[0]["verdict"] == "reject", "the existing verdict must win"

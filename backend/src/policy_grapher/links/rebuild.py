@@ -33,7 +33,12 @@ from neo4j import Driver, ManagedTransaction, RoutingControl
 from policy_grapher.changes.diff import drop_changes
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import drop_chunks, write_chunks
-from policy_grapher.links.decisions import replay_decisions
+from policy_grapher.extraction.schema import normalize, obligation_id
+from policy_grapher.links.decisions import (
+    read_obligation_statements,
+    replay_decisions,
+    repoint_decisions,
+)
 from policy_grapher.links.propose import propose_links
 from policy_grapher.obligations import drop_obligations, write_obligations
 from policy_grapher.sources import pdf
@@ -100,6 +105,13 @@ def _write_rebuild(
     # underneath it would leave a change a reviewer can see and cannot trace.
     # The diff is cheap to re-run and is not re-run here — a rebuild changes what
     # the editions say, and which pair to re-diff is the caller's decision.
+    # Captured before the drop: :LinkDecision stores no statement of its own,
+    # only obligation ids and a verdict, and the obligation node carrying the
+    # statement is exactly what drop_obligations is about to delete. This is
+    # the only moment the old ids and their statements exist together
+    # (ADR-027).
+    before = read_obligation_statements(tx, version_id=version_id)
+
     changes_dropped = drop_changes(tx, version_id=version_id)
     obligations_dropped = drop_obligations(tx, version_id=version_id)
     chunks_dropped = drop_chunks(tx, version_id=version_id)
@@ -124,6 +136,16 @@ def _write_rebuild(
             proposer=proposer,
         )
 
+    # The statement is the stable handle: section_path moves, normalize
+    # (statement) does not, so pairing the old ids against the freshly written
+    # set by statement is how a re-keyed obligation's decision is found again.
+    after = {
+        normalize(statement): obligation_id(version_id, section_path, statement)
+        for _, section_path, found in extracted
+        for statement in (o.statement for o in found)
+    }
+    repointed = repoint_decisions(tx, before=before, after=after)
+
     replayed = replay_decisions(tx)
     return {
         "changes_dropped": changes_dropped,
@@ -132,6 +154,7 @@ def _write_rebuild(
         "chunks_written": chunks_written,
         "obligations_written": obligations_written,
         "proposed": proposed,
+        "decisions_repointed": repointed,
         **replayed,
     }
 
