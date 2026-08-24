@@ -36,8 +36,10 @@ and now, an eleven-item audit of the running app — citation page numbers, back
 identity, legacy-cover ingestion, ingest and triage reporting, the document table, and two
 network-exposure gaps — was found and fixed directly, the same way STORY-057 and STORY-058
 were in sprint 4: landed as work, not filed as a queue for someone else. All eleven are in
-[Done](#done). The audit also surfaced three items that are genuinely still open work, now in
-[Refining](#refining) (STORY-073, STORY-074) and [Ideas](#ideas) (STORY-075). Sprint 6's
+[Done](#done). The audit also surfaced three items that were genuinely still open work, in
+[Refining](#refining) (STORY-073) and [Ideas](#ideas) (STORY-075) — the third, STORY-074, has
+since been fixed inside the same function as the ambiguous-statement defect a whole-branch
+review found, and is in [Done](#done). That review added STORY-076 in its place. Sprint 6's
 planning session starts from those two sections, and the
 [Definition of Ready](README.md#definition-of-ready) still has to be met before anything moves
 into this one.
@@ -71,7 +73,7 @@ Understood well enough to discuss, not yet ready to start.
 | STORY-036 | Ingestion accepts an XLSX manifest | — | The *manifest* path alongside CSV, not document extraction — a sibling of `sources/manifest.py`, far smaller than either extraction story |
 | STORY-047 | A reissued document's edits are recognised as edits, not as wholesale replacement | — | Diffing the 2018 and 2020 editions of DoDD 5000.01 through the live stack produced **0 MODIFIED, 11 ADDED, 80 REMOVED**. That is [ADR-015](../specs/adr/ADR-015-changes-are-detected-and-ranked.md)'s documented fallback behaving exactly as designed — the two editions are structurally rewritten, so no `section_path` held exactly one unmatched obligation on each side and the section-based pairing never fired — but the result reads to a reviewer as "the whole document was replaced", which is the least actionable form the answer can take. Needs a second matching pass for obligations that moved between sections. See [STORY-047](stories/STORY-047-reissues-read-as-replacement.md) |
 | STORY-073 | Each document edition is ratcheted against its own reference set, not its current successor's | — | **Est. L.** `500001p_2003.pdf` (the 2003 edition of DoDD 5000.01) is deliberately excluded from `RATCHETS` in `backend/tests/test_extraction_ratchet.py` — the corpus CSV holds one row per document *name*, keyed to the current 2020 edition's citations, so 11 of the 2003 edition's 12 genuine citations would score as "invented" against it. It is pinned instead by a direct test in `test_pdf_stages.py`, which proves extraction works but not that it holds a floor. Needs a per-edition expected reference set, and a decision about where that set comes from and who maintains it as new editions are added — that open question is why this is L rather than a mechanical fix. See [STORY-073](stories/STORY-073-editions-ratchet-against-their-own-reference-set.md) |
-| STORY-074 | A rebuild's colliding re-points are skipped, not left to abort the whole transaction | — | **Est. S.** `repoint_decisions` (`backend/src/policy_grapher/links/decisions.py`) screens each proposed new `:LinkDecision` key against decisions that existed before the batch (`EXISTING_KEYS`) but not against each other. If two stale decisions within one rebuild both compute the same new key, both pass that check individually, and `APPLY_REPOINT` then tries to set the same key on two different nodes — a `link_decision_key_unique` violation that aborts the transaction, rather than falling through to `unpromotable` the way [ADR-027](../specs/adr/ADR-027-a-rebuild-repoints-decisions.md) already handles a collision against a pre-existing decision. Fails loudly rather than corrupting data, but untested. Fix is contained to `repoint_decisions`: extend the `taken` set with each `new_key` as `moves` is accepted, not only with `EXISTING_KEYS`'s result |
+| STORY-076 | A rebuild says how many *rejections* a re-key stranded, not only how many approvals | — | `UNPROMOTABLE` (`backend/src/policy_grapher/links/decisions.py`) filters `{verdict: 'approve'}`, so a rejection whose obligations a rebuild re-keyed beyond repair is counted by nothing: not replayed, not reported. [ADR-027](../specs/adr/ADR-027-a-rebuild-repoints-decisions.md) records the gap in its consequences. Two things have to be decided together, which is why this is a row rather than a one-line change: a rejection means "do not write this edge", and a stranded one is therefore not a missing edge but a suppression nobody is applying — so is the right response a count, a distinct field, or a queue item asking the reviewer to re-decide? And `unpromotable` cannot hold it under that name, since a rejection was never going to promote anything |
 
 ## Ideas
 
@@ -92,6 +94,7 @@ sprint reviews.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-074 | A rebuild's colliding re-points are skipped, not left to abort the whole transaction | — |
 | STORY-071 | No service listens beyond loopback | — |
 | STORY-072 | No developer's own hostname is a committed default | — |
 | STORY-070 | The document table is bounded, and says when it truncated | — |

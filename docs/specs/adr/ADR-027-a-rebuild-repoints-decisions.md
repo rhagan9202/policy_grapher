@@ -41,8 +41,10 @@ statement is exactly what the drop deletes.
 existing verdict wins and the stale one is left unrepaired.** `link_decision_key_unique`
 constrains `:LinkDecision.key`, so re-pointing a decision onto a key another decision already
 holds cannot write both. Two human verdicts are never silently merged into one; when this
-happens, the older decision keeps deciding and the one that lost the collision falls through to
-`unpromotable` rather than overwriting or being overwritten.
+happens, the older decision keeps deciding and the one that lost the collision is left
+unrepaired rather than overwriting or being overwritten. If that stranded decision is an
+*approval*, `unpromotable` counts it; if it is a rejection, nothing counts it — see
+**Makes hard** below.
 
 ## Consequences
 
@@ -52,10 +54,22 @@ which every rebuild already runs, rather than in code specific to this one re-ke
 
 **Makes hard.** A decision whose *statement* changed, not merely its `section_path`, is not
 repairable this way: the statement is the only thread connecting an old obligation id to a new
-one, and if the statement itself moved there is nothing left to match on. That decision still
-lands in `unpromotable`, correctly, and is why this ADR requires that count to be on screen
-rather than merely returned by the API — a rebuild that silently repaired most decisions and
-said nothing about the rest would look complete in exactly the case where it is not.
+one, and if the statement itself moved there is nothing left to match on. The same holds for a
+statement two obligations share: `obligation_id` hashes `section_path` as well, so one sentence
+appearing in two sections is two distinct nodes, and a statement that names two ids identifies
+neither. Both of those fall through unrepaired.
+
+**The safety net under them only covers approvals.** `UNPROMOTABLE` filters
+`{verdict: 'approve'}`, so an unrepaired approval is counted and an unrepaired *rejection* is
+counted nowhere — a rebuild reports it neither as replayed nor as stranded. This ADR is
+recording the gap rather than closing it: widening the count is a behaviour change, and
+"unpromotable" would then be the wrong name for what it holds, since a rejection was never
+going to promote anything. That is its own item, and the requirement below is about the count
+that does exist.
+
+The count that does exist is why this ADR requires `unpromotable` to be on screen rather than
+merely returned by the API — a rebuild that silently repaired most decisions and said nothing
+about the rest would look complete in exactly the case where it is not.
 
 ## Alternative rejected
 

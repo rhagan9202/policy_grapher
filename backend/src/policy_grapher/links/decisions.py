@@ -63,6 +63,11 @@ RETURN count(d) AS suppressed
 # side. The decision stays — it is a fact a human established — but the graph
 # cannot express it, and a caller has to be told rather than left to assume the
 # replay was complete.
+#
+# Approvals only. A stranded *rejection* is counted by nothing, here or anywhere
+# — see ADR-027's consequences and STORY-076. Widening this would need a
+# different name: "unpromotable" is about promotion, and a rejection was never
+# going to promote anything.
 UNPROMOTABLE = """
 MATCH (d:LinkDecision {verdict: 'approve'})
 WHERE NOT EXISTS { MATCH (:Obligation {obligation_id: d.source_obligation_id}) }
