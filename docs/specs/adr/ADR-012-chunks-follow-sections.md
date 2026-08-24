@@ -92,6 +92,11 @@ it belongs to opened on. Reconstructing page numbers after the fact — e.g. gue
 character offset into the joined text — would have been strictly worse than reading the number
 `pypdf` already knew, for no benefit.
 
+> **Superseded in part by [ADR-026](ADR-026-a-chunks-page-is-its-own-page.md).** The rule
+> above — a chunk's `page` is the page the section it belongs to opened on — no longer holds.
+> ADR-026 replaces it with the page the chunk's own text starts on. Nothing else in this
+> decision changes.
+
 **`:Chunk` is the first *derived* label.** Every other node this codebase has written so far —
 `:Document`, `:DocumentVersion`, `:Authority`, `:Entity` — is canonical: it records something an
 ingest read directly off a source, and nothing about it is invented by the chunking algorithm's
