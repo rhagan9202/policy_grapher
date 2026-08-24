@@ -201,15 +201,17 @@ export default function DocumentTable() {
       {editError && <div role="alert">{editError}</div>}
 
       <p>
-        Showing {visible.length} of {documents.length}
+        {visible.length > TABLE_RENDER_CAP ? (
+          <>
+            Showing {TABLE_RENDER_CAP} of {visible.length}. Filter to narrow the
+            list and see the rest.
+          </>
+        ) : (
+          <>
+            Showing {visible.length} of {documents.length}
+          </>
+        )}
       </p>
-
-      {visible.length > TABLE_RENDER_CAP && (
-        <p>
-          Showing {TABLE_RENDER_CAP} of {visible.length}. Filter to narrow the list
-          and see the rest.
-        </p>
-      )}
 
       {visible.length === 0 ? (
         <p>No documents match that filter.</p>

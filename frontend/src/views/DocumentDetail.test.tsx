@@ -168,19 +168,37 @@ describe('DocumentDetail', () => {
     expect(link).toHaveAttribute('href', '/documents/dodd-1322-18')
   })
 
-  it('falls back to the slug when the name is not known yet', async () => {
+  it('falls back to the slug when the name is not known yet, surviving a genuine lookup failure', async () => {
     getDocument.mockResolvedValue({
       slug: 'dodd-5000-01', name: 'DoDD 5000.01', is_external: false,
       references: ['dodd-1322-18'], referenced_by: [], version_count: 1,
     })
     listVersions.mockResolvedValue([])
     listChunks.mockResolvedValue([])
-    listDocuments.mockRejectedValue(new Error('offline'))
+
+    // A promise this test controls, so the final assertion cannot pass on the
+    // pre-settle default state alone (the empty `namesBySlug` a component with
+    // no lookup at all, or one whose `.catch` was deleted, would also show).
+    let rejectLookup!: (error: Error) => void
+    const lookup = new Promise<never>((_, reject) => {
+      rejectLookup = reject
+    })
+    listDocuments.mockReturnValue(lookup)
     renderAt()
 
+    await screen.findByRole('link', { name: 'dodd-1322-18' })
+    // The lookup must actually have been attempted: a deleted effect renders the
+    // same slug fallback without ever calling listDocuments.
+    expect(listDocuments).toHaveBeenCalled()
+
+    rejectLookup(new Error('offline'))
+    await lookup.catch(() => {})
+
     // A failed name lookup must not blank the references list — the slug is
-    // still a working link.
+    // still a working link — and the rejection must not surface as an error
+    // banner, which is what an unhandled `.catch` would do.
     expect(await screen.findByRole('link', { name: 'dodd-1322-18' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('reports a document that is not there instead of rendering blanks', async () => {
