@@ -176,7 +176,7 @@ def test_split_breaks_on_a_sentence_boundary():
     max_chars. Proves the accept-branch is actually exercised: deleting ". "
     from _split's boundary list entirely leaves this failing."""
     text = "A" * 25 + ". " + "B" * 50
-    parts = _split(text, max_chars=40, overlap_chars=0)
+    parts = [part for _, part in _split(text, max_chars=40, overlap_chars=0)]
     assert parts[0] == "A" * 25 + ". "
 
 
@@ -186,7 +186,7 @@ def test_split_boundary_just_under_the_threshold_is_rejected():
     otherwise the near-zero-forward-progress cascade (Important finding 1)
     comes back."""
     text = "A" * 19 + ". " + "B" * 60
-    parts = _split(text, max_chars=40, overlap_chars=0)
+    parts = [part for _, part in _split(text, max_chars=40, overlap_chars=0)]
     assert len(parts[0]) == 40
     assert not parts[0].endswith(". ")
 
@@ -194,7 +194,7 @@ def test_split_boundary_just_under_the_threshold_is_rejected():
 def test_split_boundary_just_over_the_threshold_is_accepted():
     """Same window, boundary at offset 20 (== max_chars // 2) is used."""
     text = "A" * 20 + ". " + "B" * 60
-    parts = _split(text, max_chars=40, overlap_chars=0)
+    parts = [part for _, part in _split(text, max_chars=40, overlap_chars=0)]
     assert parts[0] == "A" * 20 + ". "
 
 
@@ -203,7 +203,7 @@ def test_small_max_chars_does_not_reintroduce_mid_word_cuts():
     disabled sentence-boundary breaking entirely, cutting "Delta echo" as
     "Delta ech" / "a echo...". The floor must scale with max_chars instead."""
     text = "Alpha bravo charlie. Delta echo foxtrot. Golf hotel india juliet."
-    parts = _split(text, max_chars=30, overlap_chars=0)
+    parts = [part for _, part in _split(text, max_chars=30, overlap_chars=0)]
     assert parts[0] == "Alpha bravo charlie. "
     assert parts[1] == "Delta echo foxtrot. "
     assert not any(p.endswith(("ech", " ind")) for p in parts)
@@ -228,6 +228,40 @@ def test_split_with_overlap_larger_than_chunk():
     if len(chunks) > 1:
         # Chunks might overlap completely
         assert chunks[0].text in chunks[1].text or chunks[0].text[-10:] in chunks[1].text
+
+
+def test_a_chunk_reports_the_page_its_own_text_starts_on():
+    """ADR-026. The old rule gave every chunk of a section the page the section
+    opened on, so a section running across a page break cited text the reader
+    would not find there — measured on DoDD 5000.01, where the glossary was
+    cited as page 14 while sitting on page 16."""
+    pages = [
+        "2.10.  CJCS.\n" + "The CJCS shall advise. " * 60,
+        "More of section 2.10 continues here. " * 60,
+        "Still more of section 2.10 on the third page. " * 60,
+    ]
+    chunks = chunk_pages(pages, version_id="v", max_chars=800, overlap_chars=50)
+
+    assert len(chunks) > 3, "the section must split into enough parts to span pages"
+    assert chunks[0].page == 1
+    # The section opened on page 1; under the old rule every chunk said page 1.
+    assert max(chunk.page for chunk in chunks) > 1, (
+        "a chunk whose text starts on a later page must say so"
+    )
+    assert [c.page for c in chunks] == sorted(c.page for c in chunks), (
+        "pages must not go backwards in reading order"
+    )
+
+
+def test_split_reports_where_each_part_starts():
+    """`page` is derived from the offset, so the offset has to be right."""
+    text = "alpha. " * 200
+    parts = _split(text, 300, 50)
+
+    assert all(text[offset:].startswith(part) for offset, part in parts), (
+        "each part must appear at the offset reported for it"
+    )
+    assert parts[0][0] == 0
 
 
 def test_split_shorter_than_overlap():

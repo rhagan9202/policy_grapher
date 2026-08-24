@@ -132,9 +132,9 @@ def _page_furniture(pages: list[str]) -> set[str]:
     return {line for line, count in seen.items() if count >= FURNITURE_PAGES}
 
 
-def _split(text: str, max_chars: int, overlap_chars: int) -> list[str]:
+def _split(text: str, max_chars: int, overlap_chars: int) -> list[tuple[int, str]]:
     if len(text) <= max_chars:
-        return [text]
+        return [(0, text)]
     # A misconfigured overlap_chars >= max_chars collapses forward progress to
     # ~1 char/iteration (start creeps forward one character at a time), which
     # still terminates but blows a 2000-char section up into ~1900 near-duplicate
@@ -150,7 +150,7 @@ def _split(text: str, max_chars: int, overlap_chars: int) -> list[str]:
     # 100. Scaling with max_chars -- "a chunk must be at least half the cap" --
     # degrades sensibly at every max_chars instead of only near the defaults.
     min_sentence_offset = max(1, max_chars // 2)
-    parts: list[str] = []
+    parts: list[tuple[int, str]] = []
     start = 0
     while start < len(text):
         end = min(start + max_chars, len(text))
@@ -162,11 +162,25 @@ def _split(text: str, max_chars: int, overlap_chars: int) -> list[str]:
                 if found - start >= min_offset:
                     end = found + len(boundary)
                     break
-        parts.append(text[start:end])
+        parts.append((start, text[start:end]))
         if end >= len(text):
             break
         start = max(start + 1, end - overlap_chars)
     return parts
+
+
+def _page_at(lines: list[tuple[int, str]], offset: int) -> int:
+    """The page of the line containing `offset` in a section's joined text.
+
+    `offset` is an index into `"\\n".join(line for _, line in lines)`, so each
+    line consumes its own length plus the one newline the join inserted.
+    """
+    cursor = 0
+    for page_number, line in lines:
+        if offset <= cursor + len(line):
+            return page_number
+        cursor += len(line) + 1
+    return lines[-1][0] if lines else 1
 
 
 def chunk_pages(
@@ -177,10 +191,9 @@ def chunk_pages(
     overlap_chars: int = 200,
 ) -> list[Chunk]:
     """Chunk a document's pages, one chunk never spanning two sections."""
-    sections: list[tuple[list[str], int, list[str], int]] = []
+    sections: list[tuple[list[str], list[tuple[int, str]], int]] = []
     path: list[str] = [PREAMBLE]
-    body: list[str] = []
-    page_of_section = 1
+    body: list[tuple[int, str]] = []
     # How many times each section_path has already opened *and produced text*.
     # Counting only sections that emit chunks keeps `occurrence` derivable from
     # the chunks themselves: an opening whose body is blank leaves no trace, so
@@ -188,11 +201,11 @@ def chunk_pages(
     occurrences: dict[tuple[str, ...], int] = {}
 
     def close() -> None:
-        if any(line.strip() for line in body):
+        if any(line.strip() for _, line in body):
             key = tuple(path)
             occurrence = occurrences.get(key, 0)
             occurrences[key] = occurrence + 1
-            sections.append((list(path), page_of_section, list(body), occurrence))
+            sections.append((list(path), list(body), occurrence))
         body.clear()
 
     furniture = _page_furniture(pages)
@@ -202,22 +215,25 @@ def chunk_pages(
             if heading:
                 close()
                 path = _push(path, heading)
-                page_of_section = page_number
-            body.append(line)
+            body.append((page_number, line))
     close()
 
     chunks: list[Chunk] = []
     ordinal = 0
-    for section_path, page, lines, occurrence in sections:
-        parts = _split("\n".join(lines).strip(), max_chars, overlap_chars)
-        for within_section, part in enumerate(parts):
+    for section_path, lines, occurrence in sections:
+        joined = "\n".join(line for _, line in lines)
+        # `.strip()` shifts every offset by the leading whitespace it removes.
+        lead = len(joined) - len(joined.lstrip())
+        for within_section, (offset, part) in enumerate(
+            _split(joined.strip(), max_chars, overlap_chars)
+        ):
             chunks.append(
                 Chunk(
                     chunk_id=_chunk_id(version_id, section_path, occurrence, within_section),
                     text=part,
-                    # `ordinal` is reading order for the /chunks route, and is
-                    # deliberately *not* part of the identity above.
-                    page=page,
+                    # ADR-026: the page this chunk's own text starts on, not the
+                    # page its section opened on.
+                    page=_page_at(lines, offset + lead),
                     section_path=section_path,
                     ordinal=ordinal,
                 )
