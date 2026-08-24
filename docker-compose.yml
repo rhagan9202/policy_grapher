@@ -4,8 +4,11 @@ services:
     # image was last pulled. See docs/sprints/sprint-01/plan.md (risks), STORY-018.
     image: neo4j:2025.10
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      # Bound to loopback, not 0.0.0.0, for the reason ADR-018 records for port 5173:
+      # anything that can reach these reads the corpus as the dev principal, and the
+      # Neo4j browser on 7474 reaches the graph with the password init-env.sh generated.
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
     environment:
       NEO4J_AUTH: ${NEO4J_AUTH}
     healthcheck:
@@ -37,7 +40,9 @@ services:
     # staying dead, so "one command" isn't a coin flip on slower machines.
     restart: on-failure
     ports:
-      - "8000:8000"
+      # Bound to loopback, not 0.0.0.0, for the reason ADR-018 records for port 5173:
+      # anything that can reach this port reads the corpus as the dev principal.
+      - "127.0.0.1:8000:8000"
     environment:
       NEO4J_URI: ${NEO4J_URI}
       NEO4J_USER: ${NEO4J_USER}

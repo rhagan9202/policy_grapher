@@ -86,6 +86,10 @@ Then set `EXTRACTOR_ADAPTER=local` in `.env` and restart the worker:
 docker compose up -d --force-recreate worker
 ```
 
+An `.env` generated before these settings existed will not have the line — `init-env.sh`
+writes whatever `.env.example` holds at the time it runs. Add it, or delete `.env` and
+re-run the script for a fresh set of keys and secrets.
+
 Model weights are constrained to US-published models
 ([ADR-020](docs/specs/adr/ADR-020-model-weights-come-from-us-organisations.md)); the default is
 Llama 3.1 8B. Neither the image nor the model is on the default startup path — a plain

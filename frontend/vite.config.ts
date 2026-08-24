@@ -4,9 +4,9 @@ import react from "@vitejs/plugin-react";
 // vitest's config shape and type-checking fails otherwise.
 import { defineConfig } from "vitest/config";
 
-const defaultAllowedHosts = [
-  "5173--main--hopes-and-dreams--rhagan.coder.sand.uskgc.com",
-];
+// Hosts Vite will serve to, beyond localhost. Empty by default: a remote
+// workspace hostname belongs to whoever is using it, not to the repository.
+const defaultAllowedHosts: string[] = [];
 
 const extraAllowedHosts = (process.env.VITE_ALLOWED_HOSTS ?? "")
   .split(",")
