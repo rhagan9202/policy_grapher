@@ -129,11 +129,18 @@ is one observation on one edition, not a survey: the plan re-measures the affect
 all seven sample PDFs before the change lands, since the count of re-keyed chunks is what the
 decision repair has to cover.
 
-**STORY-064 — the decisions.** After new obligations are written, any `:LinkDecision` whose
-obligation ids no longer resolve is matched against the rebuilt edition on
-`version_id | normalize(statement)` — stable across this change, since only `section_path`
-moves — and re-pointed, including its own `key`. Whatever still fails to match falls through to
-the existing `unpromotable` count, which the rebuild screen now reports.
+**STORY-064 — the decisions.** The repair matches an old obligation id to a new one through
+the statement, which is stable across this change because only `section_path` moves. The old
+statement is not recoverable from the decision — `:LinkDecision` stores obligation ids, a
+verdict, an actor and a rationale, and no statement — so the mapping is captured inside the
+rebuild's write transaction, reading the edition's obligations *before* `drop_obligations` runs
+and pairing them against the newly written set afterwards.
+
+Re-pointing a decision changes its `key`, which carries a uniqueness constraint
+(`link_decision_key_unique`). Where a re-keyed decision would collide with a decision that
+already exists, the existing one is left untouched and the stale one is not re-pointed: two
+human verdicts must never be silently merged into one. Anything left unrepaired falls through
+to the existing `unpromotable` count, which the rebuild screen now reports.
 
 Ordering is load-bearing: **STORY-064 lands before STORY-063**, because STORY-063 is what
 re-keys. STORY-062 does not re-key and may land either side.
