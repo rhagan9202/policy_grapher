@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DocumentOut, DocumentVersionOut, TriageOut } from '../api/types'
@@ -14,6 +15,15 @@ vi.mock('../api/client', () => ({
 }))
 
 import Triage from './Triage'
+
+// EmptyState links to the Ingest screen, so any view that can render it
+// needs router context.
+const showTriage = () =>
+  render(
+    <MemoryRouter>
+      <Triage />
+    </MemoryRouter>,
+  )
 
 const documents: DocumentOut[] = [
   {
@@ -97,7 +107,7 @@ describe('Triage', () => {
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue(versions)
     getTriage.mockResolvedValue(triage)
-    render(<Triage />)
+    showTriage()
 
     await chooseAnEdition()
 
@@ -115,7 +125,7 @@ describe('Triage', () => {
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue(versions)
     getTriage.mockResolvedValue(triage)
-    render(<Triage />)
+    showTriage()
 
     await chooseAnEdition()
 
@@ -130,7 +140,7 @@ describe('Triage', () => {
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue(versions)
     getTriage.mockResolvedValue(triage)
-    render(<Triage />)
+    showTriage()
 
     await chooseAnEdition()
 
@@ -142,7 +152,7 @@ describe('Triage', () => {
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue(versions)
     getTriage.mockResolvedValue({ ...triage, rows: [], unlinked_changes: 3 })
-    render(<Triage />)
+    showTriage()
 
     await chooseAnEdition()
 
@@ -162,7 +172,7 @@ describe('Triage', () => {
       total_changes: 0,
       unlinked_changes: 0,
     })
-    render(<Triage />)
+    showTriage()
 
     await chooseAnEdition()
 
@@ -173,7 +183,7 @@ describe('Triage', () => {
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue(versions)
     getTriage.mockResolvedValue(triage)
-    render(<Triage />)
+    showTriage()
 
     await chooseAnEdition()
 
@@ -184,7 +194,7 @@ describe('Triage', () => {
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue(versions)
     getTriage.mockRejectedValue(new Error('supersedes no earlier edition'))
-    render(<Triage />)
+    showTriage()
 
     await chooseAnEdition()
 
@@ -195,7 +205,7 @@ describe('Triage', () => {
 describe('Triage when nothing has been ingested', () => {
   it('says the corpus is empty rather than offering an empty picker', async () => {
     listDocuments.mockResolvedValue([])
-    render(<Triage />)
+    showTriage()
 
     expect(await screen.findByRole('status')).toHaveTextContent(
       /no documents have been ingested yet/i,
@@ -220,7 +230,7 @@ describe('Triage document picker', () => {
       },
     ])
     listVersions.mockResolvedValue(versions)
-    render(<Triage />)
+    showTriage()
 
     const picker = await screen.findByLabelText(/document/i)
     const options = within(picker).getAllByRole('option').map((o) => o.textContent)
@@ -232,7 +242,7 @@ describe('Triage document picker', () => {
     // STORY-040: it supersedes nothing, so /triage answers 400 every time.
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue(versions)
-    render(<Triage />)
+    showTriage()
 
     await userEvent.selectOptions(await screen.findByLabelText(/document/i), 'dodi-5000-88')
     const editions = await screen.findByLabelText(/edition/i)
@@ -245,7 +255,7 @@ describe('Triage document picker', () => {
   it('says so when a document has no edition that can be compared', async () => {
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue([versions[0]])
-    render(<Triage />)
+    showTriage()
 
     await userEvent.selectOptions(await screen.findByLabelText(/document/i), 'dodi-5000-88')
 
@@ -262,7 +272,7 @@ describe('Triage when the corpus has no editions', () => {
     listDocuments.mockResolvedValue(
       documents.map((d) => ({ ...d, version_count: 0 })),
     )
-    render(<Triage />)
+    showTriage()
 
     expect(await screen.findByRole('status')).toHaveTextContent(
       /no document has an ingested edition/i,

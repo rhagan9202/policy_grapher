@@ -19,14 +19,57 @@ layer — chunks, obligations, proposed links and embeddings — onto a Redis-ba
 a `worker` service drains, and `GET /rebuilds/{run_id}` reports its progress chunk by chunk.
 See [Building an edition's derived layer](#building-an-editions-derived-layer).
 
-`./scripts/init-env.sh && docker compose up` serves the app at http://localhost:5173. **It
-starts empty on purpose** ([ADR-019](docs/specs/adr/ADR-019-the-first-run-is-empty.md)): every
-screen says so and names what to run. Load the sample corpus with
-`POST /ingest` — `dod_policy_references_08122026.csv` for the 438-document reference graph,
-or `500001p.pdf` for one issuance with its text. Every endpoint SPEC-001 names is built:
-document CRUD, reference editing, `POST /reset`, and read-only Cypher via `POST /query` —
-read-routed, timed and row-capped since
-[ADR-009](docs/specs/adr/ADR-009-query-is-read-only-and-bounded.md).
+Since sprint 5 every one of the nineteen API routes has a screen behind it, so the whole
+product is reachable from the browser: ingest a corpus, read a document's text edition by
+edition, build its derived layer, work the review queue, and empty the graph. `POST /query` is
+the one deliberate exception — read-routed, timed and row-capped since
+[ADR-009](docs/specs/adr/ADR-009-query-is-read-only-and-bounded.md), and kept off the
+navigation by [ADR-008](docs/specs/adr/ADR-008-authenticated-non-cypher-audience.md).
+
+## Setting up and running
+
+Two commands. You need Docker with the Compose plugin, and nothing else — no Python, no Node,
+no database.
+
+```bash
+git clone https://github.com/rhagan9202/policy_grapher.git && cd policy_grapher
+./scripts/init-env.sh      # once: writes .env with fresh secrets, prints your API token
+docker compose up --build
+```
+
+`init-env.sh` generates a random Neo4j password and a random API token, writes both into an
+untracked `.env`, and prints the token once — it is stored nowhere else, so save it if you plan
+to call the API directly. It refuses to overwrite an existing `.env`; delete the file first if
+you want new secrets. Nothing in the repository grants access to anything
+([ADR-010](docs/specs/adr/ADR-010-secrets-leave-the-repository.md)).
+
+Then open **http://localhost:5173**. The API is at http://localhost:8000 and the Neo4j browser
+at http://localhost:7474.
+
+**The app starts empty on purpose** ([ADR-019](docs/specs/adr/ADR-019-the-first-run-is-empty.md)).
+Every screen says so rather than rendering a blank that reads as a failure, and links to the
+Ingest screen. From there:
+
+1. **Ingest** — `dod_policy_references_08122026.csv` builds the 438-document reference graph;
+   `500001p_2020.pdf` adds one issuance with its text. Both ship in `data/samples/`, and the
+   field takes a filename because the backend reads from its own container.
+2. **Graph** and **Documents** — browse what you loaded. A document's name opens its detail
+   page: its text, by edition, and the control that builds its derived layer.
+3. **Triage**, **Review** and **Ask** stay empty until a derived layer exists, which needs a
+   real extraction model — see below. Without one you get chunks and no obligations.
+
+Four services come up by default (`neo4j`, `redis`, `backend`, `worker`, plus `frontend`).
+The model server is **not** among them; it sits behind a compose profile because it is 8.4GB.
+
+### Stopping it
+
+```bash
+docker compose down        # stop; the graph survives in a volume
+docker compose down -v     # stop and wipe the graph
+```
+
+If you have used the model profile, `docker compose down` leaves `ollama` running — profiled
+services are only stopped when their profile is named: `docker compose --profile models down`.
 
 ## Running a real extraction model
 
@@ -68,125 +111,69 @@ queued rebuild long after startup reported itself healthy.
 
 ## Filling Triage and Review
 
-The derived layer — chunks, obligations, proposed links — is built by the application, not by
-running Python. This is the sequence, verified end to end on 2026-08-22 from a wiped volume
-against `llama3.1:8b`. Every step is a product action; nothing here touches Bolt directly.
+Ingest gives you a document, an edition and its text. Everything downstream — obligations,
+proposed links, embeddings — is *derived*, and a **rebuild** is what produces it. Triage and
+Review stay empty until one has run, and a rebuild only produces obligations when a real
+extraction model is configured, so do the model profile above first.
+
+**From the UI**, which is the shortest path and the one verified end to end on 2026-08-23 from
+a wiped volume against `llama3.1:8b`:
+
+1. **Ingest** both editions of an issuance — `500001p_2003.pdf` and `500001p_2020.pdf`.
+2. Open **Documents → DoDD 5000.01**. Pick an edition, tick the other under *Propose links
+   against*, and press **Build derived layer**. Progress reports chunk by chunk.
+   Naming candidates is the only thing that produces proposals: nothing in the graph records
+   which documents are higher-tier ([ADR-015](docs/specs/adr/ADR-015-changes-are-detected-and-ranked.md)),
+   so you say so and the route does not guess.
+3. Do the same for the other edition. Both sides need obligations before anything can be
+   proposed between them.
+4. **Review** shows the queue. Approve one — and that is what puts a row in **Triage**, because
+   a change is only actionable once it reaches a clause something of yours implements.
+
+**Expect it to be slow.** With a real model a rebuild is one call per chunk: measured at ~104
+seconds a chunk on CPU, so 34 chunks is around an hour. A *second* rebuild over unchanged
+content calls the model zero times and finishes in under a minute — extraction is cached
+([ADR-013](docs/specs/adr/ADR-013-extraction-is-a-port-with-a-ratchet.md)).
+
+Measured on that run: **38 and 34 chunks**, **96 and 115 obligations**, **265 proposals**, and
+2–3 chunks per run rejected by the schema — which costs those chunks and not the run
+([ADR-023](docs/specs/adr/ADR-023-a-rejected-item-costs-its-chunk-not-the-run.md)); the screen
+reports how many and why. Triage then showed 204 changes and **one row**: the other 203 have no
+reviewed link to anything of ours, so they stay off the ranked list. That is deliberate, and it
+reads as a broken screen until you know it — which is why the screen says the number out loud.
+
+With the default `EXTRACTOR_ADAPTER=null` every step still works and writes chunks, but no
+obligations, so Triage and Review stay empty.
+
+### The same thing through the API
+
+Every screen above is a route, and nothing about the UI is privileged. With `$TOKEN` set to the
+API token `init-env.sh` printed:
 
 ```bash
-TOKEN=$(grep -E '^API_TOKEN=' .env | cut -d= -f2)      # printed by init-env.sh
+TOKEN=$(grep -E '^API_TOKEN=' .env | cut -d= -f2)
 H="Authorization: Bearer $TOKEN"
 
-# 1. Load the corpus, then two editions of one document
-curl -X POST -H "$H" -H 'Content-Type: application/json' \
-  -d '{"filename":"dod_policy_references_08122026.csv"}' localhost:8000/ingest
-curl -X POST -H "$H" -H 'Content-Type: application/json' \
-  -d '{"filename":"500001p_2003.pdf"}' localhost:8000/ingest
-curl -X POST -H "$H" -H 'Content-Type: application/json' \
-  -d '{"filename":"500001p_2020.pdf"}' localhost:8000/ingest
+curl -sX POST localhost:8000/ingest -H "$H" -H 'Content-Type: application/json' \
+     -d '{"filename": "500001p_2020.pdf"}'
 
-# 2. Build each edition's derived layer. Naming candidates is what produces proposals.
-curl -X POST -H "$H" -H 'Content-Type: application/json' -d '{}' \
-  "localhost:8000/documents/dodd-5000-01/versions/dodd-5000-01@2018-08-31/rebuild"
-curl -X POST -H "$H" -H 'Content-Type: application/json' \
-  -d '{"candidate_version_ids":["dodd-5000-01@2018-08-31"]}' \
-  "localhost:8000/documents/dodd-5000-01/versions/dodd-5000-01@2020-09-09/rebuild"
+# 202 with a run_id; the worker does the work. GET /documents/{slug}/versions
+# gives you the version ids.
+curl -sX POST "localhost:8000/documents/dodd-5000-01/versions/dodd-5000-01@2020-09-09/rebuild" \
+     -H "$H" -H 'Content-Type: application/json' \
+     -d '{"candidate_version_ids": ["dodd-5000-01@2018-08-31"]}'
 
-# 3. Each returns a run_id. Poll it — with a real model this takes tens of minutes.
+# state goes queued → started → finished, with chunks_done/chunks_total moving
+# while it runs, counts landing when it does, and `rejections` saying what the
+# schema turned away.
 curl -H "$H" localhost:8000/rebuilds/<run_id>
 
-# 4. Approve a proposal in Review. This is what puts a row in Triage: a change is
-#    only actionable once it reaches a clause something of yours implements.
 curl -H "$H" localhost:8000/review/queue
-curl -X POST -H "$H" -H 'Content-Type: application/json' \
-  -d '{"verdict":"approve"}' localhost:8000/review/<source_id>/<target_id>
+curl -sX POST "localhost:8000/review/<source_id>/<target_id>" -H "$H" \
+     -H 'Content-Type: application/json' -d '{"verdict": "approve"}'
 
 curl -H "$H" "localhost:8000/triage?to_version_id=dodd-5000-01@2020-09-09"
 ```
-
-Measured on that run: **38 and 34 chunks**, **120 and 121 obligations**, **313 proposals**, and
-one chunk rejected by the schema — which costs that chunk and not the run
-([ADR-023](docs/specs/adr/ADR-023-a-rejected-item-costs-its-chunk-not-the-run.md)). Triage
-reports 234 changes; they stay *unlinked*, and therefore off the ranked list, until a proposal
-is approved. That is deliberate — a change nothing of yours implements is not yet your problem.
-
-With the default `EXTRACTOR_ADAPTER=null` every step still works and produces chunks, but no
-obligations, so Triage and Review stay empty.
-
-## Quickstart
-
-```bash
-./scripts/init-env.sh      # once — generates .env and prints your API token
-docker compose up --build
-```
-
-Then open http://localhost:5173. The API is at http://localhost:8000, the Neo4j browser at
-http://localhost:7474.
-
-### Building an edition's derived layer
-
-Ingest gives you a document, an edition and its text. Everything downstream — obligations,
-proposed links, embeddings — is *derived*, and a rebuild is what produces it. The sequence,
-with `$TOKEN` set to the API token `init-env.sh` printed:
-
-```bash
-# 1. Ingest two PDFs: the issuance to rebuild, and the higher-tier one it
-#    implements. `GET /documents/{slug}/versions` gives you the version ids.
-curl -sX POST localhost:8000/ingest -H "Authorization: Bearer $TOKEN" \
-     -H 'Content-Type: application/json' -d '{"filename": "500001p_2020.pdf"}'
-curl -sX POST localhost:8000/ingest -H "Authorization: Bearer $TOKEN" \
-     -H 'Content-Type: application/json' -d '{"filename": "500088p.pdf"}'
-
-# 2. Rebuild that edition's derived layer. 202 with a run_id; the worker does the work.
-#    candidate_version_ids names the higher-tier editions to propose links against —
-#    omit it and the rebuild produces no proposals (see below).
-curl -sX POST "localhost:8000/documents/dodi-5000-88/versions/dodi-5000-88@2020-11-18/rebuild" \
-     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-     -d '{"candidate_version_ids": ["dodd-5000-01@2020-09-09"]}'
-
-# 3. Poll it. state goes queued → started → finished, with chunks_done/chunks_total
-#    moving while it runs and counts landing when it does.
-curl -s localhost:8000/rebuilds/<run_id> -H "Authorization: Bearer $TOKEN"
-```
-
-Then `GET /triage`, `GET /review/queue` and `POST /ask` have something to work with, and the
-Triage, Review and Ask screens stop being empty.
-
-**Two things worth knowing before you expect results.** The default `EXTRACTOR_ADAPTER=null`
-extracts nothing, on purpose — it needs no model server, so the stack still comes up on one
-command ([ADR-013](docs/specs/adr/ADR-013-extraction-is-a-port-with-a-ratchet.md)). Set
-`EXTRACTOR_ADAPTER=local` with an Ollama-compatible endpoint to get real obligations, and with
-them real proposals. And **`candidate_version_ids` is required for proposals**: nothing in the
-graph records which documents are higher-tier
-([ADR-015](docs/specs/adr/ADR-015-changes-are-detected-and-ranked.md) drops tier distance for
-that reason), so the caller names them and the route never guesses.
-
-**Upgrading a stack that predates the generated `.env`?** Run `docker compose down -v` before
-`init-env.sh`. `NEO4J_AUTH` sets the password when the data volume is *created* and never
-re-keys an existing one, so a fresh password against an old `neo4j-data` volume leaves the
-backend failing to connect in a restart loop. The volume holds nothing but the sample corpus,
-which re-ingests from the CSV.
-
-**Every route but `/health` requires a bearer token.** A request needs an `Authorization:
-Bearer <token>` header whose SHA-256 digest matches one of the `name:sha256hex` pairs in
-`API_TOKENS`. `scripts/init-env.sh` generates one token (principal `dev`) and writes its
-digest to `API_TOKENS`, so a clean clone authenticates that one token and every other
-request gets `401` — the failure mode is universal denial, not universal access. The
-browser app authenticates too: the vite dev proxy injects the same token server-side, so
-the UI works without exposing it to JavaScript. The proxy forwards every method, but injects the
-token only for requests carrying `x-policy-grapher-ui: 1` — a header a cross-origin page
-cannot set, so a drive-by `POST /api/reset` from another site gets no credential. A local
-process can set it, so the real bound is that the port publishes on `127.0.0.1` only. See
-[ADR-018](docs/specs/adr/ADR-018-the-dev-proxy-forwards-writes.md).
-CORS is limited to the origins `CORS_ALLOW_ORIGINS` lists (`http://localhost:5173` by
-default), without credentials — the credential here is a header, not a cookie.
-`/openapi.json`, `/docs` and `/redoc` are not published unless `ENABLE_API_DOCS=true`, since
-they authenticate nobody. See
-[ADR-008](docs/specs/adr/ADR-008-authenticated-non-cypher-audience.md).
-
-**Secrets are generated locally, not committed.** `./scripts/init-env.sh` writes a fresh
-Neo4j password and API token into an untracked `.env`; nothing in the repository grants
-access to anything. See
-[ADR-010](docs/specs/adr/ADR-010-secrets-leave-the-repository.md).
 
 ## Stack
 

@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReviewItem } from '../api/types'
@@ -14,6 +15,15 @@ vi.mock('../api/client', () => ({
 }))
 
 import Review from './Review'
+
+// EmptyState links to the Ingest screen, so any view that can render it
+// needs router context.
+const showReview = () =>
+  render(
+    <MemoryRouter>
+      <Review />
+    </MemoryRouter>,
+  )
 
 const item: ReviewItem = {
   source: {
@@ -51,7 +61,7 @@ describe('Review', () => {
     // A reviewer cannot decide without knowing which document each clause is
     // from and where in it to go and read.
     getReviewQueue.mockResolvedValue([item])
-    render(<Review />)
+    showReview()
 
     expect(await screen.findByText(item.source.statement)).toBeInTheDocument()
     expect(screen.getByText(item.target.statement)).toBeInTheDocument()
@@ -67,7 +77,7 @@ describe('Review', () => {
 
   it('shows the rationale and confidence the proposer offered', async () => {
     getReviewQueue.mockResolvedValue([item])
-    render(<Review />)
+    showReview()
 
     expect(await screen.findByText(/share 60%/)).toBeInTheDocument()
     expect(screen.getByText(/72%/)).toBeInTheDocument()
@@ -76,7 +86,7 @@ describe('Review', () => {
   it('posts an approval for the pair being reviewed', async () => {
     getReviewQueue.mockResolvedValue([item])
     recordVerdict.mockResolvedValue({ promoted: 1 })
-    render(<Review />)
+    showReview()
     await screen.findByText(item.source.statement)
 
     await userEvent.click(screen.getByRole('button', { name: /approve/i }))
@@ -87,7 +97,7 @@ describe('Review', () => {
   it('posts a rejection with the reviewer’s reason', async () => {
     getReviewQueue.mockResolvedValue([item])
     recordVerdict.mockResolvedValue({ suppressed: 1 })
-    render(<Review />)
+    showReview()
     await screen.findByText(item.source.statement)
 
     await userEvent.type(screen.getByRole('textbox'), 'Different subject matter.')
@@ -106,7 +116,7 @@ describe('Review', () => {
     getReviewQueue.mockResolvedValue([item])
     let settle: (value: unknown) => void = () => {}
     recordVerdict.mockReturnValue(new Promise((resolve) => (settle = resolve)))
-    render(<Review />)
+    showReview()
     await screen.findByText(item.source.statement)
 
     await userEvent.click(screen.getByRole('button', { name: /approve/i }))
@@ -122,7 +132,7 @@ describe('Review', () => {
   it('reloads the queue once a verdict is recorded', async () => {
     getReviewQueue.mockResolvedValueOnce([item]).mockResolvedValueOnce([])
     recordVerdict.mockResolvedValue({ promoted: 1 })
-    render(<Review />)
+    showReview()
     await screen.findByText(item.source.statement)
 
     await userEvent.click(screen.getByRole('button', { name: /approve/i }))
@@ -132,7 +142,7 @@ describe('Review', () => {
 
   it('says plainly when the queue is empty', async () => {
     getReviewQueue.mockResolvedValue([])
-    render(<Review />)
+    showReview()
 
     expect(await screen.findByText(/nothing is waiting/i)).toBeInTheDocument()
   })
@@ -140,7 +150,7 @@ describe('Review', () => {
   it('surfaces a failure to record a verdict rather than looking successful', async () => {
     getReviewQueue.mockResolvedValue([item])
     recordVerdict.mockRejectedValue(new Error('backend down'))
-    render(<Review />)
+    showReview()
     await screen.findByText(item.source.statement)
 
     await userEvent.click(screen.getByRole('button', { name: /approve/i }))
@@ -150,7 +160,7 @@ describe('Review', () => {
 
   it('surfaces a fetch failure', async () => {
     getReviewQueue.mockRejectedValue(new Error('backend down'))
-    render(<Review />)
+    showReview()
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend down/i)
   })
@@ -162,7 +172,7 @@ describe('Review when nothing has been ingested', () => {
     // nothing has ever been ingested — it says the work is done.
     listDocuments.mockResolvedValue([])
     getReviewQueue.mockResolvedValue([])
-    render(<Review />)
+    showReview()
 
     expect(await screen.findByRole('status')).toHaveTextContent(
       /no documents have been ingested yet/i,
@@ -194,14 +204,14 @@ describe('Review — working through the queue', () => {
 
   it('says where in the queue the reviewer is', async () => {
     getReviewQueue.mockResolvedValue(queueOf(3))
-    render(<Review />)
+    showReview()
 
     expect(await screen.findByText(/proposal 1 of 3/i)).toBeInTheDocument()
   })
 
   it('skips to the next proposal without recording anything', async () => {
     getReviewQueue.mockResolvedValue(queueOf(3))
-    render(<Review />)
+    showReview()
     await screen.findByText(/Our clause 0\./)
 
     await userEvent.click(screen.getByRole('button', { name: /skip/i }))
@@ -213,7 +223,7 @@ describe('Review — working through the queue', () => {
 
   it('goes back to a proposal it skipped past', async () => {
     getReviewQueue.mockResolvedValue(queueOf(3))
-    render(<Review />)
+    showReview()
     await screen.findByText(/Our clause 0\./)
 
     await userEvent.click(screen.getByRole('button', { name: /skip/i }))
@@ -225,7 +235,7 @@ describe('Review — working through the queue', () => {
 
   it('wraps to the first proposal after the last, and says so', async () => {
     getReviewQueue.mockResolvedValue(queueOf(2))
-    render(<Review />)
+    showReview()
     await screen.findByText(/Our clause 0\./)
 
     await userEvent.click(screen.getByRole('button', { name: /skip/i }))
@@ -237,7 +247,7 @@ describe('Review — working through the queue', () => {
 
   it('offers no skip when there is only one proposal', async () => {
     getReviewQueue.mockResolvedValue(queueOf(1))
-    render(<Review />)
+    showReview()
     await screen.findByText(/Our clause 0\./)
 
     expect(screen.queryByRole('button', { name: /skip/i })).not.toBeInTheDocument()
@@ -246,7 +256,7 @@ describe('Review — working through the queue', () => {
   it('still records a verdict on the proposal actually being shown', async () => {
     getReviewQueue.mockResolvedValue(queueOf(3))
     recordVerdict.mockResolvedValue({ promoted: 1 })
-    render(<Review />)
+    showReview()
     await screen.findByText(/Our clause 0\./)
 
     await userEvent.click(screen.getByRole('button', { name: /skip/i }))
@@ -259,7 +269,7 @@ describe('Review — working through the queue', () => {
     // Deciding removes the item, so the index can point past the new last one.
     getReviewQueue.mockResolvedValueOnce(queueOf(2)).mockResolvedValueOnce(queueOf(1))
     recordVerdict.mockResolvedValue({ promoted: 1 })
-    render(<Review />)
+    showReview()
     await screen.findByText(/Our clause 0\./)
 
     await userEvent.click(screen.getByRole('button', { name: /skip/i }))

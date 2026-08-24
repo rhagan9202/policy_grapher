@@ -1,4 +1,5 @@
 import { render, screen, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Answer } from '../api/types'
@@ -12,6 +13,15 @@ vi.mock('../api/client', () => ({
 }))
 
 import Ask from './Ask'
+
+// EmptyState links to the Ingest screen, so any view that can render it
+// needs router context.
+const showAsk = () =>
+  render(
+    <MemoryRouter>
+      <Ask />
+    </MemoryRouter>,
+  )
 
 const answered: Answer = {
   answer:
@@ -44,7 +54,7 @@ beforeEach(() => listDocuments.mockResolvedValue([{ slug: 'd', name: 'D' }]))
 describe('Ask', () => {
   it('shows the answer and every citation behind it', async () => {
     ask.mockResolvedValue(answered)
-    render(<Ask />)
+    showAsk()
 
     await userEvent.type(screen.getByRole('searchbox'), 'what obliges the Director?')
     await userEvent.click(screen.getByRole('button', { name: /ask/i }))
@@ -65,7 +75,7 @@ describe('Ask', () => {
     // "The corpus does not say" and "the answer is no" are different things, and
     // a blank result would let a reader take the first for the second.
     ask.mockResolvedValue(nothing)
-    render(<Ask />)
+    showAsk()
 
     await userEvent.type(screen.getByRole('searchbox'), 'what obliges the Postmaster?')
     await userEvent.click(screen.getByRole('button', { name: /ask/i }))
@@ -76,7 +86,7 @@ describe('Ask', () => {
 
   it('names which template answered, so the answer is traceable', async () => {
     ask.mockResolvedValue(answered)
-    render(<Ask />)
+    showAsk()
 
     await userEvent.type(screen.getByRole('searchbox'), 'what obliges the Director?')
     await userEvent.click(screen.getByRole('button', { name: /ask/i }))
@@ -85,7 +95,7 @@ describe('Ask', () => {
   })
 
   it('will not ask an empty question', async () => {
-    render(<Ask />)
+    showAsk()
 
     await userEvent.click(screen.getByRole('button', { name: /ask/i }))
 
@@ -95,7 +105,7 @@ describe('Ask', () => {
   it('disables the button while an answer is in flight', async () => {
     let settle: (value: unknown) => void = () => {}
     ask.mockReturnValue(new Promise((resolve) => (settle = resolve)))
-    render(<Ask />)
+    showAsk()
 
     await userEvent.type(screen.getByRole('searchbox'), 'anything')
     await userEvent.click(screen.getByRole('button', { name: /ask/i }))
@@ -107,7 +117,7 @@ describe('Ask', () => {
 
   it('surfaces a failure', async () => {
     ask.mockRejectedValue(new Error('backend down'))
-    render(<Ask />)
+    showAsk()
 
     await userEvent.type(screen.getByRole('searchbox'), 'anything')
     await userEvent.click(screen.getByRole('button', { name: /ask/i }))
@@ -119,7 +129,7 @@ describe('Ask', () => {
 describe('Ask when nothing has been ingested', () => {
   it('says the corpus is empty instead of inviting a question with no answer', async () => {
     listDocuments.mockResolvedValue([])
-    render(<Ask />)
+    showAsk()
 
     expect(await screen.findByRole('status')).toHaveTextContent(
       /no documents have been ingested yet/i,

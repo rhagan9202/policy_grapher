@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GraphOut } from '../api/types'
@@ -45,6 +46,15 @@ vi.mock('../api/client', () => ({
 }))
 
 import GraphExplorer from './GraphExplorer'
+
+// EmptyState links to the Ingest screen, so any view that can render it
+// needs router context.
+const showGraphExplorer = () =>
+  render(
+    <MemoryRouter>
+      <GraphExplorer />
+    </MemoryRouter>,
+  )
 
 const corpusView: GraphOut = {
   nodes: [
@@ -121,7 +131,7 @@ afterEach(() => {
 describe('GraphExplorer', () => {
   it('fetches and renders the default corpus view on mount', async () => {
     getGraph.mockResolvedValue(corpusView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
 
     await waitFor(() => expect(screen.getByTestId('force-graph')).toBeInTheDocument())
     expect(getGraph).toHaveBeenCalledWith({})
@@ -130,7 +140,7 @@ describe('GraphExplorer', () => {
 
   it('shows the name and kind of a clicked node', async () => {
     getGraph.mockResolvedValue(corpusView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     await userEvent.click(screen.getByRole('button', { name: 'DoDD 5000.01' }))
@@ -142,7 +152,7 @@ describe('GraphExplorer', () => {
 
   it('refetches with expand when a node is clicked', async () => {
     getGraph.mockResolvedValueOnce(corpusView).mockResolvedValueOnce(expandedView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     await userEvent.click(screen.getByRole('button', { name: 'DoDI 3115.14' }))
@@ -155,7 +165,7 @@ describe('GraphExplorer', () => {
 
   it('renders external nodes in a visually distinct colour from corpus nodes', async () => {
     getGraph.mockResolvedValue(expandedView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     const props = graphProps[graphProps.length - 1]
@@ -169,7 +179,7 @@ describe('GraphExplorer', () => {
 
   it('marks an external node as external rather than rendering "null"', async () => {
     getGraph.mockResolvedValue(expandedView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     await userEvent.click(screen.getByRole('button', { name: 'Public Law 116-92' }))
@@ -182,14 +192,14 @@ describe('GraphExplorer', () => {
 
   it('reports truncation instead of presenting a partial graph as whole', async () => {
     getGraph.mockResolvedValue({ ...corpusView, total_nodes: 438, returned_nodes: 300, truncated: true })
-    render(<GraphExplorer />)
+    showGraphExplorer()
 
     expect(await screen.findByText(/showing 300 of 438/i)).toBeInTheDocument()
   })
 
   it('does not claim truncation when the view is complete', async () => {
     getGraph.mockResolvedValue(corpusView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     expect(screen.queryByText(/showing .* of /i)).not.toBeInTheDocument()
@@ -197,14 +207,14 @@ describe('GraphExplorer', () => {
 
   it('surfaces a fetch failure', async () => {
     getGraph.mockRejectedValue(new Error('backend down'))
-    render(<GraphExplorer />)
+    showGraphExplorer()
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend down/i)
   })
 
   it('paints the document name onto the canvas for a corpus node', async () => {
     getGraph.mockResolvedValue(corpusView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     const paint = lastProps().nodeCanvasObject as Painter
@@ -221,7 +231,7 @@ describe('GraphExplorer', () => {
 
   it('labels external nodes only once zoomed past the threshold', async () => {
     getGraph.mockResolvedValue(expandedView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     const paint = lastProps().nodeCanvasObject as Painter
@@ -242,7 +252,7 @@ describe('GraphExplorer', () => {
 
   it('keeps the default node circle by painting labels after it', async () => {
     getGraph.mockResolvedValue(corpusView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     // 'replace' would make us responsible for drawing the circle and the
@@ -253,7 +263,7 @@ describe('GraphExplorer', () => {
 
   it('positions arrowheads at the target end rather than the link midpoint', async () => {
     getGraph.mockResolvedValue(corpusView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     // Left unset, react-force-graph defaults this to 0.5 and stacks every
@@ -263,7 +273,7 @@ describe('GraphExplorer', () => {
 
   it('curves both edges of a reciprocal pair and leaves one-way edges straight', async () => {
     getGraph.mockResolvedValue(reciprocalView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     const curvature = lastProps().linkCurvature as (link: unknown) => number
@@ -275,7 +285,7 @@ describe('GraphExplorer', () => {
 
   it('strokes a halo behind the label so it stays legible over edges', async () => {
     getGraph.mockResolvedValue(corpusView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     const paint = lastProps().nodeCanvasObject as Painter
@@ -292,7 +302,7 @@ describe('GraphExplorer', () => {
 
   it('spreads the layout wider than the d3 force defaults', async () => {
     getGraph.mockResolvedValue(corpusView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     await waitFor(() => expect(chargeForce.strength).toHaveBeenCalled())
@@ -308,7 +318,7 @@ describe('GraphExplorer', () => {
 
   it('still identifies reciprocal pairs after the simulation swaps ids for node objects', async () => {
     getGraph.mockResolvedValue(reciprocalView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
     const curvature = lastProps().linkCurvature as (link: unknown) => number
@@ -328,7 +338,7 @@ describe('GraphExplorer layout', () => {
     // the right edge at every viewport size measured (1280 to 2560). Selecting
     // a node worked and could not be seen.
     getGraph.mockResolvedValue(corpusView)
-    render(<GraphExplorer />)
+    showGraphExplorer()
     await waitFor(() => expect(graphProps.length).toBeGreaterThan(0))
 
     const latest = graphProps.at(-1)!
@@ -344,7 +354,7 @@ describe('GraphExplorer layout', () => {
       returned_nodes: 0,
       truncated: false,
     })
-    render(<GraphExplorer />)
+    showGraphExplorer()
 
     expect(await screen.findByRole('status')).toHaveTextContent(
       /no documents have been ingested yet/i,
