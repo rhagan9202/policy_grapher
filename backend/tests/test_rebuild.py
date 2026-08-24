@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from policy_grapher import chunking
 from policy_grapher.changes.diff import diff_versions
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.ingest import ingest_file
@@ -126,6 +127,32 @@ def _chunk_ids(driver, database) -> set[str]:
     return {r["id"] for r in records}
 
 
+def _obligation_ids_for(driver, database, version_id: str) -> set[str]:
+    """One edition's obligation ids — scoped, unlike `_obligation_ids`, because
+    a rekey test rebuilds only one of the two editions in `reviewed_graph` and
+    must not let the untouched edition's stable ids mask the rebuilt one's."""
+    records, _, _ = driver.execute_query(
+        "MATCH (:DocumentVersion {version_id: $version_id})-[:MANDATES]->(o:Obligation) "
+        "RETURN o.obligation_id AS id",
+        {"version_id": version_id},
+        database_=database,
+    )
+    return {r["id"] for r in records}
+
+
+def _decision_rows(driver, database) -> list[dict]:
+    """Full decision rows, including the obligation ids a repoint moves — unlike
+    `_decisions`, which reports only `key`, and a moved key alone does not show
+    which pair it now points at."""
+    records, _, _ = driver.execute_query(
+        "MATCH (d:LinkDecision) "
+        "RETURN d.actor AS actor, d.verdict AS verdict, "
+        "d.source_obligation_id AS source_id, d.target_obligation_id AS target_id",
+        database_=database,
+    )
+    return [dict(r) for r in records]
+
+
 @pytest.fixture
 def reviewed_graph(clean_graph, database):
     """Two issuances ingested, extracted, and linked — with one proposal approved
@@ -237,6 +264,81 @@ def test_a_rebuild_reproduces_the_same_chunks_and_obligations(
 
     assert _chunk_ids(clean_graph, database) == before_chunks
     assert _obligation_ids(clean_graph, database) == before_obligations
+
+
+@pytest.mark.integration
+def test_a_rebuild_carries_an_approval_across_a_full_rekey(
+    reviewed_graph, clean_graph, database, monkeypatch
+):
+    """Commit 79d40e9 changed some chunks' `section_path`, which re-keys their
+    obligations and would strand a `:LinkDecision` — unless commit 89d0622's
+    `repoint_decisions` is actually wired into `rebuild_derived`, not merely
+    correct in isolation (the unit tests in test_links.py already cover that).
+
+    Forcing `section_heading` to suffix every heading it finds is a strictly
+    harder case than the real change: it re-keys *every* chunk and obligation
+    of the rebuilt edition, not just the back matter. `chunk_pages` resolves
+    `section_heading` as a module-global name at call time, so patching the
+    module attribute is what makes this take.
+    """
+    org = reviewed_graph["org"]
+    higher = reviewed_graph["higher"]
+    approved = reviewed_graph["approved"]
+    rejected = reviewed_graph["rejected"]
+
+    before_implements = _implements(clean_graph, database)
+    before_org_obligations = _obligation_ids_for(clean_graph, database, org)
+    assert approved in before_implements
+    assert rejected not in before_implements
+
+    original_section_heading = chunking.section_heading
+
+    def rekeyed_section_heading(line: str) -> str | None:
+        heading = original_section_heading(line)
+        return f"{heading}-REKEYED" if heading is not None else None
+
+    monkeypatch.setattr(chunking, "section_heading", rekeyed_section_heading)
+
+    report = rebuild_derived(
+        clean_graph,
+        database,
+        version_id=org,
+        extractor=reviewed_graph["extractor"],
+        candidate_version_ids=[higher],
+        proposer="lexical-v1",
+    )
+
+    after_org_obligations = _obligation_ids_for(clean_graph, database, org)
+    assert after_org_obligations, "the rebuild produced no obligations"
+    # The whole point of this test: if the rekey did not actually change any
+    # id, everything below would pass against a no-op and prove nothing.
+    assert after_org_obligations != before_org_obligations, (
+        "forcing every heading to change did not change any obligation id"
+    )
+    assert approved[0] not in after_org_obligations, (
+        "the approved obligation's own id must have moved"
+    )
+
+    decisions = _decision_rows(clean_graph, database)
+    alice = next(d for d in decisions if d["actor"] == "alice")
+    bob = next(d for d in decisions if d["actor"] == "bob")
+    assert alice["verdict"] == "approve"
+    assert bob["verdict"] == "reject"
+    assert alice["source_id"] != approved[0], "alice's decision was not repointed"
+    assert alice["target_id"] == approved[1], "the untouched edition must not move"
+    assert bob["target_id"] == rejected[1]
+
+    after_implements = _implements(clean_graph, database)
+    assert (alice["source_id"], alice["target_id"]) in after_implements, (
+        "the approval did not survive the rekey"
+    )
+    assert (bob["source_id"], bob["target_id"]) not in after_implements, (
+        "a repair that resurrected a rejection is worse than one that lost an approval"
+    )
+    assert approved not in after_implements, "the old ids must be gone, not merely joined"
+
+    assert report["decisions_repointed"] > 0
+    assert report["unpromotable"] == 0
 
 
 @pytest.mark.integration
