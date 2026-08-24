@@ -37,6 +37,13 @@ CORPUS = SAMPLES / "dod_policy_references_08122026.csv"
 # this fixture) and a ceiling would license inventions that aren't inventions. The
 # legacy inline-heading path this fixture exercises is pinned directly instead, in
 # test_pdf_stages.py — see test_a_legacy_inline_cover_yields_its_full_reference_set.
+#
+# 500001p_2020.pdf is absent too, and that one is not deliberate. It is DoDD
+# 5000.01 as originally issued on 2020-09-09, a different edition from 500001p.pdf
+# (which incorporates Change 1 of 2022-07-28), so the corpus holds three editions
+# of this one directive and ratchets one. Against the CSV's row it reaches 93%
+# recall with 2 spurious — the same edition mismatch as the 2003 file, milder.
+# Giving it a floor of its own is STORY-073, not a number to guess at here.
 RATCHETS = {
     "500001p.pdf": ("DoDD 5000.01", 1.00, 0),
     "500088p.pdf": ("DoDI 5000.88", 0.75, 3),
