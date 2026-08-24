@@ -14,6 +14,11 @@ function messageOf(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback
 }
 
+/** The graph view has capped its render since STORY-015 and says so when it
+ *  truncates; the table rendered all 439 rows. Same idiom, same wording: the
+ *  filter is the way through, and it already exists. */
+export const TABLE_RENDER_CAP = 200
+
 export default function DocumentTable() {
   const [documents, setDocuments] = useState<DocumentOut[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -61,6 +66,11 @@ export default function DocumentTable() {
         (!withText || d.version_count > 0),
     )
   }, [documents, filter, withText])
+
+  // Bounds the render, not the query: `visible` still drives the "Showing N of M"
+  // count and the truncation notice, but only the first TABLE_RENDER_CAP rows are
+  // ever mounted. Same idiom as the graph view — cap, and say so.
+  const shown = useMemo(() => visible.slice(0, TABLE_RENDER_CAP), [visible])
 
   // Applied to local state rather than by refetching: a refetch after every edit
   // makes a 438-document corpus feel broken, and the API's response already says
@@ -194,6 +204,13 @@ export default function DocumentTable() {
         Showing {visible.length} of {documents.length}
       </p>
 
+      {visible.length > TABLE_RENDER_CAP && (
+        <p>
+          Showing {TABLE_RENDER_CAP} of {visible.length}. Filter to narrow the list
+          and see the rest.
+        </p>
+      )}
+
       {visible.length === 0 ? (
         <p>No documents match that filter.</p>
       ) : (
@@ -208,7 +225,7 @@ export default function DocumentTable() {
             </tr>
           </thead>
           <tbody>
-            {visible.map((document) => (
+            {shown.map((document) => (
               <tr key={document.slug}>
                 <td>
                   {/* STORY-017's detail view is reached from here: the table is the

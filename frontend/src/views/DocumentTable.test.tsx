@@ -18,7 +18,7 @@ vi.mock('../api/client', () => ({
   ApiError: class extends Error {},
 }))
 
-import DocumentTable from './DocumentTable'
+import DocumentTable, { TABLE_RENDER_CAP } from './DocumentTable'
 
 // A row's name links to its detail page (STORY-017), so the table needs router
 // context. MemoryRouter rather than a real one: these tests are about the table.
@@ -171,6 +171,29 @@ describe('DocumentTable', () => {
 
     expect(screen.getByText('DoDD 5000.01')).toBeInTheDocument()
     expect(screen.queryByText('DoDD 9999.99')).not.toBeInTheDocument()
+  })
+
+  it('caps the rendered rows and says it did', async () => {
+    listDocuments.mockResolvedValue(
+      Array.from({ length: 250 }, (_, i) => ({
+        slug: `d-${i}`, name: `Document ${i}`, is_external: false,
+        references: [], referenced_by: [], version_count: 0,
+      })),
+    )
+    renderTable()
+    await screen.findByRole('table')
+
+    expect(screen.getAllByRole('row').length).toBe(TABLE_RENDER_CAP + 1) // + header
+    expect(screen.getByText(new RegExp(`showing ${TABLE_RENDER_CAP} of 250`, 'i'))).toBeInTheDocument()
+    expect(screen.getByText(/filter to narrow/i)).toBeInTheDocument()
+  })
+
+  it('does not claim truncation when everything fits', async () => {
+    listDocuments.mockResolvedValue(documents)
+    renderTable()
+    await screen.findByRole('table')
+
+    expect(screen.queryByText(/filter to narrow/i)).not.toBeInTheDocument()
   })
 })
 
