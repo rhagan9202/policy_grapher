@@ -1,6 +1,6 @@
 # Backlog
 
-*Living document — edit in place. Last reviewed: 2026-08-23*
+*Living document — edit in place. Last reviewed: 2026-08-24*
 
 Ordered by priority: the top row is the next thing to pick up. See
 [README](README.md) for how items move through this list, and
@@ -31,12 +31,16 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
-**Ready is empty.** Sprint 5 delivered every item in it, and the
-[tech-debt surge](../planning/roadmap.md#the-tech-debt-surge) is over. Nothing is refined enough
-to pick up: sprint 6's planning session has to start from [Refining](#refining) and
-[Ideas](#ideas), and the [Definition of Ready](README.md#definition-of-ready) has to be met
-before anything moves. That is a real state, not an oversight — three sprints of debt work
-consumed a backlog that was written for it.
+**Ready is still empty**, but not for the sprint-5 reason any longer. Between the surge's close
+and now, an eleven-item audit of the running app — citation page numbers, back matter, rebuild
+identity, legacy-cover ingestion, ingest and triage reporting, the document table, and two
+network-exposure gaps — was found and fixed directly, the same way STORY-057 and STORY-058
+were in sprint 4: landed as work, not filed as a queue for someone else. All eleven are in
+[Done](#done). The audit also surfaced three items that are genuinely still open work, now in
+[Refining](#refining) (STORY-073, STORY-074) and [Ideas](#ideas) (STORY-075). Sprint 6's
+planning session starts from those two sections, and the
+[Definition of Ready](README.md#definition-of-ready) still has to be met before anything moves
+into this one.
 
 Two things sprint 5 found and closed that were never in it: **STORY-061**, because sprint 4's
 rebuild routes had no client function and so the app could not build its own derived layer; and
@@ -66,6 +70,8 @@ Understood well enough to discuss, not yet ready to start.
 | STORY-035 | Ingestion accepts a DOCX issuance | — | Same `extract_document` protocol as STORY-016, own extraction rules. Blocked: no DOCX sample exists to design against. Likely easier than PDF — `python-docx` exposes heading styles, so locating the references section stops being the risky stage |
 | STORY-036 | Ingestion accepts an XLSX manifest | — | The *manifest* path alongside CSV, not document extraction — a sibling of `sources/manifest.py`, far smaller than either extraction story |
 | STORY-047 | A reissued document's edits are recognised as edits, not as wholesale replacement | — | Diffing the 2018 and 2020 editions of DoDD 5000.01 through the live stack produced **0 MODIFIED, 11 ADDED, 80 REMOVED**. That is [ADR-015](../specs/adr/ADR-015-changes-are-detected-and-ranked.md)'s documented fallback behaving exactly as designed — the two editions are structurally rewritten, so no `section_path` held exactly one unmatched obligation on each side and the section-based pairing never fired — but the result reads to a reviewer as "the whole document was replaced", which is the least actionable form the answer can take. Needs a second matching pass for obligations that moved between sections. See [STORY-047](stories/STORY-047-reissues-read-as-replacement.md) |
+| STORY-073 | Each document edition is ratcheted against its own reference set, not its current successor's | — | **Est. L.** `500001p_2003.pdf` (the 2003 edition of DoDD 5000.01) is deliberately excluded from `RATCHETS` in `backend/tests/test_extraction_ratchet.py` — the corpus CSV holds one row per document *name*, keyed to the current 2020 edition's citations, so 11 of the 2003 edition's 12 genuine citations would score as "invented" against it. It is pinned instead by a direct test in `test_pdf_stages.py`, which proves extraction works but not that it holds a floor. Needs a per-edition expected reference set, and a decision about where that set comes from and who maintains it as new editions are added — that open question is why this is L rather than a mechanical fix. See [STORY-073](stories/STORY-073-editions-ratchet-against-their-own-reference-set.md) |
+| STORY-074 | A rebuild's colliding re-points are skipped, not left to abort the whole transaction | — | **Est. S.** `repoint_decisions` (`backend/src/policy_grapher/links/decisions.py`) screens each proposed new `:LinkDecision` key against decisions that existed before the batch (`EXISTING_KEYS`) but not against each other. If two stale decisions within one rebuild both compute the same new key, both pass that check individually, and `APPLY_REPOINT` then tries to set the same key on two different nodes — a `link_decision_key_unique` violation that aborts the transaction, rather than falling through to `unpromotable` the way [ADR-027](../specs/adr/ADR-027-a-rebuild-repoints-decisions.md) already handles a collision against a pre-existing decision. Fails loudly rather than corrupting data, but untested. Fix is contained to `repoint_decisions`: extend the `taken` set with each `new_key` as `moves` is accepted, not only with `EXISTING_KEYS`'s result |
 
 ## Ideas
 
@@ -77,6 +83,7 @@ Unrefined. No commitment implied.
 | STORY-021 | Capture applicable entities and enforcement ownership as graph relationships | Same — new labels and relationship types |
 | STORY-023 | A user can ask a question in natural language and get graph results | LLM constructs the Cypher and calls `POST /query`. The two gates it carried are now half-cleared: STORY-019 (auth) and STORY-024 (query constraints) have landed, so only the schema settling remains — see [ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md), superseding [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md) |
 | STORY-045 | A user can run a bounded Cypher query from the UI | `POST /query` and `runQuery()` are built and unreachable. Deliberately parked in Ideas rather than Refining: [ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md) superseded [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md) precisely to stop assuming the audience writes Cypher, so putting a query box in front of them argues against a decision this project has already taken once. If it is built, it belongs behind an operator-facing route, not in the main navigation — and [STORY-023](#ideas) is the answer for the audience ADR-008 actually describes |
+| STORY-075 | A chunk whose start lands exactly on a section join's newline is attributed to the right page | `_page_at` in `backend/src/policy_grapher/chunking.py` uses `offset <= cursor + len(line)`, so an offset equal to `cursor + len(line)` — the join's single newline — resolves to the earlier line's page rather than the one after it. Reachable only if a chunk's start offset lands on that one character, and the resulting chunk would begin with a stray newline either way. Real, but marginal enough that it isn't yet clear whether the fix is the boundary check or the leading newline |
 
 ## Done
 
@@ -85,6 +92,17 @@ sprint reviews.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-071 | No service listens beyond loopback | — |
+| STORY-072 | No developer's own hostname is a committed default | — |
+| STORY-070 | The document table is bounded, and says when it truncated | — |
+| STORY-069 | A document's references are named and reachable from its own page | — |
+| STORY-068 | The document table says which documents have text | — |
+| STORY-067 | Triage distinguishes "nothing changed" from "nothing was extracted" | — |
+| STORY-066 | An ingest says which edition it recorded and how much text it read | — |
+| STORY-065 | Ingestion finds the references on a legacy cover | — |
+| STORY-064 | A rebuild carries review decisions across a change of identity | — |
+| STORY-063 | Back matter is its own section, not the tail of the last numbered one | — |
+| STORY-062 | A citation names the page the quoted text is on | — |
 | STORY-061 | The derived layer can be built from the UI | 5 |
 | STORY-055 | Extraction recognises the modality this corpus actually uses | 5 |
 | STORY-046 | A user can empty the graph from the UI | 5 |
