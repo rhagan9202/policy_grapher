@@ -11,6 +11,7 @@ proposal exists, a human verdicts it, replay applies the verdict.
 """
 
 import hashlib
+from collections import Counter
 from enum import StrEnum
 
 from neo4j import ManagedTransaction
@@ -123,15 +124,32 @@ def repoint_decisions(
     it. A statement that did not move produces the same id on both sides and is
     skipped.
 
-    A decision whose new key already belongs to another decision is left
+    **A statement two obligations share maps neither of them.** `obligation_id`
+    hashes `version_id | section_path | statement`, so one sentence appearing in
+    two sections is two distinct nodes with two distinct ids. The statement is
+    only a handle on an obligation while it names exactly one, and mapping
+    through an ambiguous one would move a human's verdict onto whichever of the
+    two the rebuild happened to record — an obligation nobody judged. Ambiguous
+    statements are dropped here and fall through to `unpromotable`, which is the
+    honest outcome. The caller owes the same guarantee for `after`, whose dict
+    keys collapse duplicates silently.
+
+    A decision whose new key already belongs to another decision — one that
+    existed before this batch, or one this batch has already accepted — is left
     exactly as it was. Merging two human verdicts into one is the single
-    outcome this must not have, and an unrepaired decision is still counted by
-    `replay_decisions` as `unpromotable`.
+    outcome this must not have, and an unrepaired approval is still counted by
+    `replay_decisions` as `unpromotable`. (A stranded *rejection* is counted
+    nowhere; see ADR-027's consequences.)
     """
+    ambiguous = {
+        statement for statement, count in Counter(before.values()).items() if count > 1
+    }
     moved = {
         old_id: after[statement]
         for old_id, statement in before.items()
-        if statement in after and after[statement] != old_id
+        if statement not in ambiguous
+        and statement in after
+        and after[statement] != old_id
     }
     if not moved:
         return 0
@@ -161,7 +179,18 @@ def repoint_decisions(
     taken = set(
         tx.run(EXISTING_KEYS, {"keys": [m["new_key"] for m in proposed]}).single()["present"]
     )
-    moves = [m for m in proposed if m["new_key"] not in taken]
+    # `taken` grows as moves are accepted, not only from the pre-batch read: two
+    # moves within one batch can compute the same new key, and screening each
+    # against the pre-batch set alone lets both through — `APPLY_REPOINT` then
+    # violates `link_decision_key_unique` and rolls the whole rebuild back
+    # (STORY-074). A collision inside the batch resolves the way one against a
+    # pre-existing decision does: the first move lands, the loser is unrepaired.
+    moves = []
+    for move in proposed:
+        if move["new_key"] in taken:
+            continue
+        moves.append(move)
+        taken.add(move["new_key"])
     if not moves:
         return 0
 

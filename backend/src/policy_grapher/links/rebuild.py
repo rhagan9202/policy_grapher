@@ -24,6 +24,7 @@ still resolve to a readable file. When it does not, this fails loudly rather tha
 dropping a version's entire text and reporting success.
 """
 
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -139,10 +140,23 @@ def _write_rebuild(
     # The statement is the stable handle: section_path moves, normalize
     # (statement) does not, so pairing the old ids against the freshly written
     # set by statement is how a re-keyed obligation's decision is found again.
+    #
+    # Only where the statement names exactly one obligation. obligation_id
+    # hashes section_path as well, so one sentence appearing in two sections is
+    # two distinct nodes — measured in this corpus: two such statements in
+    # 818001m.pdf, one in 850001_2014.pdf. Keyed by statement alone they collapse
+    # into one entry and the last one written wins, which would repoint a
+    # reviewer's verdict onto whichever obligation happened to be last. An
+    # ambiguous statement identifies nothing, so it maps nothing and its
+    # decisions fall through to `unpromotable` (ADR-027).
+    seen = Counter(
+        normalize(o.statement) for _, _, found in extracted for o in found
+    )
     after = {
         normalize(statement): obligation_id(version_id, section_path, statement)
         for _, section_path, found in extracted
         for statement in (o.statement for o in found)
+        if seen[normalize(statement)] == 1
     }
     repointed = repoint_decisions(tx, before=before, after=after)
 

@@ -536,3 +536,96 @@ def test_a_repoint_that_would_collide_leaves_the_existing_verdict_alone(clean_gr
         database_=database,
     )
     assert records[0]["verdict"] == "reject", "the existing verdict must win"
+
+
+@pytest.mark.integration
+def test_a_statement_two_obligations_share_repoints_neither(clean_graph, database):
+    """A statement is only a handle on an obligation while it names exactly one.
+
+    `obligation_id` hashes `version_id | section_path | statement`, so the same
+    sentence in two sections is two distinct nodes with two distinct ids. Mapping
+    either of them through that shared statement picks whichever id the rebuild
+    happened to record for it, which is a coin toss between two obligations — and
+    ADR-027's own invariant is that a human's verdict is never silently moved onto
+    something nobody judged. An ambiguous statement therefore repairs nothing and
+    falls through to the unpromotable count.
+    """
+    from policy_grapher.links.decisions import repoint_decisions
+
+    shared = "the director shall report"
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_decision, source_id="old-a", target_id="target-one",
+            verdict="approve", actor="reviewer", rationale="the one in section 3",
+        )
+        session.execute_write(
+            record_decision, source_id="old-b", target_id="target-two",
+            verdict="reject", actor="reviewer", rationale="the one in section 9",
+        )
+
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={"old-a": shared, "old-b": shared},
+            after={shared: "new-a"},
+        )
+
+    assert repointed == 0
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN d.source_obligation_id AS s, "
+        "d.target_obligation_id AS t, d.key AS key, d.verdict AS verdict "
+        "ORDER BY d.source_obligation_id",
+        database_=database,
+    )
+    assert [(r["s"], r["t"], r["verdict"]) for r in records] == [
+        ("old-a", "target-one", "approve"),
+        ("old-b", "target-two", "reject"),
+    ]
+    assert [r["key"] for r in records] == [
+        decision_key("old-a", "target-one"),
+        decision_key("old-b", "target-two"),
+    ]
+
+
+@pytest.mark.integration
+def test_two_repoints_that_would_collide_with_each_other_do_not_abort_the_batch(
+    clean_graph, database
+):
+    """`link_decision_key_unique` constrains `:LinkDecision.key`, so two moves in
+    one batch that compute the same new key cannot both be written. Screening each
+    proposed key only against the decisions that existed *before* the batch lets
+    both pass, and `APPLY_REPOINT` then violates the constraint and rolls the whole
+    rebuild back — the one collision ADR-027 does not already handle (STORY-074).
+    The batch has to behave the way a collision against a pre-existing decision
+    does: one move lands, the loser is left for `unpromotable`.
+    """
+    from policy_grapher.links.decisions import repoint_decisions
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_decision, source_id="old-a", target_id="target",
+            verdict="approve", actor="reviewer", rationale="first",
+        )
+        session.execute_write(
+            record_decision, source_id="old-b", target_id="target",
+            verdict="approve", actor="reviewer", rationale="second",
+        )
+
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={"old-a": "statement one", "old-b": "statement two"},
+            after={"statement one": "new-x", "statement two": "new-x"},
+        )
+
+    assert repointed == 1, "one move lands; the colliding one is left unrepaired"
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN d.source_obligation_id AS s, d.key AS key",
+        database_=database,
+    )
+    assert len(records) == 2, "both human verdicts still exist"
+    moved = [r for r in records if r["key"] == decision_key("new-x", "target")]
+    assert len(moved) == 1
+    stranded = [r for r in records if r["key"] != decision_key("new-x", "target")]
+    assert stranded[0]["s"] in {"old-a", "old-b"}
+    assert stranded[0]["key"] == decision_key(stranded[0]["s"], "target")
