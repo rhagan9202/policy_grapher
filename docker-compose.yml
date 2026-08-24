@@ -174,7 +174,11 @@ services:
     environment:
       BACKEND_URL: http://backend:8000
       API_TOKEN: ${API_TOKEN}
-      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-5173--main--hopes-and-dreams--rhagan.coder.sand.uskgc.com}
+      # No `:-` fallback: the default is empty. A hostname baked in here is
+      # what actually takes effect whenever `.env` omits the line, which is
+      # every checkout but the one it was written on. `.env.example` documents
+      # the variable with an example value; that is documentation, this was not.
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-}
     volumes:
       # Lowercase :z (shared label), not :Z (private label), on purpose: this path has
       # two consumers, the long-running compose service and any ad-hoc tooling
