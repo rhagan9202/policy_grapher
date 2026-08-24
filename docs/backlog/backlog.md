@@ -18,8 +18,9 @@ The tech-debt surge, planned 2026-08-21 and sequenced across sprints 3–5 — s
 using the [t-shirt scale](README.md#estimation) adopted at the same session, so the
 [Definition of Ready](README.md#definition-of-ready) is met here for the first time.
 
-Sprint 3 closed on 2026-08-21 with all seven of its items delivered; they have moved to
-[Done](#done). Sprint 4's spine, STORY-048, has since landed and moved there too: `POST
+Sprint 3 closed on 2026-08-21 with all seven of its items delivered; they are recorded in
+[sprint 3's review](../sprints/sprint-03/review.md), which is where the Done table's trim rule
+sends older history. Sprint 4's spine, STORY-048, has since landed and moved there too: `POST
 /documents/{slug}/versions/{version_id}/rebuild` queues a rebuild onto a Redis-backed RQ
 queue that a `worker` service drains, and `GET /rebuilds/{run_id}` reports its progress —
 so `rebuild_derived`, `embed_chunks`, `CachedExtractor` and `GraphCacheStore` all have a
@@ -92,6 +93,16 @@ Unrefined. No commitment implied.
 Closed items, most recent first. Trim to the last two sprints — older history lives in
 sprint reviews.
 
+Sprint 3's rows were trimmed on 2026-08-24, seven of eleven: [sprint 3's
+review](../sprints/sprint-03/review.md) records STORY-038, 039, 040, 041, 049, 050 and 053, so
+removing them here loses nothing. The other four stay, because no sprint review records their
+delivery and this table is currently the only place they are written down —
+STORY-016, STORY-033, STORY-034 and STORY-037. (STORY-033 is named in [sprint 2's
+review](../sprints/sprint-02/review.md), but as a stretch item that was never started, so that
+is not a record of it being delivered.) They are the rule's own condition, not an exception to
+it: the rule trims to sprint reviews, and a row with no review behind it has nowhere to be
+trimmed to.
+
 | ID | Item | Sprint |
 | --- | --- | --- |
 | STORY-074 | A rebuild's colliding re-points are skipped, not left to abort the whole transaction | — |
@@ -122,13 +133,6 @@ sprint reviews.
 | STORY-056 | A model server is available without installing anything on the host | 4 |
 | STORY-054 | The extraction ratchet has been run against a real model at least once | 4 |
 | STORY-048 | An ingested edition's derived layer can be built from the running app | 4 |
-| STORY-049 | A cold start is empty, and the app says so instead of looking broken | 3 |
-| STORY-039 | The graph view fits the window it is drawn in | 3 |
-| STORY-040 | Triage only offers comparisons it can actually carry out | 3 |
-| STORY-041 | The app has a favicon | 3 |
-| STORY-038 | Creating a document through the API is one transaction | 3 |
-| STORY-050 | The codebase contains no code the application cannot reach | 3 |
-| STORY-053 | Planning documents describe the running app, not its library | 3 |
 | STORY-019 | Authentication on the API | — |
 | STORY-024 | `POST /query` constrains what a generated query may do | — |
 | STORY-037 | A CSV re-ingest stops demoting a PDF-ingested document to `:External` | 3 |
