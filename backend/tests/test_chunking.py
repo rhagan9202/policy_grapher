@@ -59,6 +59,47 @@ def test_a_running_page_header_does_not_open_a_section():
     assert all(c.section_path == ["1"] for c in chunks), [c.section_path for c in chunks]
 
 
+def test_back_matter_opens_its_own_section():
+    """GLOSSARY, REFERENCES and lettered appendix headings matched neither
+    NAMED nor NUMBERED, so back matter was absorbed into whatever numbered
+    section preceded it — DoDD 5000.01's reference list carried
+    ["SECTION 2", "2.10"] and was cited as if it were the CJCS's duties."""
+    assert section_heading("GLOSSARY") == "GLOSSARY"
+    assert section_heading("REFERENCES") == "REFERENCES"
+    assert section_heading("G.2.  DEFINITIONS.") == "G.2"
+
+
+def test_a_reference_mentioned_in_prose_does_not_open_a_section():
+    """The heading must be the whole line. A legacy cover runs
+    "References:  (a) DoD Directive 5000.1," inline, and a sentence can name a
+    glossary without being one."""
+    assert section_heading("References:  (a) DoD Directive 5000.1, October 23, 2000") is None
+    assert section_heading("See the GLOSSARY for the full list of terms.") is None
+    assert section_heading("REFERENCES ....................................... 16") is None
+    # Positive control: without these, the test would pass if section_heading
+    # always returned None.
+    assert section_heading("REFERENCES") == "REFERENCES"
+
+
+def test_back_matter_closes_the_section_before_it():
+    """The defect this fixes, at the level it was found."""
+    pages = [
+        (
+            "2.10.  CJCS.\nThe CJCS shall advise the Secretary.\n"
+            "REFERENCES\n"
+            'DoD Directive 1322.18, "Military Training," October 3, 2019\n'
+        )
+    ]
+    chunks = chunk_pages(pages, version_id="v")
+    paths = [chunk.section_path for chunk in chunks]
+
+    assert ["2.10"] in paths
+    assert ["REFERENCES"] in paths
+    reference_chunk = next(c for c in chunks if c.section_path == ["REFERENCES"])
+    assert "Military Training" in reference_chunk.text
+    assert "The CJCS shall advise" not in reference_chunk.text
+
+
 def test_a_heading_that_happens_to_repeat_twice_is_still_a_heading():
     """Furniture is what repeats across *many* pages. Two pages is a document
     that opens two sections with the same number, not a running header — the

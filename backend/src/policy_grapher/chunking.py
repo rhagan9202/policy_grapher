@@ -18,6 +18,22 @@ PREAMBLE = "(preamble)"
 NUMBERED = re.compile(r"^(?P<number>\d+(?:\.\d+)*)\.\s+\S")
 NAMED = re.compile(r"^(?P<kind>CHAPTER|SECTION|APPENDIX|ENCLOSURE)\s+(?P<id>[\dIVXA-Z]+)\b")
 
+# Back matter. These open no numbered section, so before ADR-026's companion
+# change they were absorbed into whatever numbered section preceded them — the
+# reference list of DoDD 5000.01 carried ["SECTION 2", "2.10"].
+#
+# Anchored at both ends on purpose. A legacy cover runs "References:  (a) DoD
+# Directive 5000.1," inline and is a citation block, not a heading; requiring
+# the word to be the whole line keeps it, and any prose mention, out.
+# Uppercase-only for the same reason: these headings are set in caps in every
+# DoD issuance in `data/samples`, and matching case-insensitively would catch
+# ordinary sentences.
+BACK_MATTER = re.compile(r"^(?P<kind>GLOSSARY|REFERENCES|ACRONYMS)\s*$")
+
+# "G.2.  DEFINITIONS." — a lettered appendix subsection. NUMBERED requires a
+# leading digit and so never matched these.
+LETTERED = re.compile(r"^(?P<id>[A-Z]\.\d+(?:\.\d+)*)\.\s+\S")
+
 # A table-of-contents row: "1.1.  Applicability. ........ 4". It opens with a
 # real heading and so is indistinguishable from one by prefix alone; the dot
 # leader running to a page number is what gives it away. Four dots, allowing a
@@ -50,6 +66,12 @@ def section_heading(line: str) -> str | None:
     # page of dot leaders as if it were document text.
     if DOT_LEADER.search(stripped):
         return None
+    back_matter = BACK_MATTER.match(stripped)
+    if back_matter:
+        return back_matter["kind"]
+    lettered = LETTERED.match(stripped)
+    if lettered:
+        return lettered["id"]
     named = NAMED.match(stripped)
     if named:
         return f"{named['kind']} {named['id']}"
