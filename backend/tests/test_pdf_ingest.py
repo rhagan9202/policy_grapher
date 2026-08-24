@@ -17,7 +17,7 @@ SAMPLES = Path(__file__).resolve().parents[2] / "data" / "samples"
 def test_ingesting_a_pdf_creates_the_document_and_its_edges(clean_graph, database):
     extracted = pdf.extract_document(SAMPLES / "500001p.pdf")
 
-    slug, nodes, relationships = ingest_document(
+    slug, nodes, relationships, *_ = ingest_document(
         clean_graph, database, extracted, SAMPLES / "500001p.pdf"
     )
 
@@ -45,7 +45,7 @@ def test_reingesting_the_same_pdf_creates_nothing_new(clean_graph, database):
     extracted = pdf.extract_document(SAMPLES / "500001p.pdf")
     ingest_document(clean_graph, database, extracted, SAMPLES / "500001p.pdf")
 
-    slug, nodes, relationships = ingest_document(
+    slug, nodes, relationships, *_ = ingest_document(
         clean_graph, database, extracted, SAMPLES / "500001p.pdf"
     )
 
@@ -91,7 +91,7 @@ def test_two_cited_names_contesting_a_base_slug_stay_distinct(clean_graph, datab
         pages=["1. PURPOSE\nThis directive establishes policy.\n"],
     )
 
-    slug, nodes, relationships = ingest_document(
+    slug, nodes, relationships, *_ = ingest_document(
         clean_graph, database, extracted, SAMPLES / "500001p.pdf"
     )
 
@@ -355,6 +355,17 @@ def test_a_pdf_with_no_extractable_text_fails_instead_of_wiping_its_chunks(
     assert "no text" in second.json()["detail"]
     after = client_with_auth.get(f"/documents/{slug}/chunks").json()
     assert [c["chunk_id"] for c in after] == [c["chunk_id"] for c in before]
+
+
+@pytest.mark.integration
+def test_ingesting_a_pdf_reports_the_edition_and_the_text_it_read(client_with_auth):
+    """"0 nodes created" is what a second edition of an already-known document
+    reports, and it reads as "nothing happened" while 38 chunks land."""
+    body = client_with_auth.post("/ingest", json={"filename": "500001p_2020.pdf"}).json()
+
+    assert body["source"] == "document"
+    assert body["version_id"] == "dodd-5000-01@2020-09-09"
+    assert body["chunks_written"] > 0
 
 
 def test_a_manifest_ingest_is_unaffected_by_the_no_text_guard(client_with_auth):

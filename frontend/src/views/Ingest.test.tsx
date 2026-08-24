@@ -63,6 +63,8 @@ describe('Ingest', () => {
       references_attributed: 16,
       references_unattributed: ['Summary of the 2018 National Defense Strategy'],
       self_references_skipped: 0,
+      version_id: 'dodd-5000-01@2020-09-09',
+      chunks_written: 34,
     })
     render(<Ingest />)
 
@@ -86,6 +88,8 @@ describe('Ingest', () => {
       references_attributed: 16,
       references_unattributed: ['Summary of the 2018 National Defense Strategy'],
       self_references_skipped: 0,
+      version_id: 'dodd-5000-01@2020-09-09',
+      chunks_written: 34,
     })
     render(<Ingest />)
 
@@ -93,6 +97,29 @@ describe('Ingest', () => {
     await userEvent.click(screen.getByRole('button', { name: /ingest/i }))
 
     expect(await screen.findByText(/Summary of the 2018 National Defense Strategy/)).toBeInTheDocument()
+  })
+
+  it('names the edition it recorded and how much text it read', async () => {
+    const documentResult = {
+      source: 'document',
+      format: 'modern',
+      document: { slug: 'dodd-5000-01', name: 'DoDD 5000.01' },
+      nodes_created: 1,
+      relationships_created: 2,
+      references_attributed: 16,
+      references_unattributed: [],
+      self_references_skipped: 0,
+      version_id: 'dodd-5000-01@2020-09-09',
+      chunks_written: 34,
+    }
+    ingest.mockResolvedValue(documentResult)
+    render(<Ingest />)
+    await userEvent.type(screen.getByLabelText(/file to ingest/i), '500001p_2020.pdf')
+    await userEvent.click(screen.getByRole('button', { name: /^ingest$/i }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent(/dodd-5000-01@2020-09-09/)
+    expect(status).toHaveTextContent(/34 chunks/i)
   })
 
   it('surfaces the duplicates a manifest ingest suspected', async () => {

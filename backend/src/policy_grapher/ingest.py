@@ -139,7 +139,7 @@ def ingest_file(
         return ingest_parsed(driver, database, parse_corpus(path), path.name)
 
     extracted = pdf.extract_document(path)
-    slug, nodes_created, relationships_created = ingest_document(
+    slug, nodes_created, relationships_created, version_id, chunks_written = ingest_document(
         driver, database, extracted, path
     )
     return DocumentIngestResult(
@@ -150,6 +150,8 @@ def ingest_file(
         references_attributed=len(extracted.report.attributed),
         references_unattributed=list(extracted.report.unattributed),
         self_references_skipped=extracted.self_references_skipped,
+        version_id=version_id,
+        chunks_written=chunks_written,
     )
 
 
@@ -177,7 +179,7 @@ def _write_document(
     checksum: str,
     effective_date: date | None,
     pages: list[str],
-) -> tuple[int, int]:
+) -> tuple[int, int, str, int]:
     nodes_created = tx.run(MERGE_DOCUMENT, {"slug": slug, "name": name}).consume().counters.nodes_created
     if cited:
         nodes_created += tx.run(MERGE_CITED, {"docs": cited}).consume().counters.nodes_created
@@ -240,12 +242,12 @@ def _write_document(
         {"slugs": [slug, *(entry["slug"] for entry in cited)]},
     ).consume()
 
-    return nodes_created, relationships_created
+    return nodes_created, relationships_created, version, written
 
 
 def ingest_document(
     driver: Driver, database: str, extracted: ExtractedDocument, path: Path
-) -> tuple[str, int, int]:
+) -> tuple[str, int, int, str, int]:
     """Merge one extracted document and the documents it cites.
 
     Slugs are resolved for the whole batch (this document plus every name it
@@ -259,6 +261,12 @@ def ingest_document(
     The checksum is computed here too, alongside slug resolution, for the same
     reason: it is a read (of the file), not a write, and belongs outside the
     transaction with the rest of this function's reads.
+
+    Returns `(slug, nodes_created, relationships_created, version_id,
+    chunks_written)`. The last two matter most on a re-ingest: a second edition
+    of an already-known document creates no `:Document` node, so
+    `nodes_created` alone reads as "nothing happened" while the edition's text
+    lands regardless.
     """
     slugs = allocate_slugs(driver, database, [extracted.name, *extracted.references])
     slug = slugs[extracted.name]
@@ -267,7 +275,7 @@ def ingest_document(
     checksum = hashlib.sha256(path.read_bytes()).hexdigest()
 
     with driver.session(database=database) as session:
-        nodes_created, relationships_created = session.execute_write(
+        nodes_created, relationships_created, version_id, chunks_written = session.execute_write(
             _write_document,
             filename=path.name,
             slug=slug,
@@ -279,4 +287,4 @@ def ingest_document(
             effective_date=extracted.effective_date,
             pages=extracted.pages,
         )
-    return slug, nodes_created, relationships_created
+    return slug, nodes_created, relationships_created, version_id, chunks_written

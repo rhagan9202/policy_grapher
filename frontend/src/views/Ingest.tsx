@@ -69,6 +69,10 @@ export default function Ingest() {
                 Ingested {result.document.name} ({result.format} format)
               </h2>
               <ul>
+                <li>
+                  edition <code>{result.version_id}</code>, {result.chunks_written} chunks
+                  of text
+                </li>
                 <li>{result.nodes_created} nodes created</li>
                 <li>{result.relationships_created} relationships created</li>
                 <li>{result.references_attributed} references attributed</li>

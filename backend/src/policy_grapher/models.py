@@ -29,6 +29,11 @@ class DocumentIngestResult(BaseModel):
     references_attributed: int
     references_unattributed: list[str] = Field(default_factory=list)
     self_references_skipped: int
+    # An ingest of a second edition creates no :Document node, so "0 nodes
+    # created" is both true and unreadable. The edition and its chunk count are
+    # what the reader needs in order to do the next thing.
+    version_id: str
+    chunks_written: int
 
 
 class ResetResult(BaseModel):
