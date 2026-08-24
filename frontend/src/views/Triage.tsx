@@ -184,7 +184,24 @@ export default function Triage() {
 
           {result.rows.length === 0 ? (
             result.total_changes === 0 ? (
-              <p>No obligation changed between these editions.</p>
+              result.from_obligations === 0 || result.to_obligations === 0 ? (
+                <p>
+                  <strong>
+                    No obligations have been extracted for{' '}
+                    {result.from_obligations === 0 && result.to_obligations === 0
+                      ? 'either edition'
+                      : result.from_obligations === 0
+                        ? `${result.from_version_id}`
+                        : `${result.to_version_id}`}
+                    .
+                  </strong>{' '}
+                  Nothing can have changed between them, because there is nothing
+                  yet to compare. Build the derived layer for both editions with a
+                  real extraction model configured.
+                </p>
+              ) : (
+                <p>No obligation changed between these editions.</p>
+              )
             ) : (
               <p>
                 Nothing has been linked to these changes yet — this is not a

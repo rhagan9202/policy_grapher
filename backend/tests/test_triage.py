@@ -49,6 +49,27 @@ def _seed_version(driver, database, *, version_id, doc_slug, doc_name, entries):
     return ids
 
 
+def _seed_two_editions_without_obligations(client):
+    """Two editions of one instrument, superseding each other, neither carrying
+    any obligations — what the default `null` extractor produces."""
+    driver = client.app.state.driver
+    database = client.app.state.settings.neo4j_database
+    _seed_version(
+        driver, database, version_id="d@2019-01-01", doc_slug="d",
+        doc_name="Doc D", entries=[],
+    )
+    _seed_version(
+        driver, database, version_id="d@2020-01-01", doc_slug="d",
+        doc_name="Doc D", entries=[],
+    )
+    driver.execute_query(
+        "MATCH (new:DocumentVersion {version_id: 'd@2020-01-01'}) "
+        "MATCH (old:DocumentVersion {version_id: 'd@2019-01-01'}) "
+        "MERGE (new)-[:SUPERSEDES]->(old)",
+        database_=database,
+    )
+
+
 def _obligation_id(driver, database, version_id, statement):
     records, _, _ = driver.execute_query(
         "MATCH (:DocumentVersion {version_id: $vid})-[:MANDATES]->"
@@ -430,6 +451,23 @@ def test_an_empty_triage_still_reports_what_it_could_not_see(client_with_auth):
     assert body["rows"] == []
     assert body["total_changes"] == 1
     assert body["unlinked_changes"] == 1
+
+
+@pytest.mark.integration
+def test_triage_reports_how_many_obligations_each_edition_has(client_with_auth):
+    """"No obligation changed between these editions" is true and misleading
+    when neither edition has any obligations to change — which is what the
+    default null extractor produces. This is the same discipline
+    `unlinked_changes` already applies to an empty table (ADR-015)."""
+    _seed_two_editions_without_obligations(client_with_auth)
+
+    body = client_with_auth.get(
+        "/triage", params={"to_version_id": "d@2020-01-01"}
+    ).json()
+
+    assert body["total_changes"] == 0
+    assert body["from_obligations"] == 0
+    assert body["to_obligations"] == 0
 
 
 @pytest.mark.integration

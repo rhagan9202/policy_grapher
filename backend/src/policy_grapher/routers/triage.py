@@ -26,6 +26,11 @@ MATCH (:DocumentVersion {version_id: $version_id})-[:SUPERSEDES]->(older:Documen
 RETURN older.version_id AS version_id
 """
 
+COUNT_OBLIGATIONS = """
+MATCH (:DocumentVersion {version_id: $version_id})-[:MANDATES]->(o:Obligation)
+RETURN count(o) AS obligations
+"""
+
 
 def _require_version(driver: Driver, database: str, version_id: str) -> None:
     records, _, _ = driver.execute_query(
@@ -91,18 +96,30 @@ def read_triage(
         diff_versions(
             tx, from_version_id=resolved_from, to_version_id=to_version_id
         )
-        return run_triage(
+        result = run_triage(
             tx, from_version_id=resolved_from, to_version_id=to_version_id
         )
+        # Read inside the same transaction as the diff and the triage, so the
+        # count reflects the same graph state those two just read — not a
+        # separate read that could race a concurrent rebuild.
+        from_obligations = tx.run(
+            COUNT_OBLIGATIONS, {"version_id": resolved_from}
+        ).single()["obligations"]
+        to_obligations = tx.run(
+            COUNT_OBLIGATIONS, {"version_id": to_version_id}
+        ).single()["obligations"]
+        return result, from_obligations, to_obligations
 
     with driver.session(database=database) as session:
-        result = session.execute_write(_work)
+        result, from_obligations, to_obligations = session.execute_write(_work)
 
     return TriageOut(
         from_version_id=resolved_from,
         to_version_id=to_version_id,
         total_changes=result.total_changes,
         unlinked_changes=result.unlinked_changes,
+        from_obligations=from_obligations,
+        to_obligations=to_obligations,
         rows=[
             TriageRowOut(
                 change_id=row.change_id,

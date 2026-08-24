@@ -58,6 +58,8 @@ const triage: TriageOut = {
   to_version_id: 'dodi-5000-88@2020-11-18',
   total_changes: 3,
   unlinked_changes: 2,
+  from_obligations: 96,
+  to_obligations: 115,
   rows: [
     {
       change_id: 'c1',
@@ -174,6 +176,35 @@ describe('Triage', () => {
     })
     showTriage()
 
+    await chooseAnEdition()
+
+    expect(await screen.findByText(/no obligation changed/i)).toBeInTheDocument()
+  })
+
+  it('does not report "nothing changed" when nothing was ever extracted', async () => {
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    getTriage.mockResolvedValue({
+      from_version_id: 'd@2018-01-01', to_version_id: 'd@2020-01-01',
+      rows: [], total_changes: 0, unlinked_changes: 0,
+      from_obligations: 0, to_obligations: 0,
+    })
+    showTriage()
+    await chooseAnEdition()
+
+    expect(await screen.findByText(/no obligations have been extracted/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no obligation changed/i)).not.toBeInTheDocument()
+  })
+
+  it('still reports a genuine all-clear when both editions have obligations', async () => {
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    getTriage.mockResolvedValue({
+      from_version_id: 'd@2018-01-01', to_version_id: 'd@2020-01-01',
+      rows: [], total_changes: 0, unlinked_changes: 0,
+      from_obligations: 96, to_obligations: 115,
+    })
+    showTriage()
     await chooseAnEdition()
 
     expect(await screen.findByText(/no obligation changed/i)).toBeInTheDocument()

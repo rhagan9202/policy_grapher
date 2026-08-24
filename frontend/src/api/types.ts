@@ -132,6 +132,14 @@ export interface TriageOut {
    * a different thing from "nothing affected" (ADR-015).
    */
   unlinked_changes: number
+  /**
+   * An empty `rows` has three causes, and they are not the same finding:
+   * nothing is linked (`unlinked_changes`), nothing changed (`total_changes`),
+   * or nothing was ever extracted. Only these two can tell the third from the
+   * second, and the default `null` extractor makes the third the common case.
+   */
+  from_obligations: number
+  to_obligations: number
 }
 
 export interface Citation {
