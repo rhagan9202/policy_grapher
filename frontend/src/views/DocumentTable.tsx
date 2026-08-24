@@ -18,6 +18,7 @@ export default function DocumentTable() {
   const [documents, setDocuments] = useState<DocumentOut[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
+  const [withText, setWithText] = useState(false)
 
   // Corpus editing (STORY-044). The five client functions behind these three flows
   // have been built and unreachable since STORY-026.
@@ -54,9 +55,12 @@ export default function DocumentTable() {
 
   const visible = useMemo(() => {
     const needle = filter.trim().toLowerCase()
-    if (!needle) return documents ?? []
-    return (documents ?? []).filter((d) => d.name.toLowerCase().includes(needle))
-  }, [documents, filter])
+    return (documents ?? []).filter(
+      (d) =>
+        (!needle || d.name.toLowerCase().includes(needle)) &&
+        (!withText || d.version_count > 0),
+    )
+  }, [documents, filter, withText])
 
   // Applied to local state rather than by refetching: a refetch after every edit
   // makes a 438-document corpus feel broken, and the API's response already says
@@ -173,7 +177,15 @@ export default function DocumentTable() {
         placeholder="Filter by name…"
         value={filter}
         onChange={(event) => setFilter(event.target.value)}
-      />
+      />{' '}
+      <label>
+        <input
+          type="checkbox"
+          checked={withText}
+          onChange={(event) => setWithText(event.target.checked)}
+        />{' '}
+        Only documents with text
+      </label>
 
       {addForm}
       {editError && <div role="alert">{editError}</div>}
@@ -190,6 +202,7 @@ export default function DocumentTable() {
             <tr>
               <th>Name</th>
               <th>Cited by</th>
+              <th>Editions</th>
               <th>References</th>
               <th>Actions</th>
             </tr>
@@ -205,6 +218,7 @@ export default function DocumentTable() {
                 </td>
                 {/* ADR-006: standing among other documents is read off the edges. */}
                 <td>{document.referenced_by.length}</td>
+                <td>{document.version_count}</td>
                 <td>
                   {document.references
                     .map((slug) => namesBySlug.get(slug) ?? slug)

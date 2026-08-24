@@ -143,6 +143,35 @@ describe('DocumentTable', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend down/i)
   })
+
+  it('says which documents have ingested text', async () => {
+    // 439 rows look identical, and only two or three have an edition behind
+    // them. version_count has been in the payload since STORY-040 and the table
+    // has never shown it.
+    listDocuments.mockResolvedValue([
+      { slug: 'a', name: 'DoDD 5000.01', is_external: false, references: [], referenced_by: [], version_count: 2 },
+      { slug: 'b', name: 'DoDD 9999.99', is_external: true, references: [], referenced_by: [], version_count: 0 },
+    ])
+    renderTable()
+    await screen.findByRole('table')
+
+    const withText = screen.getByRole('row', { name: /DoDD 5000\.01/ })
+    expect(within(withText).getByText('2')).toBeInTheDocument()
+  })
+
+  it('can show only the documents that have text', async () => {
+    listDocuments.mockResolvedValue([
+      { slug: 'a', name: 'DoDD 5000.01', is_external: false, references: [], referenced_by: [], version_count: 2 },
+      { slug: 'b', name: 'DoDD 9999.99', is_external: true, references: [], referenced_by: [], version_count: 0 },
+    ])
+    renderTable()
+    await screen.findByRole('table')
+
+    await userEvent.click(screen.getByRole('checkbox', { name: /only documents with text/i }))
+
+    expect(screen.getByText('DoDD 5000.01')).toBeInTheDocument()
+    expect(screen.queryByText('DoDD 9999.99')).not.toBeInTheDocument()
+  })
 })
 
 describe('DocumentTable when nothing has been ingested', () => {
