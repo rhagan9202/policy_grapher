@@ -26,19 +26,23 @@ SAMPLES = Path(__file__).resolve().parents[2] / "data" / "samples"
 CORPUS = SAMPLES / "dod_policy_references_08122026.csv"
 
 # fixture -> (corpus name, minimum fraction found, maximum invented)
+#
+# 500001p_2003.pdf (the 2003 edition of DoDD 5000.01) is deliberately absent. The
+# corpus CSV holds one row per document *name*, describing the current (2020)
+# edition's citations. Scoring the 2003 edition's genuine, mostly since-superseded
+# citations (a cancelled DoD Directive 5000.1, DoD Instruction 5000.2, etc.) against
+# that row isn't measuring recall or invention at all — it's comparing one edition
+# against a different edition's reference list. A floor there would certify ~7%
+# recall as "the fraction of a document's real references we must find" (false for
+# this fixture) and a ceiling would license inventions that aren't inventions. The
+# legacy inline-heading path this fixture exercises is pinned directly instead, in
+# test_pdf_stages.py — see test_a_legacy_inline_cover_yields_its_full_reference_set.
 RATCHETS = {
     "500001p.pdf": ("DoDD 5000.01", 1.00, 0),
     "500088p.pdf": ("DoDI 5000.88", 0.75, 3),
     "514301p.pdf": ("DoDD 5143.01", 0.75, 13),
     "818001m.pdf": ("DoDM 8180.01", 0.75, 4),
     "850001_2014.pdf": ("DoDI 8500.01", 0.75, 22),
-    # This is the 2003 edition of the same instrument as 500001p.pdf above; the
-    # corpus's "DoDD 5000.01" row reflects the 2020 edition's citations, so an
-    # older edition citing its own contemporaries — a since-cancelled DoD
-    # Directive 5000.1, DoD Instruction 5000.2, etc. — has little overlap with
-    # it. Measured at 1/15 matched (6.67%, floor rounds down to 0.05) and 11
-    # invented.
-    "500001p_2003.pdf": ("DoDD 5000.01", 0.05, 11),
 }
 
 

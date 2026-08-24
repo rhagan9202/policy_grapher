@@ -414,9 +414,30 @@ def test_the_inline_block_stops_at_the_numbered_heading_not_the_body():
     assert len(entries) == 14
 
 
-def test_a_legacy_inline_cover_yields_its_citations():
+def test_a_legacy_inline_cover_yields_its_full_reference_set():
+    """Pins the legacy inline path directly rather than through the extraction
+    ratchet: the corpus CSV holds one row per document *name*, describing the
+    2020 edition, so the 2003 edition's citations can't be scored against it
+    without comparing across editions (see the comment above RATCHETS in
+    test_extraction_ratchet.py). `DoDD 5000.1` and `DoDI 5000.2` are the two
+    citations that prove the *legacy* cover was parsed, not the modern one —
+    they are this instrument's own predecessor and its companion instruction,
+    both since superseded, so they appear nowhere in the modern edition's own
+    references."""
     result = pdf.extract_document(LEGACY_INLINE)
 
     assert result.report.format == "legacy"
-    # (e) "Title 10, United States Code" normalises to the corpus's vocabulary.
-    assert "United States Code, Title 10" in result.references
+    assert set(result.references) == {
+        "Deputy Secretary of Defense Memorandum",
+        "DoDD 2060.1",
+        "DoDD 4630.05",
+        "DoDD 5000.1",
+        "DoDD 8500.01E",
+        "DoDI 5000.2",
+        "DoDI 5025.01",
+        "Section 2350a of title 10, United States Code",
+        "Section 2531 of title 10, United States Code",
+        "Section 2751 of title 22, United States Code",
+        "Section 8066, Public Law 109-289",
+        "United States Code, Title 10",
+    }
