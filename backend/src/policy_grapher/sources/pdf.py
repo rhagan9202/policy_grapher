@@ -37,8 +37,22 @@ def text_of(path: Path) -> str:
 # "ENCLOSURE 1" then REFERENCES, and an unnumbered "ENCLOSURE" then REFERENCES.
 # Entry markers were consistent where headings were not, so detection keys on them.
 _HEADING = re.compile(r"(?:ENCLOSURE(?:\s+\d+)?\s*\n+\s*)?REFERENCES\s*\n", re.IGNORECASE)
+# A still older cover runs the heading inline with its first entry — "References:
+# (a) DoD Directive 5000.1, ..." — with no standalone REFERENCES line for `_HEADING`
+# to find. The lookahead is the whole guard: a heading only counts when a lettered
+# entry follows it, which a prose mention of "references" never has.
+_INLINE_HEADING = re.compile(r"References:\s*(?=\(\s*[a-z]{1,3}\s*\))", re.IGNORECASE)
 _LETTERED = re.compile(r"\(\s*[a-z]{1,3}\s*\)\s+")
 _SECTION_END = re.compile(r"\n\s*(?:ENCLOSURE\s+\d+|GLOSSARY|APPENDIX)\s*\n", re.IGNORECASE)
+# A cover carrying the inline form may carry none of ENCLOSURE/GLOSSARY/APPENDIX
+# anywhere in the document, so `_SECTION_END` finds nothing nearby and the slice
+# runs to whichever of those headings happens to sit thousands of characters into
+# the body — inventing references out of the directive's own prose. The lettered
+# block instead ends at the first *numbered* section heading ("1.  PURPOSE"), which
+# `_SECTION_END` does not look for. Used only for the inline form: the five existing
+# ratchet fixtures depend on `_SECTION_END`'s current behaviour for the standalone
+# REFERENCES-on-its-own-line form, so that pattern is left untouched.
+_INLINE_SECTION_END = re.compile(r"\n\s*\d+(?:\.\d+)*\.\s+[A-Z]")
 # Every page carries a footer naming the issuance, its date and any change; the last
 # one falls inside the slice because the section ends mid-page. Left in, it corrupts
 # the final entry, e.g. "...current edition DoDD 5143.01, October 24, 2014 Change 2,
@@ -117,9 +131,14 @@ def locate_references(full: str) -> tuple[str, str | None]:
     Returns ("unknown", None) when no section is found — distinct from an empty
     section, which would look identical downstream and mean something different.
     """
-    for match in _HEADING.finditer(full):
+    candidates = sorted(
+        [(match, _SECTION_END) for match in _HEADING.finditer(full)]
+        + [(match, _INLINE_SECTION_END) for match in _INLINE_HEADING.finditer(full)],
+        key=lambda pair: pair[0].start(),
+    )
+    for match, section_end in candidates:
         body = full[match.end() :]
-        end = _SECTION_END.search(body)
+        end = section_end.search(body)
         section = body[: end.start()] if end else body
         if not section.strip():
             continue

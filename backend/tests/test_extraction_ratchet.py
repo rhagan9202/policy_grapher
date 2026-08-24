@@ -32,6 +32,13 @@ RATCHETS = {
     "514301p.pdf": ("DoDD 5143.01", 0.75, 13),
     "818001m.pdf": ("DoDM 8180.01", 0.75, 4),
     "850001_2014.pdf": ("DoDI 8500.01", 0.75, 22),
+    # This is the 2003 edition of the same instrument as 500001p.pdf above; the
+    # corpus's "DoDD 5000.01" row reflects the 2020 edition's citations, so an
+    # older edition citing its own contemporaries — a since-cancelled DoD
+    # Directive 5000.1, DoD Instruction 5000.2, etc. — has little overlap with
+    # it. Measured at 1/15 matched (6.67%, floor rounds down to 0.05) and 11
+    # invented.
+    "500001p_2003.pdf": ("DoDD 5000.01", 0.05, 11),
 }
 
 

@@ -371,3 +371,52 @@ def _HEADING_DOES_NOT_BITE(full: str) -> bool:
     """Guard: if this ever bites, the test stops exercising what it claims to."""
     heading = pdf._HEADING.search(full)
     return heading is None or heading.start() >= pdf._COVER_PAGE_FALLBACK
+
+
+LEGACY_INLINE = SAMPLES / "500001p_2003.pdf"  # DoDD 5000.01, May 12 2003, Change 2
+
+
+def test_a_legacy_inline_references_block_is_found():
+    """`_HEADING` wanted REFERENCES alone on a line. This cover runs
+    "References:  (a) DoD Directive 5000.1," inline, so `locate_references`
+    returned ("unknown", None) and the file contributed no references at all —
+    while its cover lists fourteen."""
+    fmt, section = pdf.locate_references(pdf.text_of(LEGACY_INLINE))
+
+    assert fmt == "legacy", f"expected the legacy format, got {fmt!r}"
+    assert section is not None
+    assert "DoD Directive 5000.1" in section
+
+
+def test_the_word_references_in_prose_is_not_a_references_section():
+    """The lookahead is what keeps this out: a heading only counts when a
+    lettered entry follows it."""
+    fmt, section = pdf.locate_references(
+        "Policy.\nReferences to the Comptroller are made throughout.\nMore prose.\n"
+    )
+
+    assert fmt == "unknown"
+    assert section is None
+
+
+def test_the_inline_block_stops_at_the_numbered_heading_not_the_body():
+    """`_SECTION_END` looks for ENCLOSURE/GLOSSARY/APPENDIX alone on a line, and
+    this cover carries none of them anywhere near the references block — the
+    next one is 8,824 characters later, deep in the body. Left unbounded for the
+    inline form, the section would swallow the whole directive and invent
+    references wholesale. The real block is entries (a) through (n), fourteen
+    of them, ending at "1.  PURPOSE"."""
+    section = pdf.locate_references(pdf.text_of(LEGACY_INLINE))[1]
+
+    assert section is not None
+    assert "PURPOSE" not in section
+    entries = pdf.split_entries("legacy", section)
+    assert len(entries) == 14
+
+
+def test_a_legacy_inline_cover_yields_its_citations():
+    result = pdf.extract_document(LEGACY_INLINE)
+
+    assert result.report.format == "legacy"
+    # (e) "Title 10, United States Code" normalises to the corpus's vocabulary.
+    assert "United States Code, Title 10" in result.references
