@@ -77,15 +77,23 @@ ORDER BY document, page, statement
 LIMIT $limit
 """
 
+# The edition comes from the obligation, not from TO_VERSION. A REMOVED change
+# carries an obligation of the *from*-version — the later edition is where the
+# clause stopped existing — so its anchor chunk is a chunk of the old edition
+# while TO_VERSION names the new one. Citing the new edition for old text says a
+# reader can go and find the quotation somewhere it is not, which is the one
+# thing a citation must never do (ADR-011). REMOVED is also the dominant kind:
+# STORY-047 measured 0 MODIFIED, 11 ADDED, 80 REMOVED on a real edition pair.
 _CHANGES_FOR_DOCUMENT = """
 MATCH (d:Document)-[:HAS_VERSION]->(v:DocumentVersion)<-[:TO_VERSION]-(c:Change)
 WHERE toLower(d.name) CONTAINS toLower($document)
 MATCH (c)-[:AFFECTS]->(o:Obligation)
+MATCH (ov:DocumentVersion)-[:MANDATES]->(o)
 --ANCHOR--
 RETURN c.kind || ': ' || c.statement AS statement,
        o.modality  AS modality,
        d.name      AS document,
-       v.version_id AS version_id,
+       ov.version_id AS version_id,
        anchor_chunk.section_path AS section_path,
        anchor_chunk.page         AS page,
        anchor_chunk.text         AS quote

@@ -337,3 +337,57 @@ def test_asking_what_a_document_implements_answers_from_that_template(
 
     assert body["template_used"] == "implements_for_document"
     assert body["citations"][0]["document"] == "DoDI 5000.88"
+
+
+@pytest.mark.integration
+def test_a_removed_change_cites_the_edition_the_text_is_actually_in(client_with_auth):
+    """A REMOVED change is about an obligation in the *from*-version — that is
+    the only edition whose text still contains it, and the anchor chunk the
+    citation quotes is a chunk of that edition. Binding the edition through
+    `TO_VERSION` instead names the new edition, so the citation asserts the
+    quoted sentence is in a document that no longer contains it. REMOVED is not
+    a corner: STORY-047 measured 0 MODIFIED, 11 ADDED and 80 REMOVED on a real
+    edition pair, so this is the dominant kind.
+    """
+    from policy_grapher.changes.diff import diff_versions
+
+    _seed(
+        client_with_auth, version_id="dodd-9@2018-01-01", doc_slug="dodd-9",
+        doc_name="DoDD 9.00",
+        text="The Director shall obtain a waiver before each flight.",
+        statement="The Director shall obtain a waiver before each flight.",
+    )
+    # The later edition drops the clause and states nothing in its place, so the
+    # diff has one unmatched old obligation and no new one: a REMOVED, with no
+    # section holding one of each to pair into a MODIFIED.
+    _seed(
+        client_with_auth, version_id="dodd-9@2020-01-01", doc_slug="dodd-9",
+        doc_name="DoDD 9.00", text="This section is now reserved.",
+    )
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    with driver.session(database=database) as session:
+        session.execute_write(
+            diff_versions,
+            from_version_id="dodd-9@2018-01-01",
+            to_version_id="dodd-9@2020-01-01",
+        )
+    records, _, _ = driver.execute_query(
+        "MATCH (c:Change) RETURN c.kind AS kind", database_=database
+    )
+    assert [r["kind"] for r in records] == ["REMOVED"], "the fixture must be a removal"
+
+    body = client_with_auth.post(
+        "/ask", json={"question": "what changed in DoDD 9.00?"}
+    ).json()
+
+    assert body["template_used"] == "changes_for_document"
+    assert body["citations"], body
+    citation = body["citations"][0]
+    assert "REMOVED" in body["answer"], body["answer"]
+    assert "obtain a waiver" in citation["quote"], "the quote is the old edition's text"
+    assert citation["version_id"] == "dodd-9@2018-01-01", (
+        "the citation must name the edition the quoted text is in, not the one "
+        "the change was measured against"
+    )
+    assert "dodd-9@2018-01-01" in body["answer"], body["answer"]
