@@ -458,16 +458,50 @@ def test_triage_reports_how_many_obligations_each_edition_has(client_with_auth):
     """"No obligation changed between these editions" is true and misleading
     when neither edition has any obligations to change — which is what the
     default null extractor produces. This is the same discipline
-    `unlinked_changes` already applies to an empty table (ADR-015)."""
-    _seed_two_editions_without_obligations(client_with_auth)
+    `unlinked_changes` already applies to an empty table (ADR-015).
 
-    body = client_with_auth.get(
+    Two pairs, in one graph, on purpose. Asserting only that an empty pair
+    reports zero proves nothing about where the number came from: a route
+    returning a hardcoded `0` passes that assertion exactly as well as one
+    reading the graph. So a second pair carries obligations, and carries a
+    different number on each side — one before, two after — which no constant
+    and no single shared read can satisfy.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+
+    _seed_two_editions_without_obligations(client_with_auth)
+    _seed_version(
+        driver, database, version_id="e@2019-01-01", doc_slug="e",
+        doc_name="Doc E", entries=[("3.2", HIGHER_OLD, Modality.SHALL)],
+    )
+    _seed_version(
+        driver, database, version_id="e@2020-01-01", doc_slug="e",
+        doc_name="Doc E",
+        entries=[("3.2", HIGHER_NEW, Modality.SHALL),
+                 ("3.3", "Components shall log every access.", Modality.SHALL)],
+    )
+    driver.execute_query(
+        "MATCH (new:DocumentVersion {version_id: 'e@2020-01-01'}) "
+        "MATCH (old:DocumentVersion {version_id: 'e@2019-01-01'}) "
+        "MERGE (new)-[:SUPERSEDES]->(old)",
+        database_=database,
+    )
+
+    empty = client_with_auth.get(
         "/triage", params={"to_version_id": "d@2020-01-01"}
     ).json()
 
-    assert body["total_changes"] == 0
-    assert body["from_obligations"] == 0
-    assert body["to_obligations"] == 0
+    assert empty["total_changes"] == 0
+    assert empty["from_obligations"] == 0
+    assert empty["to_obligations"] == 0
+
+    filled = client_with_auth.get(
+        "/triage", params={"to_version_id": "e@2020-01-01"}
+    ).json()
+
+    assert filled["from_obligations"] == 1
+    assert filled["to_obligations"] == 2
 
 
 @pytest.mark.integration
