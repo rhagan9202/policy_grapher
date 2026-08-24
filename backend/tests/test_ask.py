@@ -140,6 +140,40 @@ def test_an_answer_carries_a_real_citation(client_with_auth):
 
 
 @pytest.mark.integration
+def test_a_citation_names_the_edition_it_was_taken_from(client_with_auth):
+    """Two editions of one instrument, same section, same page, opposite text.
+
+    Retrieval searches every edition a document has, superseded ones included,
+    so a citation carrying only the document name matches a passage in each and
+    tells a reader nothing about which duty is in force. Both editions here are
+    reachable by the same question; the citations have to tell them apart.
+    """
+    _seed(
+        client_with_auth, version_id="dodd-1@2003-05-12", doc_slug="dodd-1",
+        doc_name="DoDD 1.00",
+        text="The Director shall obtain a waiver before each flight.",
+        statement="The Director shall obtain a waiver before each flight.",
+    )
+    _seed(
+        client_with_auth, version_id="dodd-1@2020-09-09", doc_slug="dodd-1",
+        doc_name="DoDD 1.00",
+        text="The Director shall not require a waiver before each flight.",
+        statement="The Director shall not require a waiver before each flight.",
+    )
+
+    body = client_with_auth.post(
+        "/ask", json={"question": "what obliges the Director?"}
+    ).json()
+
+    editions = {citation["version_id"] for citation in body["citations"]}
+    assert editions == {"dodd-1@2003-05-12", "dodd-1@2020-09-09"}, body
+    # And on the face of the answer, not only in the structured payload: the
+    # answer text is what a reader reads.
+    for edition in editions:
+        assert edition in body["answer"], body["answer"]
+
+
+@pytest.mark.integration
 def test_finding_nothing_is_stated_rather_than_answered(client_with_auth):
     """An answer with no chunk behind it is a hallucination with good grammar."""
     body = client_with_auth.post(

@@ -190,9 +190,18 @@ class AskRequest(BaseModel):
 
 
 class CitationOut(BaseModel):
-    """Where a claim came from, precisely enough to go and read it."""
+    """Where a claim came from, precisely enough to go and read it.
+
+    That is the whole contract, and the edition is part of it. A corpus holding
+    two editions of one instrument answers questions out of both — retrieval
+    searches every chunk, superseded or current — and a citation naming only
+    "DoDD 5000.01, (preamble), p. 1" matches a passage in each of them. A reader
+    checking whether a duty still stands cannot be handed a quotation that does
+    not say which edition it was taken from (ADR-011).
+    """
 
     document: str
+    version_id: str
     section_path: list[str]
     page: int
     quote: str
@@ -250,4 +259,11 @@ class RebuildStatus(BaseModel):
     # a count alone reports that an edition is incomplete without saying what is
     # missing from it, and reading container logs is not an answer for an operator.
     rejections: list[dict[str, str]] = Field(default_factory=list)
+    # Which adapters the *worker* used, reported by the worker rather than read
+    # off the API's own settings — the two processes are configured separately
+    # and need not agree. Empty until a worker picks the run up. With the
+    # default `null` extractor a run writes chunks and no obligations, which is
+    # correct and looks exactly like a broken one unless the screen can say so.
+    extractor_adapter: str = ""
+    embedder_adapter: str = ""
     error: str | None = None

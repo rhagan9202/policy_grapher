@@ -75,7 +75,8 @@ RETURN c.chunk_id     AS chunk_id,
        c.page         AS page,
        c.section_path AS section_path,
        d.name         AS document,
-       d.slug         AS document_slug
+       d.slug         AS document_slug,
+       v.version_id   AS version_id
 """
 
 READ_INDEX_IDENTITY = """
@@ -90,6 +91,11 @@ class RetrievedChunk:
     text: str
     document: str
     document_slug: str
+    # Which edition the passage is in. Retrieval searches every edition a
+    # document has, superseded ones included, so a hit that names only the
+    # document cannot be looked up: two editions of DoDD 5000.01 both have a
+    # page 1 and they do not say the same thing.
+    version_id: str
     section_path: list[str]
     page: int
     score: float
@@ -242,6 +248,7 @@ def retrieve(
             text=by_id[chunk_id]["text"],
             document=by_id[chunk_id]["document"],
             document_slug=by_id[chunk_id]["document_slug"],
+            version_id=by_id[chunk_id]["version_id"],
             section_path=by_id[chunk_id]["section_path"],
             page=by_id[chunk_id]["page"],
             score=scores[chunk_id],

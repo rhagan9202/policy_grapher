@@ -62,12 +62,34 @@ def _rejection_reporter():
     return report
 
 
+def _record_adapters(settings: Settings) -> None:
+    """Record which extractor and embedder actually ran, onto the job's meta.
+
+    The worker resolves its own configuration, so the API cannot report this
+    from its own settings and be sure it is true. It has to come from here.
+
+    Without it a rebuild under `EXTRACTOR_ADAPTER=null` finishes cleanly having
+    written every chunk and zero obligations, and the screen reports exactly
+    that: a successful run that produced nothing, with no way to tell a
+    deliberately disabled extractor from a broken one. That is the state
+    ADR-019 forbids a screen from presenting — emptiness has to say why it is
+    empty.
+    """
+    job = get_current_job()
+    if job is None:
+        return
+    job.meta["extractor_adapter"] = settings.extractor_adapter
+    job.meta["embedder_adapter"] = settings.embedder_adapter
+    job.save_meta()
+
+
 def _run(
     driver: Driver, database: str, settings: Settings, **kwargs
 ) -> dict[str, int]:
     # Cached on purpose (ADR-013): a second run over an unchanged edition calls
     # the model zero times, which is what makes re-extraction cheap enough to be
     # routine rather than an event.
+    _record_adapters(settings)
     extractor = CachedExtractor(
         build_extractor(settings), GraphCacheStore(driver, database)
     )

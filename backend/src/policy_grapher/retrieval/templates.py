@@ -52,6 +52,7 @@ MATCH (d:Document)-[:HAS_VERSION]->(v)
 RETURN o.statement    AS statement,
        o.modality     AS modality,
        d.name         AS document,
+       v.version_id   AS version_id,
        anchor_chunk.section_path AS section_path,
        anchor_chunk.page         AS page,
        anchor_chunk.text         AS quote
@@ -64,10 +65,11 @@ MATCH (d:Document)-[:HAS_VERSION]->(v:DocumentVersion)-[:MANDATES]->(ours:Obliga
 WHERE toLower(d.name) CONTAINS toLower($document)
 MATCH (ours)-[:IMPLEMENTS]->(higher:Obligation)
 --ANCHOR--
-MATCH (higher_doc:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(higher)
+MATCH (higher_doc:Document)-[:HAS_VERSION]->(higher_v:DocumentVersion)-[:MANDATES]->(higher)
 RETURN higher.statement AS statement,
        higher.modality  AS modality,
        higher_doc.name  AS document,
+       higher_v.version_id AS version_id,
        anchor_chunk.section_path AS section_path,
        anchor_chunk.page         AS page,
        anchor_chunk.text         AS quote
@@ -83,6 +85,7 @@ MATCH (c)-[:AFFECTS]->(o:Obligation)
 RETURN c.kind || ': ' || c.statement AS statement,
        o.modality  AS modality,
        d.name      AS document,
+       v.version_id AS version_id,
        anchor_chunk.section_path AS section_path,
        anchor_chunk.page         AS page,
        anchor_chunk.text         AS quote

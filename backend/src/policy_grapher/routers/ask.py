@@ -63,6 +63,7 @@ def _from_template(driver, database, template, parameters) -> list[CitationOut]:
     return [
         CitationOut(
             document=record["document"],
+            version_id=record["version_id"],
             section_path=record["section_path"],
             page=record["page"],
             quote=_truncate(record["statement"] or record["quote"]),
@@ -75,6 +76,7 @@ def _from_retrieval(driver, database, *, question, embedder) -> list[CitationOut
     return [
         CitationOut(
             document=hit.document,
+            version_id=hit.version_id,
             section_path=hit.section_path,
             page=hit.page,
             quote=_truncate(hit.text),
@@ -101,7 +103,8 @@ def _compose(citations: list[CitationOut]) -> str:
     for citation in citations:
         where = "/".join(citation.section_path)
         lines.append(
-            f'— "{citation.quote}" ({citation.document}, {where}, p. {citation.page})'
+            f'— "{citation.quote}" ({citation.document}, edition '
+            f"{citation.version_id}, {where}, p. {citation.page})"
         )
     return "\n".join(lines)
 
