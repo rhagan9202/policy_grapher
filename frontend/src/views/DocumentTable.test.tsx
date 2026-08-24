@@ -201,6 +201,28 @@ describe('DocumentTable — creating a document', () => {
     await userEvent.click(screen.getByRole('button', { name: /add document/i }))
 
     expect(createDocument).not.toHaveBeenCalled()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/give the document a name/i)
+  })
+
+  it('does not answer a blank submit with the previous attempt\'s error', async () => {
+    // The bare `return` on a blank name left whatever error was already on screen
+    // standing, so pressing Add on an empty box after a name collision explained a
+    // collision the reader had not just caused.
+    listDocuments.mockResolvedValue(documents)
+    createDocument.mockRejectedValue(new Error("A document named 'DoDD 5000.01' already exists."))
+    renderTable()
+    await screen.findByRole('table')
+
+    const field = screen.getByLabelText(/name of the document to add/i)
+    await userEvent.type(field, 'DoDD 5000.01')
+    await userEvent.click(screen.getByRole('button', { name: /add document/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already exists/i)
+
+    await userEvent.clear(field)
+    await userEvent.click(screen.getByRole('button', { name: /add document/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/give the document a name/i)
+    expect(screen.queryByText(/already exists/i)).not.toBeInTheDocument()
   })
 
   it('reports a failed create instead of pretending it worked', async () => {

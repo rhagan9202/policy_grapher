@@ -55,18 +55,30 @@ export default function GraphExplorer() {
   // beside it clean off the viewport at every width measured — 1280 through
   // 2560 (STORY-039). Measuring the container is the fix; a ResizeObserver
   // keeps it right when the window changes.
-  const canvasRef = useRef<HTMLDivElement | null>(null)
+  //
+  // A *callback* ref, not a mount effect. This view returns "Loading the
+  // graph…" until the first fetch resolves, so the measured element does not
+  // exist on the render that a `useEffect(…, [])` runs after. That effect saw
+  // `canvasRef.current === null`, returned without observing, and — having no
+  // dependencies — never ran again once the real container mounted. The size
+  // stayed at its 0×0 initial value for the life of the view, so every graph
+  // with data rendered a 0×0 canvas: a blank page beside a working panel, with
+  // no error anywhere. A callback ref runs when the node itself mounts, which
+  // is the event that actually matters here.
+  const observerRef = useRef<ResizeObserver | null>(null)
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
 
-  useEffect(() => {
-    const element = canvasRef.current
+  const canvasRef = useCallback((element: HTMLDivElement | null) => {
+    observerRef.current?.disconnect()
+    observerRef.current = null
     if (!element) return
+
     const observer = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect
       setCanvasSize({ width: Math.round(width), height: Math.round(height) })
     })
     observer.observe(element)
-    return () => observer.disconnect()
+    observerRef.current = observer
   }, [])
 
   useEffect(() => {

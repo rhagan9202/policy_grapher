@@ -27,6 +27,7 @@ function Side({ heading, of }: { heading: string; of: ObligationCitation }) {
 export default function Review() {
   const [queue, setQueue] = useState<ReviewItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [rationale, setRationale] = useState('')
   const [pending, setPending] = useState(false)
   const [corpusEmpty, setCorpusEmpty] = useState<boolean | null>(null)
@@ -37,11 +38,18 @@ export default function Review() {
   const [index, setIndex] = useState(0)
   const [wrapped, setWrapped] = useState(false)
 
+  // Two different failures, two different states. One shared `error` was rendered
+  // under a single "Could not record that:" heading, so a queue that failed to
+  // *load* — a stopped backend, most obviously — told the reader their verdict had
+  // not been recorded, about a verdict they had not cast.
   const load = useCallback(() => {
     return getReviewQueue()
-      .then(setQueue)
+      .then((items) => {
+        setQueue(items)
+        setLoadError(null)
+      })
       .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : 'Failed to load the queue.')
+        setLoadError(cause instanceof Error ? cause.message : 'Failed to load the queue.')
       })
   }, [])
 
@@ -89,7 +97,7 @@ export default function Review() {
     }
   }
 
-  if (!queue && !error) return <p>Loading the review queue…</p>
+  if (!queue && !loadError) return <p>Loading the review queue…</p>
 
   // Deciding removes an item, so the cursor can be left pointing past the end.
   // Clamping at render rather than in the reload keeps the two independent.
@@ -100,6 +108,7 @@ export default function Review() {
   return (
     <div style={{ padding: '1rem' }}>
       <h1>Review</h1>
+      {loadError && <div role="alert">Could not load the review queue: {loadError}</div>}
       {error && <div role="alert">Could not record that: {error}</div>}
 
       {corpusEmpty ? (

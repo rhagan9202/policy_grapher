@@ -131,6 +131,10 @@ export interface TriageOut {
 
 export interface Citation {
   document: string
+  /** Which edition the passage is in. Retrieval searches every edition a
+   *  document has, superseded ones included, so a citation naming only the
+   *  document matches a passage in each of them and settles nothing. */
+  version_id: string
   section_path: string[]
   page: number
   quote: string
@@ -166,5 +170,11 @@ export interface RebuildStatus {
   chunks_total: number
   counts: Record<string, number>
   rejections: { chunk_id: string; reason: string }[]
+  /** Which adapters the worker actually used. Empty until a worker picks the
+   *  run up. `null` extracts nothing, so a run under it writes chunks and no
+   *  obligations — a correct result indistinguishable from a broken one unless
+   *  the screen says which it is. */
+  extractor_adapter: string
+  embedder_adapter: string
   error: string | null
 }

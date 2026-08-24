@@ -224,6 +224,45 @@ describe('DocumentDetail — building the derived layer', () => {
     expect(await screen.findByText(/5 of 34/)).toBeInTheDocument()
   })
 
+  it('says a run extracted nothing because it was configured to, not because it broke', async () => {
+    // The default EXTRACTOR_ADAPTER is null. A rebuild under it finishes
+    // cleanly with every chunk written and zero obligations — a correct result
+    // that reads exactly like a broken pipeline, and the reader cannot see the
+    // worker's configuration from this screen.
+    loaded()
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'finished',
+      chunks_done: 34, chunks_total: 34,
+      counts: { chunks_written: 34, obligations_written: 0, proposed: 0, chunks_rejected: 0 },
+      rejections: [], extractor_adapter: 'null', embedder_adapter: 'null', error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent(/null.*extractor/i)
+    expect(status).toHaveTextContent(/review and triage stay empty/i)
+  })
+
+  it('does not blame the null extractor when a real one ran', async () => {
+    loaded()
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'finished',
+      chunks_done: 34, chunks_total: 34,
+      counts: { chunks_written: 34, obligations_written: 115, proposed: 265, chunks_rejected: 0 },
+      rejections: [], extractor_adapter: 'local', embedder_adapter: 'null', error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    const status = await screen.findByRole('status')
+    expect(status).not.toHaveTextContent(/null.*extractor/i)
+  })
+
   it('reports what a finished run produced, including what it rejected', async () => {
     loaded()
     startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })

@@ -74,6 +74,32 @@ describe('Reset', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('says why nothing happened when the confirmation phrase is wrong', async () => {
+    // The button is deliberately enabled while the phrase is unmatched. A press
+    // that deleted nothing and said nothing was indistinguishable from a screen
+    // that does not work.
+    render(<Reset />)
+    await userEvent.click(screen.getByRole('button', { name: /empty the graph/i }))
+    await userEvent.type(screen.getByLabelText(/type/i), 'empty teh graph')
+    await userEvent.click(screen.getByRole('button', { name: /^delete everything$/i }))
+
+    expect(reset).not.toHaveBeenCalled()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/not the phrase/i)
+  })
+
+  it('clears the mismatch warning once the reader edits the phrase', async () => {
+    render(<Reset />)
+    await userEvent.click(screen.getByRole('button', { name: /empty the graph/i }))
+    const field = screen.getByLabelText(/type/i)
+    await userEvent.type(field, 'wrong')
+    await userEvent.click(screen.getByRole('button', { name: /^delete everything$/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/not the phrase/i)
+
+    await userEvent.type(field, 'x')
+
+    expect(screen.queryByText(/not the phrase/i)).not.toBeInTheDocument()
+  })
+
   it('reports a failed reset instead of claiming the graph is empty', async () => {
     reset.mockRejectedValue(new Error('Neo4j is unreachable'))
     render(<Reset />)

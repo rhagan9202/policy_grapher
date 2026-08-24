@@ -236,6 +236,20 @@ export default function DocumentDetail() {
                 {run.counts.obligations_written ?? 0} obligations,{' '}
                 {run.counts.proposed ?? 0} link proposals.
               </p>
+              {/* A run that extracted nothing because it was configured to extract
+                  nothing looks exactly like one that failed to extract. The
+                  count alone reads as a broken pipeline, and the reader has no
+                  way to see the worker's configuration from here. */}
+              {run.extractor_adapter === 'null' && (
+                <p>
+                  No obligations were extracted because this worker runs the{' '}
+                  <code>null</code> extractor, which produces none. Chunks and
+                  text are still written; Review and Triage stay empty until a
+                  real extraction model is configured
+                  (<code>EXTRACTOR_ADAPTER=local</code>).
+                </p>
+              )}
+
               {/* Not optional. A rejected chunk is silent incompleteness unless the
                   number is on screen — the reason ADR-023 reports it at all. */}
               <p>

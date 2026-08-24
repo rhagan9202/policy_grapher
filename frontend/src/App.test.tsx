@@ -56,6 +56,20 @@ describe('App', () => {
     expect(screen.getAllByText(label).length).toBeGreaterThan(0)
   })
 
+  it('says an unknown address names no screen, rather than rendering nothing', () => {
+    // A path matching no route rendered the navigation bar over a blank page —
+    // indistinguishable from a screen that failed to load, and pointing the
+    // reader at the app rather than at their own address bar.
+    render(
+      <MemoryRouter initialEntries={['/nonsense']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('status')).toHaveTextContent(/no screen at \/nonsense/i)
+    expect(screen.getByRole('link', { name: /start at the graph/i })).toBeInTheDocument()
+  })
+
   it('marks the route currently being viewed', () => {
     render(
       <MemoryRouter initialEntries={['/review']}>

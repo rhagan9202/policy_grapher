@@ -25,10 +25,11 @@ const showAsk = () =>
 
 const answered: Answer = {
   answer:
-    'The corpus states:\n— "The Director shall notify the Comptroller." (DoDI 5000.88, 3/3.2, p. 12)',
+    'The corpus states:\n— "The Director shall notify the Comptroller." (DoDI 5000.88, edition dodi-5000-88@2020-09-09, 3/3.2, p. 12)',
   citations: [
     {
       document: 'DoDI 5000.88',
+      version_id: 'dodi-5000-88@2020-09-09',
       section_path: ['3', '3.2'],
       page: 12,
       quote: 'The Director shall notify the Comptroller.',
@@ -69,6 +70,20 @@ describe('Ask', () => {
     expect(sources.getByText(/DoDI 5000\.88/)).toBeInTheDocument()
     expect(sources.getByText(/3\/3\.2/)).toBeInTheDocument()
     expect(sources.getByText(/12/)).toBeInTheDocument()
+  })
+
+  it('names the edition a passage was taken from', async () => {
+    // A corpus holding two editions of one instrument answers out of both, so a
+    // citation reading "DoDI 5000.88 · 3/3.2 · p. 12" names a passage in each —
+    // and a reader checking whether a duty still stands cannot tell which.
+    ask.mockResolvedValue(answered)
+    showAsk()
+
+    await userEvent.type(screen.getByRole('searchbox'), 'what obliges the Director?')
+    await userEvent.click(screen.getByRole('button', { name: /ask/i }))
+
+    const sources = within(await screen.findByRole('list'))
+    expect(sources.getByText(/dodi-5000-88@2020-09-09/)).toBeInTheDocument()
   })
 
   it('states the absence rather than showing an empty panel', async () => {

@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GraphOut } from '../api/types'
+import { OBSERVED_SIZE, observedElements, resetObservedElements } from '../setupTests'
 
 const graphProps: Record<string, unknown>[] = []
 
@@ -337,13 +338,35 @@ describe('GraphExplorer layout', () => {
     // window.innerWidth/innerHeight, which pushed the 320px detail panel past
     // the right edge at every viewport size measured (1280 to 2560). Selecting
     // a node worked and could not be seen.
+    //
+    // The measured size itself is asserted, not merely its type. The first
+    // version of this test asked whether the props were numbers, which 0 is —
+    // so it passed for a year against a container that was never measured at
+    // all, and every graph with data in it rendered a 0x0 canvas.
     getGraph.mockResolvedValue(corpusView)
     showGraphExplorer()
     await waitFor(() => expect(graphProps.length).toBeGreaterThan(0))
 
-    const latest = graphProps.at(-1)!
-    expect(latest.width).toEqual(expect.any(Number))
-    expect(latest.height).toEqual(expect.any(Number))
+    await waitFor(() => {
+      const latest = graphProps.at(-1)!
+      expect(latest.width).toBe(OBSERVED_SIZE.width)
+      expect(latest.height).toBe(OBSERVED_SIZE.height)
+    })
+  })
+
+  it('measures the container the canvas is drawn in, not some other element', async () => {
+    // The regression this guards is not "the numbers are wrong" but "nothing
+    // was ever measured": the observer used to be set up in a mount effect,
+    // which ran while the view was still rendering "Loading the graph…", found
+    // a null ref, and — having no dependencies — never ran again.
+    resetObservedElements()
+    getGraph.mockResolvedValue(corpusView)
+    showGraphExplorer()
+
+    const graph = await screen.findByTestId('force-graph')
+    await waitFor(() =>
+      expect(observedElements().some((element) => element.contains(graph))).toBe(true),
+    )
   })
 
   it('says the corpus is empty rather than drawing an empty canvas', async () => {

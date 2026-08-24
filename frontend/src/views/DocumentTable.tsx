@@ -78,7 +78,16 @@ export default function DocumentTable() {
     const name = newName.trim()
     // Not a disabled button: a disabled control gives no reason, and the API would
     // reject this anyway. Refusing here keeps a pointless request off the wire.
-    if (!name) return
+    //
+    // It has to say so, though, and it has to clear whatever was there before.
+    // A bare `return` left the *previous* attempt's error standing — press Add on
+    // an empty box after a name collision and the screen answers "a document named
+    // 'DoDD 5000.01' already exists", which explains something the reader did not
+    // just do.
+    if (!name) {
+      setEditError('Give the document a name before adding it.')
+      return
+    }
 
     await run(async () => {
       const created = await createDocument({ name })

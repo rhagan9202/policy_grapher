@@ -164,6 +164,18 @@ describe('Review', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend down/i)
   })
+
+  it('does not report a queue that failed to load as a verdict that failed to record', async () => {
+    // One shared error state rendered every failure under "Could not record
+    // that:", so a stopped backend told the reader their decision had not been
+    // saved — about a decision they had not made.
+    getReviewQueue.mockRejectedValue(new Error('backend down'))
+    showReview()
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/could not load the review queue/i)
+    expect(screen.queryByText(/could not record that/i)).not.toBeInTheDocument()
+  })
 })
 
 describe('Review when nothing has been ingested', () => {

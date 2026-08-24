@@ -82,9 +82,13 @@ export default function Ask() {
                 {answer.citations.map((citation, index) => (
                   <li key={`${citation.document}-${citation.page}-${index}`}>
                     <blockquote>{citation.quote}</blockquote>
+                    {/* The edition is not decoration. A corpus holding both the
+                        2003 and 2020 editions of one directive answers out of
+                        both, and "DoDD 5000.01 · p. 1" names a passage in each —
+                        one of them superseded. */}
                     <cite>
-                      {citation.document} · {citation.section_path.join('/')} · p.{' '}
-                      {citation.page}
+                      {citation.document} · {citation.version_id} ·{' '}
+                      {citation.section_path.join('/')} · p. {citation.page}
                     </cite>
                   </li>
                 ))}

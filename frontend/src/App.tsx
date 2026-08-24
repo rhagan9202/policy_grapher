@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Route, Routes } from 'react-router-dom'
+import { Link, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { getHealth } from './api/client'
 import Ask from './views/Ask'
 import DocumentDetail from './views/DocumentDetail'
@@ -23,6 +23,21 @@ const ROUTES = [
   // Last in the navigation on purpose: it is the only destructive screen.
   { to: '/reset', label: 'Reset', element: <Reset /> },
 ]
+
+function NoSuchScreen() {
+  const { pathname } = useLocation()
+  return (
+    <div role="status" style={{ padding: '1rem', maxWidth: '40rem' }}>
+      <p>
+        <strong>There is no screen at {pathname}.</strong>
+      </p>
+      <p>
+        The app is running — this address does not name one of its screens. Pick one
+        from the navigation above, or <Link to="/">start at the graph</Link>.
+      </p>
+    </div>
+  )
+}
 
 export default function App() {
   // `getHealth` was the last client function with no caller. Every screen reported
@@ -75,6 +90,12 @@ export default function App() {
             link per entry. A document's detail page is reached from its row, not
             from a nav item that would need a document to point at. */}
         <Route path="/documents/:slug" element={<DocumentDetail />} />
+        {/* Anything else. Without this, a mistyped or stale URL matched no route
+            and React Router rendered nothing at all: the navigation bar over an
+            empty page, which is the blank-that-reads-as-broken ADR-019 exists to
+            forbid — and worse here, because the reader has no reason to suspect
+            the address rather than the app. */}
+        <Route path="*" element={<NoSuchScreen />} />
       </Routes>
     </>
   )

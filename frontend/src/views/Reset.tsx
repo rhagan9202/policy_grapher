@@ -18,11 +18,22 @@ export default function Reset() {
   const [confirming, setConfirming] = useState(false)
   const [typed, setTyped] = useState('')
   const [result, setResult] = useState<ResetResult | null>(null)
+  const [mismatch, setMismatch] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function onReset() {
-    if (typed.trim().toLowerCase() !== CONFIRMATION) return
+    // The button is deliberately not disabled while the phrase is unmatched, but a
+    // press that does nothing and says nothing is indistinguishable from a broken
+    // one — the reader cannot tell "I typed it wrong" from "this screen does not
+    // work". The comment below used to claim the reason stayed on screen; the only
+    // thing on screen was the instruction, which is what they had just tried to
+    // follow.
+    if (typed.trim().toLowerCase() !== CONFIRMATION) {
+      setMismatch(true)
+      return
+    }
+    setMismatch(false)
 
     setBusy(true)
     setError(null)
@@ -82,14 +93,24 @@ export default function Reset() {
           <input
             id="reset-confirmation"
             value={typed}
-            onChange={(event) => setTyped(event.target.value)}
+            onChange={(event) => {
+              setTyped(event.target.value)
+              setMismatch(false)
+            }}
             autoComplete="off"
           />
 
+          {mismatch && (
+            <p role="alert">
+              That is not the phrase. Nothing has been deleted — type{' '}
+              <code>{CONFIRMATION}</code> exactly.
+            </p>
+          )}
+
           <p>
             {/* Deliberately not disabled while the phrase is unmatched: a disabled
-                button explains nothing. Pressing it without the phrase does nothing,
-                which is the same outcome and leaves the reason on screen. */}
+                button explains nothing. Pressing it without the phrase deletes
+                nothing and says why, which a disabled control could not do. */}
             <button type="button" onClick={onReset} disabled={busy}>
               Delete everything
             </button>{' '}
@@ -98,6 +119,7 @@ export default function Reset() {
               onClick={() => {
                 setConfirming(false)
                 setTyped('')
+                setMismatch(false)
               }}
             >
               Cancel
