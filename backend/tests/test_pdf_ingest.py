@@ -17,13 +17,13 @@ SAMPLES = Path(__file__).resolve().parents[2] / "data" / "samples"
 def test_ingesting_a_pdf_creates_the_document_and_its_edges(clean_graph, database):
     extracted = pdf.extract_document(SAMPLES / "500001p.pdf")
 
-    slug, nodes, relationships, *_ = ingest_document(
+    merged = ingest_document(
         clean_graph, database, extracted, SAMPLES / "500001p.pdf"
     )
 
-    assert slug == "dodd-5000-01"
-    assert nodes == 1 + len(extracted.references)
-    assert relationships == len(extracted.references)
+    assert merged.slug == "dodd-5000-01"
+    assert merged.nodes_created == 1 + len(extracted.references)
+    assert merged.relationships_created == len(extracted.references)
 
 
 def test_cited_documents_are_created_external(clean_graph, database):
@@ -45,11 +45,13 @@ def test_reingesting_the_same_pdf_creates_nothing_new(clean_graph, database):
     extracted = pdf.extract_document(SAMPLES / "500001p.pdf")
     ingest_document(clean_graph, database, extracted, SAMPLES / "500001p.pdf")
 
-    slug, nodes, relationships, *_ = ingest_document(
+    merged = ingest_document(
         clean_graph, database, extracted, SAMPLES / "500001p.pdf"
     )
 
-    assert (slug, nodes, relationships) == ("dodd-5000-01", 0, 0)
+    assert (merged.slug, merged.nodes_created, merged.relationships_created) == (
+        "dodd-5000-01", 0, 0,
+    )
 
 
 def test_the_ingested_document_is_not_external(clean_graph, database):
@@ -91,16 +93,16 @@ def test_two_cited_names_contesting_a_base_slug_stay_distinct(clean_graph, datab
         pages=["1. PURPOSE\nThis directive establishes policy.\n"],
     )
 
-    slug, nodes, relationships, *_ = ingest_document(
+    merged = ingest_document(
         clean_graph, database, extracted, SAMPLES / "500001p.pdf"
     )
 
-    assert nodes == 3
-    assert relationships == 2
+    assert merged.nodes_created == 3
+    assert merged.relationships_created == 2
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (d:Document) WHERE d.slug <> $main RETURN d.slug AS slug, d.name AS name",
-        {"main": slug},
+        {"main": merged.slug},
         database_=database,
     )
     by_name = {r["name"]: r["slug"] for r in records}
@@ -262,9 +264,10 @@ def test_ingesting_two_editions_through_the_ingest_path_links_supersession(
     older = _extracted("DoDI Test Instrument", date(2020, 1, 1))
     newer = _extracted("DoDI Test Instrument", date(2024, 1, 1))
 
-    slug, *_ = ingest_document(clean_graph, database, older, SAMPLES / "500001p.pdf")
-    same_slug, *_ = ingest_document(clean_graph, database, newer, SAMPLES / "500088p.pdf")
-    assert same_slug == slug
+    older_merged = ingest_document(clean_graph, database, older, SAMPLES / "500001p.pdf")
+    newer_merged = ingest_document(clean_graph, database, newer, SAMPLES / "500088p.pdf")
+    slug = older_merged.slug
+    assert newer_merged.slug == slug
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (newer:DocumentVersion)-[:SUPERSEDES]->(older:DocumentVersion) "
@@ -301,11 +304,11 @@ def test_checksum_reflects_file_bytes_not_filename(clean_graph, database, tmp_pa
     diff_name_b.write_bytes(b"shared bytes")
 
     def checksum_for(name, path):
-        slug, *_ = ingest_document(clean_graph, database, _extracted(name, None), path)
+        merged = ingest_document(clean_graph, database, _extracted(name, None), path)
         records, _, _ = clean_graph.execute_query(
             "MATCH (:Document {slug: $slug})-[:HAS_VERSION]->(v:DocumentVersion) "
             "RETURN v.checksum AS checksum",
-            {"slug": slug},
+            {"slug": merged.slug},
             database_=database,
         )
         return records[0]["checksum"]

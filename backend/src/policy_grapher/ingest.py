@@ -1,6 +1,7 @@
 """Merge a parsed corpus into Neo4j. Additive: MERGE creates and updates, never deletes."""
 
 import hashlib
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -139,19 +140,17 @@ def ingest_file(
         return ingest_parsed(driver, database, parse_corpus(path), path.name)
 
     extracted = pdf.extract_document(path)
-    slug, nodes_created, relationships_created, version_id, chunks_written = ingest_document(
-        driver, database, extracted, path
-    )
+    merged = ingest_document(driver, database, extracted, path)
     return DocumentIngestResult(
         format=extracted.report.format,
-        document=DocumentRef(slug=slug, name=extracted.name),
-        nodes_created=nodes_created,
-        relationships_created=relationships_created,
+        document=DocumentRef(slug=merged.slug, name=extracted.name),
+        nodes_created=merged.nodes_created,
+        relationships_created=merged.relationships_created,
         references_attributed=len(extracted.report.attributed),
         references_unattributed=list(extracted.report.unattributed),
         self_references_skipped=extracted.self_references_skipped,
-        version_id=version_id,
-        chunks_written=chunks_written,
+        version_id=merged.version_id,
+        chunks_written=merged.chunks_written,
     )
 
 
@@ -245,9 +244,33 @@ def _write_document(
     return nodes_created, relationships_created, version, written
 
 
+@dataclass(frozen=True)
+class IngestedDocument:
+    """What merging one document into the graph produced.
+
+    A plain tuple return let `nodes_created` and `relationships_created` — two
+    adjacent, same-typed ints — swap silently past every type checker, and let
+    a caller unpack it with a tolerant `*_` that would absorb a future field
+    change unnoticed. Named fields make both a caller error the type checker
+    catches, the same discipline `ExtractedDocument`/`ExtractionReport` in
+    `sources.document` already apply to what a PDF extraction produces.
+
+    `version_id` and `chunks_written` matter most on a re-ingest: a second
+    edition of an already-known document creates no `:Document` node, so
+    `nodes_created` alone reads as "nothing happened" while the edition's text
+    lands regardless (STORY-066).
+    """
+
+    slug: str
+    nodes_created: int
+    relationships_created: int
+    version_id: str
+    chunks_written: int
+
+
 def ingest_document(
     driver: Driver, database: str, extracted: ExtractedDocument, path: Path
-) -> tuple[str, int, int, str, int]:
+) -> IngestedDocument:
     """Merge one extracted document and the documents it cites.
 
     Slugs are resolved for the whole batch (this document plus every name it
@@ -261,12 +284,6 @@ def ingest_document(
     The checksum is computed here too, alongside slug resolution, for the same
     reason: it is a read (of the file), not a write, and belongs outside the
     transaction with the rest of this function's reads.
-
-    Returns `(slug, nodes_created, relationships_created, version_id,
-    chunks_written)`. The last two matter most on a re-ingest: a second edition
-    of an already-known document creates no `:Document` node, so
-    `nodes_created` alone reads as "nothing happened" while the edition's text
-    lands regardless.
     """
     slugs = allocate_slugs(driver, database, [extracted.name, *extracted.references])
     slug = slugs[extracted.name]
@@ -287,4 +304,10 @@ def ingest_document(
             effective_date=extracted.effective_date,
             pages=extracted.pages,
         )
-    return slug, nodes_created, relationships_created, version_id, chunks_written
+    return IngestedDocument(
+        slug=slug,
+        nodes_created=nodes_created,
+        relationships_created=relationships_created,
+        version_id=version_id,
+        chunks_written=chunks_written,
+    )
