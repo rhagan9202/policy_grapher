@@ -8,6 +8,7 @@ const listVersions = vi.fn()
 const listChunks = vi.fn()
 const startRebuild = vi.fn()
 const getRebuild = vi.fn()
+const listDocuments = vi.fn()
 vi.mock('../api/client', () => ({
   getDocument: (slug: string) => getDocument(slug),
   listVersions: (slug: string) => listVersions(slug),
@@ -15,6 +16,7 @@ vi.mock('../api/client', () => ({
   startRebuild: (slug: string, versionId: string, candidates: string[]) =>
     startRebuild(slug, versionId, candidates),
   getRebuild: (runId: string) => getRebuild(runId),
+  listDocuments: () => listDocuments(),
   ApiError: class extends Error {},
 }))
 
@@ -79,6 +81,7 @@ afterEach(() => {
   listChunks.mockReset()
   startRebuild.mockReset()
   getRebuild.mockReset()
+  listDocuments.mockReset()
 })
 
 // STORY-017, the "corpus management" MVP item. `GET /documents/{slug}/chunks` has
@@ -145,6 +148,39 @@ describe('DocumentDetail', () => {
 
     const references = await screen.findByRole('list', { name: /references/i })
     expect(within(references).getByText(/public-law-116-92/)).toBeInTheDocument()
+  })
+
+  it('names and links the documents this one cites', async () => {
+    // The detail page listed raw slugs, unlinked, while the table two clicks
+    // away resolved the same slugs to names and linked every row.
+    getDocument.mockResolvedValue({
+      slug: 'dodd-5000-01', name: 'DoDD 5000.01', is_external: false,
+      references: ['dodd-1322-18'], referenced_by: [], version_count: 1,
+    })
+    listVersions.mockResolvedValue([])
+    listChunks.mockResolvedValue([])
+    listDocuments.mockResolvedValue([
+      { slug: 'dodd-1322-18', name: 'DoDD 1322.18', is_external: false, references: [], referenced_by: [], version_count: 0 },
+    ])
+    renderAt()
+
+    const link = await screen.findByRole('link', { name: 'DoDD 1322.18' })
+    expect(link).toHaveAttribute('href', '/documents/dodd-1322-18')
+  })
+
+  it('falls back to the slug when the name is not known yet', async () => {
+    getDocument.mockResolvedValue({
+      slug: 'dodd-5000-01', name: 'DoDD 5000.01', is_external: false,
+      references: ['dodd-1322-18'], referenced_by: [], version_count: 1,
+    })
+    listVersions.mockResolvedValue([])
+    listChunks.mockResolvedValue([])
+    listDocuments.mockRejectedValue(new Error('offline'))
+    renderAt()
+
+    // A failed name lookup must not blank the references list — the slug is
+    // still a working link.
+    expect(await screen.findByRole('link', { name: 'dodd-1322-18' })).toBeInTheDocument()
   })
 
   it('reports a document that is not there instead of rendering blanks', async () => {

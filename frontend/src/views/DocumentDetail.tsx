@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import {
   getDocument,
   getRebuild,
   listChunks,
+  listDocuments,
   listVersions,
   startRebuild,
 } from '../api/client'
@@ -27,6 +28,7 @@ export default function DocumentDetail() {
   const [chunks, setChunks] = useState<ChunkOut[] | null>(null)
   const [edition, setEdition] = useState<string | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
+  const [namesBySlug, setNamesBySlug] = useState<Map<string, string>>(new Map())
 
   // Building the derived layer (STORY-061). The routes shipped in sprint 4 and the
   // client modelled neither, so this — sprint 4's whole deliverable — could only be
@@ -55,6 +57,31 @@ export default function DocumentDetail() {
       cancelled = true
     }
   }, [slug])
+
+  // Resolves this document's reference slugs to names — the same names the table
+  // (STORY-017's neighbour, two clicks away) already shows. Kept out of the
+  // document-fetch effect and made deliberately fail-soft: the slug is itself a
+  // working link, so a failed lookup here must leave the references list
+  // rendering rather than blank it.
+  useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const all = await listDocuments()
+        if (cancelled) return
+        const names = new Map<string, string>()
+        for (const found of all) names.set(found.slug, found.name)
+        setNamesBySlug(names)
+      } catch {
+        // Fail soft: leave namesBySlug empty and let the slug fallback carry it.
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Separate from the document fetch because it re-runs when the edition changes.
   // `edition` starts undefined, which the API reads as "newest" — the right default,
@@ -142,7 +169,9 @@ export default function DocumentDetail() {
       ) : (
         <ul aria-labelledby="references-heading">
           {document.references.map((target) => (
-            <li key={target}>{target}</li>
+            <li key={target}>
+              <Link to={`/documents/${target}`}>{namesBySlug.get(target) ?? target}</Link>
+            </li>
           ))}
         </ul>
       )}
