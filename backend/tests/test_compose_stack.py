@@ -5,12 +5,15 @@ ADR-028 makes the default stack the whole product. The model server sat behind
 `docker compose down` did not stop it either — the asymmetry this closes.
 """
 
+import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 COMPOSE = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
 
 MODEL_SERVICES = ("ollama", "ollama-pull")
@@ -107,6 +110,42 @@ def test_an_absent_backend_extras_still_gets_the_default(tmp_path):
             f"{name}'s default EXTRAS is malformed — `${{VAR--extra ...}}` resolves to "
             "`-extra local-embeddings`, which uv rejects; it needs three dashes"
         )
+
+
+def test_every_extra_compose_asks_for_actually_exists():
+    """The string in compose and the extra in pyproject.toml are two homes for
+    one fact, and nothing compared them.
+
+    `--extra local-embeddings` is passed to `uv sync` at image build time. Rename
+    or drop that extra and `docker compose up --build` — the one command this
+    stack exists to make work — fails for every user, while CI stays green,
+    because CI builds only the lean stack and the lean stack passes no extras at
+    all. The whole point of ADR-029 is that the default path is the one nothing
+    automated builds, so the default path is where a check has to be cheap.
+
+    Verified by renaming the extra in a scratch copy of pyproject.toml: red,
+    naming the extra compose asks for and the ones that exist.
+    """
+    declared = set(
+        tomllib.loads(PYPROJECT.read_text())["project"]["optional-dependencies"]
+    )
+    config = _resolved("docker-compose.yml")
+
+    asked_for: set[str] = set()
+    for name in ("backend", "worker"):
+        asked_for |= set(re.findall(r"--extra[= ]+(\S+)", config["services"][name]["build"]["args"]["EXTRAS"]))
+
+    assert asked_for, (
+        "the default stack's EXTRAS names no extra at all — ADR-029 puts "
+        "`--extra local-embeddings` there so EMBEDDER_ADAPTER=local has a library"
+    )
+    missing = sorted(asked_for - declared)
+    assert not missing, (
+        f"docker-compose.yml builds the default image with `--extra {' --extra '.join(missing)}`, "
+        f"but backend/pyproject.toml declares only {sorted(declared)}. `uv sync` fails on an "
+        "extra that does not exist, so `docker compose up --build` is broken for every user — "
+        "and CI would not catch it, because CI builds the lean stack, which passes no extras."
+    )
 
 
 LEAN = "docker-compose.lean.yml"

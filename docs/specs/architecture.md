@@ -286,11 +286,19 @@ step that selects it failing. That is the whole reason for the split, and `tests
 guards it. Both steps pass `-rs` so skip reasons reach the log. See
 [ADR-022](adr/ADR-022-both-suites-run-on-every-push.md).
 
-**The compose job proves the Definition of Done's last gate.** "Runs under `docker compose up`
-from a clean checkout" no longer depends on a person doing it. The job builds `backend`,
-`worker` and `frontend` against `docker-compose.yml` plus `docker-compose.lean.yml` — the lean
-path, not the default one — confirms both the plain compose file and the default stack resolve,
-and measures `policy_grapher-backend` and `policy_grapher-worker` against a 1GB gate. That
+**The compose job covers most of the Definition of Done's last gate, not all of it.** It
+builds `backend`, `worker` and `frontend` against `docker-compose.yml` plus
+`docker-compose.lean.yml` — the lean path, not the default one — confirms both the plain
+compose file and the default stack resolve, and measures `policy_grapher-backend` and
+`policy_grapher-worker` against a 1GB gate.
+
+The gap is deliberate and worth naming. Since ADR-029 the default images are ~16.6GB, so CI
+builds the lean stack instead; "runs under `docker compose up` from a clean checkout" on the
+*default* path — the one a newcomer actually runs — is therefore still verified by a person,
+and only its resolution is automated. What CI does cover cheaply is the correspondence the
+default build depends on: `tests/test_compose_stack.py` checks that the extra compose passes
+to `uv sync` is one `backend/pyproject.toml` actually declares, because renaming it would
+break that build for every user with the workflow green. That
 measurement uses `docker image inspect --format '{{.Size}}'`, not the `docker image ls` figure
 quoted elsewhere in this document — the two disagree by roughly a factor of three for the same
 image, but the gate sits well above the lean image and well below a regression in either
