@@ -35,6 +35,13 @@ DELIBERATE_DIFFERENCES = {
     # running these on loopback, which is what the extraction ratchet does.
     "extractor_base_url": "reached by service name inside the compose network",
     "redis_url": "reached by service name inside the compose network",
+    # ADR-028: the default *stack* carries its models, but config.py's own default
+    # stays "null" on purpose, so a bare `uvicorn` run and every test that builds
+    # Settings directly keep starting with no model server. Compose overrides this
+    # to "local" for backend and worker only — a deployment decision, not a change
+    # to the application's fallback.
+    "extractor_adapter": "compose defaults to local (ADR-028); config.py's fallback stays null",
+    "embedder_adapter": "compose defaults to local (ADR-028); config.py's fallback stays null",
 }
 
 
