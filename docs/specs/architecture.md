@@ -276,7 +276,7 @@ either command.
 
 | Side | Command | Runs |
 | --- | --- | --- |
-| Backend | `uv run pytest` | The suite, with ruff among it as `test_lint.py`. pytest collects alphabetically, so lint lands mid-run — after the first integration test has already started the Neo4j container. For a fast lint-only answer use `-m "not integration"`, which runs the Docker-free subset, lint included |
+| Backend | `uv run pytest` | The suite, with ruff among it as `test_lint.py`. pytest collects alphabetically, so lint lands mid-run — after the first integration test has already started the Neo4j container. For a fast lint-only answer use `-m "not integration"`, which runs everything that needs no live database, lint included |
 | Frontend | `npm test` | `eslint . --max-warnings=0`, then `tsc -b`, then vitest — in that order, each gating the next |
 
 `.github/workflows/ci.yml` runs those two commands, plus a third, `compose`, job. The backend
@@ -285,6 +285,14 @@ exits 5 when a marker selects nothing, so the integration suite cannot go missin
 step that selects it failing. That is the whole reason for the split, and `tests/test_ci.py`
 guards it. Both steps pass `-rs` so skip reasons reach the log. See
 [ADR-022](adr/ADR-022-both-suites-run-on-every-push.md).
+
+`not integration` is not the same as "needs no Docker". The `integration` marker means *a live
+Neo4j or Redis*, started by Testcontainers, and nothing else — so `tests/test_compose_stack.py`
+is unmarked despite shelling out to the `docker` CLI in several tests. It asks `docker compose
+config` what the files resolve to, which needs the client on PATH but never starts a container
+or touches the daemon's state. That is the marker working as intended, not an oversight: those
+tests are fast, and folding them into the integration half would mean a machine with the CLI
+and no daemon could no longer check what its own compose files say.
 
 **The compose job covers most of the Definition of Done's last gate, not all of it.** It
 builds `backend`, `worker` and `frontend` against `docker-compose.yml` plus
