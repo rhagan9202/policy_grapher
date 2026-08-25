@@ -36,7 +36,19 @@ services:
         # variable, because both run the same image and the rebuild that needs
         # the embedder runs in the worker. A lean, model-free stack is
         # `docker-compose.lean.yml`, applied as a second `-f`.
-        EXTRAS: ${BACKEND_EXTRAS:---extra local-embeddings}
+        #
+        # `-` and not `:-`, unlike every default in this file: `:-` substitutes
+        # on empty as well as unset, so `BACKEND_EXTRAS=` in an .env was
+        # silently overridden and the image built at 16.6GB anyway. Empty is a
+        # meaningful value for this key — it is the lean build — so only an
+        # absent line falls through to the default. The adapters below keep
+        # `:-` deliberately: an empty string is not a valid adapter name.
+        #
+        # Three dashes, and it is not a typo: compose reads the first as the `-`
+        # operator and the remaining `--extra local-embeddings` as the default.
+        # Two would resolve to `-extra local-embeddings`, which `uv sync` rejects.
+        # Guarded by tests/test_compose_stack.py.
+        EXTRAS: ${BACKEND_EXTRAS---extra local-embeddings}
     # The healthcheck above probes HTTP; backend connects over bolt (7687) in
     # lifespan. If bolt isn't ready yet when neo4j reports HTTP-healthy,
     # verify_connectivity() raises and the container exits — restart instead of
@@ -128,8 +140,8 @@ services:
         # worker built without the extra would fail every rebuild that embeds while
         # the backend started clean. `--extra local-embeddings` by default, same as
         # the backend, per ADR-028/ADR-029; `docker-compose.lean.yml` returns both
-        # to empty.
-        EXTRAS: ${BACKEND_EXTRAS:---extra local-embeddings}
+        # to empty. `-` rather than `:-` for the reason written out above.
+        EXTRAS: ${BACKEND_EXTRAS---extra local-embeddings}
     restart: on-failure
     # "rebuilds" must equal QUEUE_NAME in backend/src/policy_grapher/jobs/queue.py,
     # where the same warning is written. The `rq` CLI takes queue names as

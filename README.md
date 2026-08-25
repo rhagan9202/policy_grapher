@@ -51,6 +51,18 @@ to call the API directly. It refuses to overwrite an existing `.env`; delete the
 you want new secrets. Nothing in the repository grants access to anything
 ([ADR-010](docs/specs/adr/ADR-010-secrets-leave-the-repository.md)).
 
+> **If you already have an `.env` from before this change, read this first.** `init-env.sh`
+> writes whatever `.env.example` held on the day it ran, and every default described here
+> applies only to lines your `.env` does not have. An `.env` written before the models moved
+> into the default stack says `EXTRACTOR_ADAPTER=null` and `EMBEDDER_ADAPTER=null` outright,
+> and those lines win — so a rebuild writes chunks and nothing else, and Triage, Review and
+> Ask's semantic leg stay empty exactly as before. What it does **not** turn off is `ollama`
+> and `ollama-pull`: those are services, not variables, so they start anyway and still pull
+> roughly 13GB for a model nothing will call. Either set both adapters to `local`, or delete
+> `.env` and re-run `init-env.sh` for a fresh set of secrets, or — if what you wanted was the
+> old model-free stack — use [the lean stack](#running-the-lean-stack), which stops those two
+> services as well as setting the adapters.
+
 Then open **http://localhost:5173**. The API is at http://localhost:8000 and the Neo4j browser
 at http://localhost:7474.
 

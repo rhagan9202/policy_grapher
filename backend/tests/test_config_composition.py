@@ -24,8 +24,13 @@ from policy_grapher.config import Settings
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 
-# `NAME: ${NAME:-default}` — the only form compose uses for a defaulted value here.
-DEFAULTED = re.compile(r"^\s+([A-Z][A-Z0-9_]*): \$\{[A-Z][A-Z0-9_]*:-([^}]*)\}$", re.MULTILINE)
+# `NAME: ${NAME:-default}` and `NAME: ${NAME-default}` — the two forms compose uses
+# for a defaulted value here. Both spellings, not just `:-`: BACKEND_EXTRAS is
+# deliberately defaulted with a bare `-` so that an explicitly empty value is
+# honoured, and a regex that only knew `:-` dropped it out of the parametrization
+# below without failing anything. A variable this file stops looking at is a
+# variable this file stopped guarding.
+DEFAULTED = re.compile(r"^\s+([A-Z][A-Z0-9_]*): \$\{[A-Z][A-Z0-9_]*:?-([^}]*)\}$", re.MULTILINE)
 
 # Settings fields whose container value is *meant* to differ from the application
 # default, each with the reason. Anything not listed here must agree — adding an

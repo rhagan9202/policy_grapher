@@ -35,7 +35,7 @@ def test_the_default_stack_is_every_service():
     assert profiled == set(), f"these services do not start by default: {sorted(profiled)}"
 
 
-def _resolved(*compose_files: str) -> dict:
+def _resolved(*compose_files: str, env_file: str = "/dev/null") -> dict:
     """What compose actually resolves, not what the file literally says.
 
     Reading the YAML would test the template `${VAR:-default}` rather than the
@@ -45,7 +45,7 @@ def _resolved(*compose_files: str) -> dict:
     # so a developer who has set EXTRACTOR_ADAPTER there would see their own
     # value and this test would assert nothing about the default. Verified: with
     # it, GRAPH_RENDER_CAP resolves empty, proving .env was not read.
-    argv = ["docker", "compose", "--env-file", "/dev/null"]
+    argv = ["docker", "compose", "--env-file", env_file]
     for path in compose_files:
         argv += ["-f", path]
     argv.append("config")
@@ -70,6 +70,43 @@ def test_the_default_build_carries_the_embedding_extra():
     for name in ("backend", "worker"):
         args = config["services"][name]["build"]["args"]
         assert args["EXTRAS"] == "--extra local-embeddings", f"{name} builds without torch"
+
+
+def test_an_explicitly_empty_backend_extras_is_honoured(tmp_path):
+    """`${BACKEND_EXTRAS:-...}` substituted on empty as well as unset, so a
+    developer who wrote `BACKEND_EXTRAS=` in `.env` — following `.env.example`,
+    which told them that was the lean build — got the 16.6GB image anyway.
+    Verified against the real compose binary before the fix: EXTRAS resolved to
+    `--extra local-embeddings` while EXTRACTOR_ADAPTER and EMBEDDER_ADAPTER in
+    the same file were honoured.
+
+    The fix is `-` rather than `:-`, written with three dashes because compose
+    consumes the first as the operator. Two would silently yield the invalid
+    `-extra local-embeddings`, so that is asserted below too.
+    """
+    env_file = tmp_path / "empty-extras.env"
+    env_file.write_text("BACKEND_EXTRAS=\n")
+
+    config = _resolved("docker-compose.yml", env_file=str(env_file))
+    for name in ("backend", "worker"):
+        assert config["services"][name]["build"]["args"]["EXTRAS"] == "", (
+            f"{name} ignores an explicitly empty BACKEND_EXTRAS and builds torch in"
+        )
+
+
+def test_an_absent_backend_extras_still_gets_the_default(tmp_path):
+    """The other half of the `-` change, and the half a mis-dashed default
+    breaks: with no line at all the extra must still be built in, spelled
+    exactly as `uv sync` accepts it."""
+    env_file = tmp_path / "no-extras.env"
+    env_file.write_text("")
+
+    config = _resolved("docker-compose.yml", env_file=str(env_file))
+    for name in ("backend", "worker"):
+        assert config["services"][name]["build"]["args"]["EXTRAS"] == "--extra local-embeddings", (
+            f"{name}'s default EXTRAS is malformed — `${{VAR--extra ...}}` resolves to "
+            "`-extra local-embeddings`, which uv rejects; it needs three dashes"
+        )
 
 
 LEAN = "docker-compose.lean.yml"
