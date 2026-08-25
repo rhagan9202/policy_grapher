@@ -34,6 +34,35 @@ def _run_commands(job: dict) -> list[str]:
     return [step["run"] for step in job["steps"] if "run" in step]
 
 
+def _compose_build_command(job: dict) -> str:
+    """The one step that builds, isolated from every other `run:` block.
+
+    The two tests below used to join every command in the job and search the
+    blob. Both were unfailable, for the same reason: the size-gate step's own
+    text contains the strings they looked for. Its error message names
+    "docker-compose.lean.yml", so stripping the `-f` flags from every step left
+    the lean-stack assertion green while CI built the ~16.6GB default images;
+    its loop over `policy_grapher-backend` and `policy_grapher-worker` contains
+    "backend" and "worker" as substrings, so a build step naming only
+    `frontend` left the coverage assertion green too. Both were verified green
+    under exactly those mutations before this helper existed.
+
+    Scoping to the build command is what makes them able to fail. A word-boundary
+    match on "build" rather than a contiguous "docker compose build", because
+    compose requires any `-f` flags to sit between those two words.
+    """
+    builds = [
+        c for c in _run_commands(job) if "docker compose" in c and re.search(r"\bbuild\b", c)
+    ]
+    assert len(builds) == 1, (
+        f"expected exactly one compose build step in the job, found {len(builds)}: "
+        f"{builds!r}. These assertions describe one build command; if the job now "
+        "has several, scope them deliberately rather than joining the steps back "
+        "together — that is the shape that made both of them unfailable."
+    )
+    return builds[0]
+
+
 def test_the_workflow_runs_on_every_push_and_pull_request(workflow):
     """Decided at sprint 4: not `main` only. A branch that reports green without
     the database half is the failure mode this story exists to prevent."""
@@ -117,11 +146,15 @@ def test_the_compose_job_measures_the_lean_stack(workflow):
     now ~16.6GB and the 1GB gate below would fail on every push. The gate exists
     to prove the *lean* image has not silently regrown, and that purpose survives
     the default changing — but only if the job actually builds the lean stack.
-    """
-    commands = " ".join(_run_commands(workflow["jobs"]["compose"]))
 
-    assert "docker-compose.lean.yml" in commands, (
-        "the compose job builds the default stack, whose images are ~16.6GB — "
-        "the size gate would fail on every push"
+    Asserted against the build command alone, not the job's joined text: the
+    size-gate step's error message names `docker-compose.lean.yml` too, so the
+    joined form said nothing about what CI builds.
+    """
+    command = _compose_build_command(workflow["jobs"]["compose"])
+
+    assert "docker-compose.lean.yml" in command, (
+        f"the compose job's build step is {command!r}, which builds the default "
+        "stack, whose images are ~16.6GB — the size gate would fail on every push"
     )
 
