@@ -29,22 +29,21 @@ navigation by [ADR-008](docs/specs/adr/ADR-008-authenticated-non-cypher-audience
 ## Setting up and running
 
 Two commands. You need Docker with the Compose plugin, and nothing else — no Python, no Node,
-no database.
+no database. The second one is expensive on a cold cache: `docker compose up --build` brings
+up the whole product, model server included, and that means roughly 13GB of pulls —
+`ollama` at 8.43GB, `llama3.1:8b` at about 4.9GB — on top of two 16.6GB image builds, backend
+and worker sharing a layer. Budget tens of minutes for the first build. A long silent wait
+here is normal, not a hang
+([ADR-028](docs/specs/adr/ADR-028-the-default-stack-carries-its-models.md),
+[ADR-029](docs/specs/adr/ADR-029-the-default-image-carries-the-model-runtime.md)). A stack
+without any of that cost is one command away — see [Running the lean
+stack](#running-the-lean-stack) below.
 
 ```bash
 git clone https://github.com/rhagan9202/policy_grapher.git && cd policy_grapher
 ./scripts/init-env.sh      # once: writes .env with fresh secrets, prints your API token
 docker compose up --build
 ```
-
-`docker compose up --build` brings up the whole product, model server included, and on a cold
-cache that is expensive: expect roughly 13GB of pulls — `ollama` at 8.43GB, `llama3.1:8b` at
-about 4.9GB — on top of two 16.6GB image builds, backend and worker sharing a layer. Budget
-tens of minutes for the first build. A reader not told this will assume the command has hung;
-it hasn't ([ADR-028](docs/specs/adr/ADR-028-the-default-stack-carries-its-models.md),
-[ADR-029](docs/specs/adr/ADR-029-the-default-image-carries-the-model-runtime.md)). A stack
-without any of that cost is one command away — see [Running the lean
-stack](#running-the-lean-stack) below.
 
 `init-env.sh` generates a random Neo4j password and a random API token, writes both into an
 untracked `.env`, and prints the token once — it is stored nowhere else, so save it if you plan
