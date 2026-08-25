@@ -191,18 +191,17 @@ services:
     depends_on:
       - backend
 
-  # Both services below sit behind the `models` profile, so a plain
-  # `docker compose up` never pulls them: the image is 8.4GB and the model
-  # another 4.9GB, and the default EXTRACTOR_ADAPTER is `null`, which needs
-  # neither. Bring them up with:
-  #
-  #     docker compose --profile models up -d
-  #
-  # The stack still comes up on one command; wanting real extraction is what
-  # costs the download.
+  # Both services below are part of the default stack (ADR-028:
+  # docs/specs/adr/ADR-028-the-default-stack-carries-its-models.md): without a
+  # model server, EXTRACTOR_ADAPTER and EMBEDDER_ADAPTER have nothing to talk
+  # to, and Review, Triage, and Ask's semantic leg cannot fill on a plain
+  # `docker compose up`. The cost is real and front-loaded — the image is
+  # 8.43GB, and the weights it pulls on first run (llama3.1:8b, by default)
+  # are about another 4.9GB — but it is paid once, in the named volume below.
+  # A stack without the model server is `docker compose -f docker-compose.yml
+  # -f docker-compose.lean.yml up`, not a profile to remember to unset.
   ollama:
     image: ollama/ollama:latest
-    profiles: ["models"]
     # Published on loopback, unlike redis, because the extraction ratchet
     # (tests/test_obligation_ratchet.py) runs on the host and reaches the model
     # at Settings.extractor_base_url — the default of which is localhost:11434.
@@ -223,7 +222,6 @@ services:
   # named volume above makes a second run a no-op, so this is slow exactly once.
   ollama-pull:
     image: ollama/ollama:latest
-    profiles: ["models"]
     restart: "no"
     depends_on:
       ollama:
