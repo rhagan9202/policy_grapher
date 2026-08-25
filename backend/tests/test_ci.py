@@ -124,7 +124,14 @@ def test_the_workflow_proves_the_stack_builds(workflow):
 
 
 def test_the_compose_build_covers_every_service_that_is_built(workflow):
-    """A job that builds one of three images proves a third of what it claims."""
+    """A job that builds one of three images proves a third of what it claims.
+
+    Read from the build command, not the job's joined text. Joined, this could
+    not fail: the size-gate step loops over `policy_grapher-backend` and
+    `policy_grapher-worker`, so "backend" and "worker" were present as
+    substrings however few services the build step actually named. Verified
+    green against a build step naming `frontend` alone before this change.
+    """
     built = {
         name
         for name, service in yaml.safe_load(
@@ -132,12 +139,16 @@ def test_the_compose_build_covers_every_service_that_is_built(workflow):
         )["services"].items()
         if "build" in service
     }
-    commands = " ".join(_run_commands(workflow["jobs"]["compose"]))
+    command = _compose_build_command(workflow["jobs"]["compose"])
+    # Split on whitespace and compare whole arguments: a substring test would
+    # read `policy_grapher-backend` as "backend" again, one step further along.
+    named = set(command.split())
 
-    missing = sorted(s for s in built if s not in commands)
+    missing = sorted(s for s in built if s not in named)
     assert not missing, (
-        f"docker-compose.yml builds {sorted(built)} but the compose job never names "
-        f"{missing}. Either build them or drop them from compose."
+        f"docker-compose.yml builds {sorted(built)} but the compose job's build "
+        f"step, {command!r}, never names {missing}. Either build them or drop "
+        "them from compose."
     )
 
 
