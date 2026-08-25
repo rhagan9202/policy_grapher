@@ -175,3 +175,53 @@ def test_the_lean_build_drops_the_embedding_extra():
     config = _resolved("docker-compose.yml", LEAN)
     for name in ("backend", "worker"):
         assert config["services"][name]["build"]["args"]["EXTRAS"] == ""
+
+
+def test_the_worker_waits_for_the_model_to_be_pulled():
+    """The window this closes is a newcomer's first run.
+
+    `ollama-pull` fetches ~4.9GB. Nothing sequenced it against the worker, so
+    the images finished, the UI came up, and a rebuild started in that window
+    reached a model server with no model. The worker is the leg that calls the
+    model, so the wait belongs there.
+
+    `backend` deliberately does not wait: it never calls the model at boot, and
+    `frontend` waits on `backend`, so making the API wait would keep the UI dark
+    — Ingest included — for the whole download. A rebuild queued during the pull
+    waits in Redis and runs when the worker starts.
+    """
+    config = _resolved("docker-compose.yml")
+    worker = config["services"]["worker"]["depends_on"]
+
+    assert "ollama-pull" in worker, (
+        "the worker starts without waiting for the model weights; a rebuild during "
+        "the first run's ~4.9GB pull calls a model server that has none"
+    )
+    assert worker["ollama-pull"]["condition"] == "service_completed_successfully", (
+        f"waiting on ollama-pull with condition "
+        f"{worker['ollama-pull']['condition']!r} does not mean the pull finished"
+    )
+
+    backend = config["services"]["backend"]["depends_on"]
+    assert "ollama-pull" not in backend, (
+        "the backend now waits on the model pull, which keeps the API — and the "
+        "frontend behind it — dark for the length of the download. If that is "
+        "wanted, change this test deliberately."
+    )
+
+
+def test_the_lean_worker_does_not_wait_for_a_pull_that_never_runs():
+    """`depends_on` merges by union across compose files, so the lean stack has
+    to drop this entry with `!override` rather than by omission — otherwise the
+    worker waits on `ollama-pull`, which this stack scales to zero replicas and
+    which therefore never completes."""
+    worker = _resolved("docker-compose.yml", LEAN)["services"]["worker"]["depends_on"]
+
+    assert "ollama-pull" not in worker, (
+        "the lean stack's worker waits on ollama-pull, a service it scales to zero "
+        "replicas — `docker compose ... -f docker-compose.lean.yml up` would hang"
+    )
+    assert "redis" in worker, (
+        "the !override dropped the redis dependency too; the worker cannot work "
+        "without Redis and must still wait for it"
+    )

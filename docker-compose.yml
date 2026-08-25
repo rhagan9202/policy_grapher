@@ -152,6 +152,25 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      # The worker is the leg that actually calls the model, so it is the one that
+      # must not start before the weights are on disk. On a newcomer's first run the
+      # images finish, the UI comes up, and `ollama-pull` is still fetching 4.9GB —
+      # a rebuild started in that window reached a model server with no model.
+      #
+      # `backend` deliberately does *not* wait on this. It builds an extractor at
+      # boot but never calls one, and `frontend` waits on `backend`, so making the
+      # API wait here would keep the whole UI dark for the length of the download —
+      # including Ingest, which is the only thing there is to do before a model is
+      # needed anyway. A rebuild requested during the pull is enqueued in Redis and
+      # drained when the worker starts, which is the behaviour we want: late, not
+      # failed.
+      #
+      # No `required: false`: on this path the guarantee should be unconditional.
+      # The lean stack, which scales `ollama-pull` to zero replicas, drops this
+      # entry with an explicit `!override` in docker-compose.lean.yml rather than
+      # relying on compose's behaviour towards a dependency that will never run.
+      ollama-pull:
+        condition: service_completed_successfully
     environment:
       # The same configuration as the backend, deliberately: the worker opens its
       # own Neo4j driver and builds its own extractor and embedder.

@@ -34,6 +34,17 @@ services:
     build:
       args:
         EXTRAS: ""
+    # `!override`, because compose merges `depends_on` by union: without it the
+    # worker would keep the base file's wait on `ollama-pull`, a service this file
+    # scales to zero replicas and which therefore never completes. The base file
+    # states that dependency unconditionally on purpose — the default stack's whole
+    # failure mode is a rebuild reaching a model server that has no weights yet —
+    # so the lean stack drops it here, in the same file that stops the service, for
+    # the same reason the adapters are returned to `null` here rather than left to
+    # a flag someone must remember.
+    depends_on: !override
+      redis:
+        condition: service_healthy
     environment:
       EXTRACTOR_ADAPTER: "null"
       EMBEDDER_ADAPTER: "null"
