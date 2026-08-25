@@ -115,6 +115,7 @@ the implementation plans beside them.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-077 | The Ingest screen offers the files the backend can read, instead of asking for a name | — |
 | STORY-074 | A rebuild's colliding re-points are skipped, not left to abort the whole transaction | — |
 | STORY-071 | No service listens beyond loopback | — |
 | STORY-072 | No developer's own hostname is a committed default | — |

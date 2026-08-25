@@ -19,7 +19,7 @@ layer — chunks, obligations, proposed links and embeddings — onto a Redis-ba
 a `worker` service drains, and `GET /rebuilds/{run_id}` reports its progress chunk by chunk.
 See [Building an edition's derived layer](#building-an-editions-derived-layer).
 
-Since sprint 5 every one of the nineteen API routes has a screen behind it, so the whole
+Since sprint 5 every one of the API routes has a screen behind it, so the whole
 product is reachable from the browser: ingest a corpus, read a document's text edition by
 edition, build its derived layer, work the review queue, and empty the graph. `POST /query` is
 the one deliberate exception — read-routed, timed and row-capped since

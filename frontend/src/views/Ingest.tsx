@@ -1,6 +1,24 @@
-import { useState } from 'react'
-import { ingest } from '../api/client'
-import type { IngestResult } from '../api/types'
+import { useEffect, useState } from 'react'
+import { ingest, listSources } from '../api/client'
+import type { IngestResult, SourceFile } from '../api/types'
+
+/** What ingest will make of a file, in the words the screen's own prose uses. */
+const KIND_LABEL: Record<string, string> = {
+  manifest: 'CSV manifest',
+  document: 'PDF document',
+}
+
+/** Readable at a glance, which "1463 KB" is not. */
+function humanSize(bytes: number): string {
+  const kb = bytes / 1024
+  return kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`
+}
+
+function describe(source: SourceFile): string {
+  const kind = KIND_LABEL[source.kind] ?? source.kind
+  const already = source.ingested ? ' · already ingested' : ''
+  return `${source.filename} — ${kind} · ${humanSize(source.size_bytes)}${already}`
+}
 
 // STORY-043. `POST /ingest` has existed since DI-1 and nothing called it, so loading
 // the corpus was a curl command — which means the person this tool is for could not
@@ -15,6 +33,33 @@ export default function Ingest() {
   const [result, setResult] = useState<IngestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // What the backend can be given. `null` until the listing answers.
+  const [sources, setSources] = useState<SourceFile[] | null>(null)
+  const [listError, setListError] = useState<string | null>(null)
+
+  // async/await rather than .then/.catch: a caller that has not stubbed
+  // `listSources` gets `undefined` back, and `.catch` on undefined throws
+  // outside any guard. The same shape bit DocumentDetail's name lookup.
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const found = await listSources()
+        if (!cancelled) setSources(found ?? [])
+      } catch (cause: unknown) {
+        if (!cancelled) {
+          setListError(
+            cause instanceof Error ? cause.message : 'Could not list the data directory.',
+          )
+        }
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -38,20 +83,60 @@ export default function Ingest() {
       <h1>Ingest</h1>
 
       <p>
-        The name of a file in the backend&apos;s data directory — a CSV manifest of
-        documents and references, or a PDF issuance. The file is read inside the
-        backend container, so it must already be there.
+        What the backend can read from its own data directory. A CSV manifest lists
+        documents and the references between them; a PDF issuance carries one
+        document and its text. Nothing is uploaded from this machine — the file has
+        to be in that directory already.
       </p>
+
+      {listError && (
+        // The picker could not load, so the reader falls back to naming the file
+        // themselves. A control that cannot load must not leave them with no way
+        // to act at all.
+        <div role="alert">
+          Could not list the data directory: {listError}. Type a filename instead.
+        </div>
+      )}
+
+      {sources !== null && sources.length === 0 && (
+        <div role="status">
+          <p>
+            <strong>No files to ingest.</strong> The backend is reading{' '}
+            <code>DATA_DIR</code> inside its own container, and that directory is
+            empty. Put a CSV manifest or a PDF issuance there and reload.
+          </p>
+        </div>
+      )}
 
       <form onSubmit={onSubmit}>
         <label htmlFor="ingest-filename">File to ingest</label>{' '}
-        <input
-          id="ingest-filename"
-          value={filename}
-          onChange={(event) => setFilename(event.target.value)}
-          placeholder="dod_policy_references_08122026.csv"
-          size={40}
-        />{' '}
+        {sources === null && !listError ? (
+          // Neither a picker nor a text box until the listing answers. Showing
+          // the fallback input here would offer a control the reader is about
+          // to lose, and reads as though typing were the intended way in.
+          <span>Loading the file list…</span>
+        ) : sources !== null && sources.length > 0 ? (
+          <select
+            id="ingest-filename"
+            value={filename}
+            onChange={(event) => setFilename(event.target.value)}
+          >
+            <option value="">Choose a file…</option>
+            {sources.map((source) => (
+              <option key={source.filename} value={source.filename}>
+                {describe(source)}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            id="ingest-filename"
+            value={filename}
+            onChange={(event) => setFilename(event.target.value)}
+            placeholder="dod_policy_references_08122026.csv"
+            size={40}
+          />
+        )}{' '}
         <button type="submit" disabled={busy}>
           {busy ? 'Ingesting…' : 'Ingest'}
         </button>

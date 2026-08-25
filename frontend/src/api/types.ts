@@ -47,6 +47,18 @@ export interface DocumentIngestResult {
 
 export type IngestResult = ManifestIngestResult | DocumentIngestResult
 
+/** A file the backend can ingest, as `GET /ingest/sources` reports it. */
+export interface SourceFile {
+  filename: string
+  size_bytes: number
+  /** What `POST /ingest` will treat this as — read off the ingester's own
+   *  predicate server-side, not guessed from the extension here. */
+  kind: string
+  /** A `:Source` for this filename already exists. Informational: re-ingesting
+   *  is how a second edition arrives, and stays additive (ADR-007). */
+  ingested: boolean
+}
+
 export interface DocumentIn {
   name: string
 }

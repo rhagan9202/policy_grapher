@@ -11,6 +11,7 @@ import type {
   RebuildStatus,
   ResetResult,
   ReviewItem,
+  SourceFile,
   TriageOut,
   Verdict,
 } from './types'
@@ -52,6 +53,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getHealth(): Promise<{ status: string }> {
   return request<{ status: string }>('/health')
+}
+
+// `POST /ingest` takes a bare filename because the backend reads from its own
+// container, so the screen had no way to say which filenames existed. This is
+// that directory, read out loud.
+export function listSources(): Promise<SourceFile[]> {
+  return request<SourceFile[]>('/ingest/sources')
 }
 
 export function ingest(filename: string): Promise<IngestResult> {

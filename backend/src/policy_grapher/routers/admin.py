@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from neo4j import Driver
+from neo4j import Driver, RoutingControl
 from pydantic import Field
 
 from policy_grapher.auth import Principal, require_principal
@@ -14,8 +14,9 @@ from policy_grapher.models import (
     IngestRequest,
     IngestResult,
     ResetResult,
+    SourceFileOut,
 )
-from policy_grapher.sources import SourceError
+from policy_grapher.sources import SourceError, list_sources, provenance
 from policy_grapher.versions import VersionConflictError
 
 # Tagged explicitly rather than left to smart-union matching: the two models are
@@ -32,6 +33,50 @@ router = APIRouter(tags=["admin"])
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# Only file-backed sources. `documents.py` merges a :Source with kind "api" and
+# an empty filename for a document created through the API, and an empty string
+# must never match a file on disk.
+INGESTED_FILENAMES = """
+MATCH (s:Source)
+WHERE s.kind IN [$manifest, $document]
+RETURN collect(s.filename) AS filenames
+"""
+
+
+@router.get("/ingest/sources", response_model=list[SourceFileOut])
+def ingest_sources(
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
+) -> list[SourceFileOut]:
+    """What `POST /ingest` can be given, read out of the directory it reads from.
+
+    The route takes a bare filename because the backend reads from its own
+    container, so until this existed the screen was a free-text box over a
+    directory only the server could see — know the name or guess it.
+
+    One query for the whole listing rather than one per file: the flag is a set
+    membership test, and a per-file round trip would make a directory of any
+    size feel like a fault.
+    """
+    records, _, _ = driver.execute_query(
+        INGESTED_FILENAMES,
+        {"manifest": provenance.MANIFEST, "document": provenance.DOCUMENT},
+        database_=settings.neo4j_database,
+        routing_=RoutingControl.READ,
+    )
+    ingested = set(records[0]["filenames"]) if records else set()
+    return [
+        SourceFileOut(
+            filename=source.filename,
+            size_bytes=source.size_bytes,
+            kind=source.kind,
+            ingested=source.filename in ingested,
+        )
+        for source in list_sources(settings.data_dir)
+    ]
 
 
 @router.post("/ingest", response_model=IngestResponse)

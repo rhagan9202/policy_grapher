@@ -7,6 +7,22 @@ class IngestRequest(BaseModel):
     filename: str
 
 
+class SourceFileOut(BaseModel):
+    """A file the Ingest screen can offer, and what ingest would make of it.
+
+    `kind` is what `ingest_file` will treat this as, not a guess from the
+    extension made here — see `sources.list_sources`. `ingested` says a
+    `:Source` for this filename already exists; re-ingesting is legitimate
+    (ADR-007 keeps it additive, and a second edition arrives exactly that way),
+    so this informs rather than forbids.
+    """
+
+    filename: str
+    size_bytes: int
+    kind: str
+    ingested: bool
+
+
 class IngestResult(BaseModel):
     source: Literal["manifest"] = "manifest"
     nodes_created: int
