@@ -16,11 +16,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Out of the default dependencies since STORY-052. sentence-transformers pulls
-# torch, transformers and scikit-learn — about 4.5GB of virtualenv, and 16.2GB of
-# backend image once the build layers are counted — for a library the default
-# EMBEDDER_ADAPTER=null never loads. Configuring `local` without it raises
-# MissingEmbeddingDependency at startup, naming this extra. See ADR-021.
+# An extra rather than a plain dependency since STORY-052. sentence-transformers
+# pulls torch, transformers and scikit-learn — about 4.5GB of virtualenv, and
+# 16.2GB of backend image once the build layers are counted — which is worth
+# keeping optional even now that it is usually installed.
+#
+# It is no longer "off by default" in the sense ADR-021 meant: ADR-029 supersedes
+# it, the default stack carries its models, and docker-compose.yml passes
+# `--extra local-embeddings` so a plain `docker compose up` builds this in.
+# Optional still buys something — the lean stack, a direct `docker build`, and any
+# consumer that wants the library rather than the model runtime — and configuring
+# EMBEDDER_ADAPTER=local without it still raises MissingEmbeddingDependency at
+# startup, naming this extra.
+#
+# The name is load-bearing: docker-compose.yml passes it verbatim to `uv sync`,
+# and tests/test_compose_stack.py fails if the two stop agreeing.
 local-embeddings = [
     "sentence-transformers>=5.0",
 ]

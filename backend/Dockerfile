@@ -19,12 +19,19 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_NO_SYNC=1 \
     PYTHONUNBUFFERED=1
 
-# No extras by default, which is the whole of STORY-052: `local-embeddings` pulls
-# torch and took this image from 399MB to 16.6GB, for a library the default
-# EMBEDDER_ADAPTER=null never loads. An operator who wants a local embedder builds
-# with `--build-arg EXTRAS="--extra local-embeddings"`, and compose reads that from
-# BACKEND_EXTRAS. Configuring `local` without it fails at startup with a message
-# naming this flag, rather than mid-rebuild with a ModuleNotFoundError. See ADR-021.
+# Empty by default, and that default is now the *lean* path rather than the usual
+# one. STORY-052 took this image from 16.6GB to 399MB by moving `local-embeddings`
+# — torch and friends — out of the image, because the then-default
+# EMBEDDER_ADAPTER=null never loaded it (ADR-021). ADR-029 supersedes that: the
+# default stack carries its models, so docker-compose.yml passes
+# `--extra local-embeddings` and the image built by a plain `docker compose up`
+# is the 16.6GB one again. What is left empty here is the Dockerfile's own
+# fallback, which is what `docker-compose.lean.yml` relies on by passing EXTRAS="".
+#
+# So: do not "restore" a default here to match compose. Building this Dockerfile
+# directly still gets the small image, and configuring EMBEDDER_ADAPTER=local
+# without the extra still fails at startup with a message naming this flag, rather
+# than mid-rebuild with a ModuleNotFoundError.
 ARG EXTRAS=""
 
 COPY pyproject.toml uv.lock ./
