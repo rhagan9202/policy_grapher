@@ -232,8 +232,12 @@ Because a `Document` now has no mutable field — renaming is delete-and-recreat
 
 ## Deployment
 
-Docker Compose with five services: `neo4j`, `backend`, `redis`, `worker`, `frontend`.
-Configuration reaches the backend through `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`,
+Docker Compose with seven services by default: `neo4j`, `backend`, `redis`, `worker`,
+`frontend`, `ollama` and `ollama-pull` — the last two are ordinary services rather than a
+profile ([ADR-028](adr/ADR-028-the-default-stack-carries-its-models.md)), and
+`docker-compose.lean.yml`, applied as a second `-f` argument, removes them along with the
+model runtime in the backend and worker images. Configuration reaches the backend through
+`NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`,
 `NEO4J_DATABASE`, `GRAPH_RENDER_CAP`, `QUERY_ROW_CAP`, `QUERY_TIMEOUT_SECONDS`, `API_TOKENS`,
 `CORS_ALLOW_ORIGINS`, `ENABLE_API_DOCS`, `SAMPLE_CSV`, `AUTO_INGEST`, and `REDIS_URL`
 (STORY-048) — unreachable Redis fails only the two rebuild routes, since the queue connects
@@ -275,16 +279,22 @@ either command.
 | Backend | `uv run pytest` | The suite, with ruff among it as `test_lint.py`. pytest collects alphabetically, so lint lands mid-run — after the first integration test has already started the Neo4j container. For a fast lint-only answer use `-m "not integration"`, which runs the Docker-free subset, lint included |
 | Frontend | `npm test` | `eslint . --max-warnings=0`, then `tsc -b`, then vitest — in that order, each gating the next |
 
-`.github/workflows/ci.yml` runs exactly those two commands, in two jobs. The backend job
-splits its side in half — `-m "not integration"` then `-m integration` — because `pytest`
+`.github/workflows/ci.yml` runs those two commands, plus a third, `compose`, job. The backend
+job splits its side in half — `-m "not integration"` then `-m integration` — because `pytest`
 exits 5 when a marker selects nothing, so the integration suite cannot go missing without the
 step that selects it failing. That is the whole reason for the split, and `tests/test_ci.py`
 guards it. Both steps pass `-rs` so skip reasons reach the log. See
 [ADR-022](adr/ADR-022-both-suites-run-on-every-push.md).
 
-**Nothing yet proves the Definition of Done's last gate.** "Runs under `docker compose up` from
-a clean checkout" is still verified by a person doing it. A third job that builds the images
-would close that, and is deliberately left as follow-up work rather than folded into STORY-051.
+**The compose job proves the Definition of Done's last gate.** "Runs under `docker compose up`
+from a clean checkout" no longer depends on a person doing it. The job builds `backend`,
+`worker` and `frontend` against `docker-compose.yml` plus `docker-compose.lean.yml` — the lean
+path, not the default one — confirms both the plain compose file and the default stack resolve,
+and measures `policy_grapher-backend` and `policy_grapher-worker` against a 1GB gate. That
+measurement uses `docker image inspect --format '{{.Size}}'`, not the `docker image ls` figure
+quoted elsewhere in this document — the two disagree by roughly a factor of three for the same
+image, but the gate sits well above the lean image and well below a regression in either
+measure, so which one it uses doesn't change what it catches.
 
 Ruff takes its default rule set with one exemption: `Depends()` and `Query()` in a parameter
 default are FastAPI's idiom, not the mutable-default bug B008 catches. ESLint runs
@@ -324,12 +334,16 @@ found. See [ADR-023](adr/ADR-023-a-rejected-item-costs-its-chunk-not-the-run.md)
 HTTP timeout is `EXTRACTOR_TIMEOUT_SECONDS`, defaulted to 600s: CPU inference on this corpus
 runs at roughly 7 tokens/second and the previous hardcoded 120s could not meet it.
 
-**The backend image carries no model runtime, and its containers do not add one.** The
-backend and worker images measure **399MB**; before STORY-052 they measured **16.6GB**, because
-`sentence-transformers` was a hard dependency and pulls torch. It now ships in an optional
-`local-embeddings` extra that the Dockerfile installs only when passed
-`--build-arg EXTRAS`, which compose supplies to both services from `BACKEND_EXTRAS`. Two
-consequences are easy to miss and both are guarded:
+**The default image carries the model runtime again.** `sentence-transformers` ships in the
+optional `local-embeddings` extra STORY-052 created, and the Dockerfile installs it when
+passed `--build-arg EXTRAS`, which compose supplies to both services from `BACKEND_EXTRAS`.
+That build argument now defaults to `--extra local-embeddings`, so `policy_grapher-backend`
+and `policy_grapher-worker` measure **16.6GB** on the default path — the same figure STORY-052
+took the images from — because `EMBEDDER_ADAPTER` defaults to `local` and needs something to
+run ([ADR-029](adr/ADR-029-the-default-image-carries-the-model-runtime.md)). The lean path,
+`docker-compose.lean.yml`, sets `EXTRAS` back to empty and keeps STORY-052's **399MB**; it is
+the one image CI still builds and measures against the 1GB gate. Two consequences are easy to
+miss and both are guarded:
 
 - **`EMBEDDER_ADAPTER=local` without the extra fails at startup**, with a message naming the
   extra, the build argument and the `null` alternative. It has to, because `LocalEmbedder`
@@ -367,14 +381,18 @@ of them was checked: the test read a developer's shell while every container ran
 `tests/test_config_composition.py` now fails when any compose default disagrees with its
 application default, unless the difference is listed with a reason (STORY-060).
 
-**A model server is available, and off by default.** `ollama` and a one-shot `ollama-pull`
-sit behind the `models` compose profile, so `docker compose up` pulls neither the 8.4GB image
-nor the 4.9GB model — the default `EXTRACTOR_ADAPTER=null` needs neither. Ollama publishes on
+**A model server is part of the default stack.** `ollama` and a one-shot `ollama-pull` are
+ordinary compose services, so `docker compose up` pulls the 8.43GB `ollama` image and the
+4.9GB `llama3.1:8b` model, and `docker compose down` stops them along with everything else —
+the default `EXTRACTOR_ADAPTER=local` and `EMBEDDER_ADAPTER=local` need both
+([ADR-028](adr/ADR-028-the-default-stack-carries-its-models.md)). Ollama publishes on
 `127.0.0.1:11434` rather than staying network-internal like Redis, because the extraction
 ratchet runs on the *host* and reaches the model at `Settings.extractor_base_url`; in-network
 callers use `http://ollama:11434`. Model weights are constrained to US-published models
 ([ADR-020](adr/ADR-020-model-weights-come-from-us-organisations.md)), enforced by a test rather
-than a comment.
+than a comment. A stack with neither service, and both adapters back to `null`, is reached
+through `docker-compose.lean.yml`, applied as a second `-f` argument — the path CI builds and
+tests against.
 
 ## Known weak points
 

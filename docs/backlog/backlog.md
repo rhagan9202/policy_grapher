@@ -1,6 +1,6 @@
 # Backlog
 
-*Living document — edit in place. Last reviewed: 2026-08-24*
+*Living document — edit in place. Last reviewed: 2026-08-25*
 
 Ordered by priority: the top row is the next thing to pick up. See
 [README](README.md) for how items move through this list, and
@@ -115,6 +115,9 @@ the implementation plans beside them.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-080 | CI builds and measures the lean stack, and says which stack it measured | — |
+| STORY-079 | A lean stack with no models is one documented command | — |
+| STORY-078 | `docker compose up --build` brings up the whole product | — |
 | STORY-077 | The Ingest screen offers the files the backend can read, instead of asking for a name | — |
 | STORY-074 | A rebuild's colliding re-points are skipped, not left to abort the whole transaction | — |
 | STORY-071 | No service listens beyond loopback | — |

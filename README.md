@@ -37,6 +37,15 @@ git clone https://github.com/rhagan9202/policy_grapher.git && cd policy_grapher
 docker compose up --build
 ```
 
+`docker compose up --build` brings up the whole product, model server included, and on a cold
+cache that is expensive: expect roughly 13GB of pulls — `ollama` at 8.43GB, `llama3.1:8b` at
+about 4.9GB — on top of two 16.6GB image builds, backend and worker sharing a layer. Budget
+tens of minutes for the first build. A reader not told this will assume the command has hung;
+it hasn't ([ADR-028](docs/specs/adr/ADR-028-the-default-stack-carries-its-models.md),
+[ADR-029](docs/specs/adr/ADR-029-the-default-image-carries-the-model-runtime.md)). A stack
+without any of that cost is one command away — see [Running the lean
+stack](#running-the-lean-stack) below.
+
 `init-env.sh` generates a random Neo4j password and a random API token, writes both into an
 untracked `.env`, and prints the token once — it is stored nowhere else, so save it if you plan
 to call the API directly. It refuses to overwrite an existing `.env`; delete the file first if
@@ -55,11 +64,13 @@ Ingest screen. From there:
    field takes a filename because the backend reads from its own container.
 2. **Graph** and **Documents** — browse what you loaded. A document's name opens its detail
    page: its text, by edition, and the control that builds its derived layer.
-3. **Triage**, **Review** and **Ask** stay empty until a derived layer exists, which needs a
-   real extraction model — see below. Without one you get chunks and no obligations.
+3. **Triage**, **Review** and **Ask** stay empty until a derived layer exists — see [Filling
+   Triage and Review](#filling-triage-and-review) below.
 
-Four services come up by default (`neo4j`, `redis`, `backend`, `worker`, plus `frontend`).
-The model server is **not** among them; it sits behind a compose profile because it is 8.4GB.
+Seven services come up by default: `neo4j`, `redis`, `backend`, `worker`, `frontend`, and the
+model server and its one-shot puller, `ollama` and `ollama-pull`. `EXTRACTOR_ADAPTER` and
+`EMBEDDER_ADAPTER` both default to `local`, so a rebuild produces real obligations and
+embeddings, not just chunks, without any further setup.
 
 ### Stopping it
 
@@ -68,57 +79,34 @@ docker compose down        # stop; the graph survives in a volume
 docker compose down -v     # stop and wipe the graph
 ```
 
-If you have used the model profile, `docker compose down` leaves `ollama` running — profiled
-services are only stopped when their profile is named: `docker compose --profile models down`.
+## Running the lean stack
 
-## Running a real extraction model
-
-The default extractor is `null` — it produces no obligations, so Review and Triage stay empty
-even after a rebuild. To extract for real, bring up the model profile:
+A stack with none of the model cost above — no `ollama`, no pull, smaller images,
+`EXTRACTOR_ADAPTER` and `EMBEDDER_ADAPTER` both back to `null` — is one command away:
 
 ```bash
-docker compose --profile models up -d     # pulls ollama (8.4GB) + llama3.1:8b (4.9GB), once
+docker compose -f docker-compose.yml -f docker-compose.lean.yml up --build
 ```
 
-Then set `EXTRACTOR_ADAPTER=local` in `.env` and restart the worker:
-
-```bash
-docker compose up -d --force-recreate worker
-```
-
-An `.env` generated before these settings existed will not have the line — `init-env.sh`
-writes whatever `.env.example` holds at the time it runs. Add it, or delete `.env` and
-re-run the script for a fresh set of keys and secrets.
-
-Model weights are constrained to US-published models
-([ADR-020](docs/specs/adr/ADR-020-model-weights-come-from-us-organisations.md)); the default is
-Llama 3.1 8B. Neither the image nor the model is on the default startup path — a plain
-`docker compose up` pulls neither.
-
-## Running a real embedding model
-
-Embeddings are separate from extraction and off by the same principle. `sentence-transformers`
-is not in the backend image: it pulls torch, and carrying it took the image from 399MB to
-**16.6GB** for a library the default `EMBEDDER_ADAPTER=null` never loads
-([ADR-021](docs/specs/adr/ADR-021-the-default-image-carries-no-model-runtime.md)). Turning it
-on therefore takes a rebuild as well as a setting:
-
-```bash
-echo 'BACKEND_EXTRAS=--extra local-embeddings' >> .env   # adds ~16GB to backend and worker
-docker compose up -d --build backend worker
-```
-
-Then set `EMBEDDER_ADAPTER=local` in `.env` and restart. If you set it without the rebuild the
-container refuses to start and says so, naming this flag — the failure is deliberate, because
-the library is imported lazily and would otherwise surface as a `ModuleNotFoundError` inside a
-queued rebuild long after startup reported itself healthy.
+`--build` is not optional: `EXTRAS` is a build argument, and both stacks produce the same
+image tags, so without it the previous stack's image is reused. This is the stack CI builds
+and measures: `policy_grapher-backend` and `policy_grapher-worker` at **399MB** each, against
+**16.6GB** for the default path
+([ADR-021](docs/specs/adr/ADR-021-the-default-image-carries-no-model-runtime.md),
+[ADR-029](docs/specs/adr/ADR-029-the-default-image-carries-the-model-runtime.md)). With no
+extraction model, a rebuild still runs and still writes chunks, but no obligations, so Triage
+and Review stay empty; Ask still has its lexical and graph legs, but not its semantic one
+([ADR-016](docs/specs/adr/ADR-016-embeddings-are-a-port.md)). Setting `EXTRACTOR_ADAPTER=local`
+and/or `EMBEDDER_ADAPTER=local` back in `.env` and rebuilding with the default compose file
+alone (no `-f docker-compose.lean.yml`) turns either back on.
 
 ## Filling Triage and Review
 
 Ingest gives you a document, an edition and its text. Everything downstream — obligations,
 proposed links, embeddings — is *derived*, and a **rebuild** is what produces it. Triage and
 Review stay empty until one has run, and a rebuild only produces obligations when a real
-extraction model is configured, so do the model profile above first.
+extraction model is configured — true by default now; on the lean stack, do the setting above
+first.
 
 **From the UI**, which is the shortest path and the one verified end to end on 2026-08-23 from
 a wiped volume against `llama3.1:8b`:
@@ -146,8 +134,8 @@ reports how many and why. Triage then showed 204 changes and **one row**: the ot
 reviewed link to anything of ours, so they stay off the ranked list. That is deliberate, and it
 reads as a broken screen until you know it — which is why the screen says the number out loud.
 
-With the default `EXTRACTOR_ADAPTER=null` every step still works and writes chunks, but no
-obligations, so Triage and Review stay empty.
+On the lean stack, where `EXTRACTOR_ADAPTER=null`, every step still works and writes chunks,
+but no obligations, so Triage and Review stay empty.
 
 ### The same thing through the API
 
