@@ -1,0 +1,39 @@
+# The stack without models, for development and for CI.
+#
+# ADR-028 made the full product the default. This is the flagged path back:
+#
+#     docker compose -f docker-compose.yml -f docker-compose.lean.yml up --build
+#
+# `--build` is not optional. EXTRAS is a build argument and both stacks produce
+# the same image tags, so without it the previous stack's image is reused — which
+# in this direction means a 16.6GB image quietly serving a stack that claims to
+# carry no model runtime.
+#
+# The adapters are returned to `null` here, in the same file that stops the
+# services. Stopping the model server while the adapters still say `local`
+# produces a stack that looks healthy and fails on every rebuild, which is why
+# `--scale ollama=0` was not enough on its own.
+services:
+  ollama:
+    deploy:
+      replicas: 0
+
+  ollama-pull:
+    deploy:
+      replicas: 0
+
+  backend:
+    build:
+      args:
+        EXTRAS: ""
+    environment:
+      EXTRACTOR_ADAPTER: "null"
+      EMBEDDER_ADAPTER: "null"
+
+  worker:
+    build:
+      args:
+        EXTRAS: ""
+    environment:
+      EXTRACTOR_ADAPTER: "null"
+      EMBEDDER_ADAPTER: "null"

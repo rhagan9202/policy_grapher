@@ -70,3 +70,32 @@ def test_the_default_build_carries_the_embedding_extra():
     for name in ("backend", "worker"):
         args = config["services"][name]["build"]["args"]
         assert args["EXTRAS"] == "--extra local-embeddings", f"{name} builds without torch"
+
+
+LEAN = "docker-compose.lean.yml"
+
+
+def test_the_lean_stack_runs_no_model_services():
+    config = _resolved("docker-compose.yml", LEAN)
+    for name in MODEL_SERVICES:
+        replicas = config["services"][name].get("deploy", {}).get("replicas")
+        assert replicas == 0, f"{name} would still start under the lean stack"
+
+
+def test_the_lean_stack_turns_the_adapters_back():
+    """The half `--scale` cannot do. A lean stack still pointing at
+    EXTRACTOR_ADAPTER=local looks healthy and fails on every rebuild against a
+    model server that is not there."""
+    config = _resolved("docker-compose.yml", LEAN)
+    for name in ("backend", "worker"):
+        env = config["services"][name]["environment"]
+        assert env["EXTRACTOR_ADAPTER"] == "null", f"{name} would call a model that is not running"
+        assert env["EMBEDDER_ADAPTER"] == "null", f"{name} would embed against a model that is not running"
+
+
+def test_the_lean_build_drops_the_embedding_extra():
+    """Without this the lean stack builds a 16.6GB image and CI's size gate —
+    which measures exactly this build — fails."""
+    config = _resolved("docker-compose.yml", LEAN)
+    for name in ("backend", "worker"):
+        assert config["services"][name]["build"]["args"]["EXTRAS"] == ""
