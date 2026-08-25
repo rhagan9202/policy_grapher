@@ -1,8 +1,12 @@
 # ADR-021: The default image carries no model runtime
 
-**Status:** Accepted · **Date:** 2026-08-21 · **Deciders:** —
+**Status:** Superseded by [ADR-029](ADR-029-the-default-image-carries-the-model-runtime.md) · **Date:** 2026-08-21 · **Deciders:** —
 
 *Dated record — written once, not edited afterward. Supersede rather than revise.*
+
+**Superseded by [ADR-029](ADR-029-the-default-image-carries-the-model-runtime.md).** The
+default configuration now loads `sentence-transformers`; this ADR's measurements and decision
+remain the accurate record of the lean path, which ADR-029 keeps.
 
 ## Context
 
