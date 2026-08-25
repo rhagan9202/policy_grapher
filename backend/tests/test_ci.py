@@ -13,6 +13,7 @@ step selected by marker, and `pytest` exits 5 when a marker selects nothing
 renamed or the tests disappear. These tests guard that it stays that way.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -83,9 +84,14 @@ def test_the_workflow_proves_the_stack_builds(workflow):
     """
     commands = _run_commands(workflow["jobs"]["compose"])
 
-    assert any("docker compose build" in c for c in commands), (
-        "no step builds the images through compose"
-    )
+    # A literal "docker compose build" substring does not survive `-f` file flags
+    # (`docker compose -f a.yml -f b.yml build ...`), which docker compose requires
+    # between "compose" and "build" — and Task 6 (STORY-080) added a second `-f` to
+    # point this job at the lean stack. The check follows the subcommand rather than
+    # a contiguous string so a legitimate `-f` does not read as "no step builds".
+    assert any(
+        "docker compose" in c and re.search(r"\bbuild\b", c) for c in commands
+    ), "no step builds the images through compose"
 
 
 def test_the_compose_build_covers_every_service_that_is_built(workflow):
@@ -103,5 +109,19 @@ def test_the_compose_build_covers_every_service_that_is_built(workflow):
     assert not missing, (
         f"docker-compose.yml builds {sorted(built)} but the compose job never names "
         f"{missing}. Either build them or drop them from compose."
+    )
+
+
+def test_the_compose_job_measures_the_lean_stack(workflow):
+    """ADR-028 moved the models into the default stack, so the default image is
+    now ~16.6GB and the 1GB gate below would fail on every push. The gate exists
+    to prove the *lean* image has not silently regrown, and that purpose survives
+    the default changing — but only if the job actually builds the lean stack.
+    """
+    commands = " ".join(_run_commands(workflow["jobs"]["compose"]))
+
+    assert "docker-compose.lean.yml" in commands, (
+        "the compose job builds the default stack, whose images are ~16.6GB — "
+        "the size gate would fail on every push"
     )
 

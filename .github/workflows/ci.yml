@@ -106,32 +106,43 @@ jobs:
       # fact that backend and worker share one image are declared in compose and
       # nowhere else, so building the Dockerfile directly would prove neither.
       # `tests/test_ci.py` asserts this step names every service compose builds.
+      #
+      # ADR-029 made the default stack carry the model runtime, so its images are
+      # ~16.6GB — building it here would blow the size gate below on every push.
+      # `-f docker-compose.lean.yml` layers the flagged-off path back on top,
+      # which is the stack the 1GB gate below is meant to measure.
       - name: Build every image compose builds
-        run: docker compose build backend worker frontend
+        run: docker compose -f docker-compose.yml -f docker-compose.lean.yml build backend worker frontend
 
       # A build that succeeds while the file is malformed is not a check. `config`
       # resolves interpolation, defaults and profiles — the layer that carried the
       # qwen3:8b default past every test in sprint 4.
       - name: The compose file itself resolves
+        run: docker compose -f docker-compose.yml -f docker-compose.lean.yml config --quiet
+
+      # CI no longer builds the default stack at all, so nothing above would catch
+      # a syntax error in it. This is the one thing left guarding its validity.
+      - name: The default stack resolves too
         run: docker compose config --quiet
 
-      # No extras, so this measures the image the default path produces. A regression
-      # here means ADR-021 has been undone — that is the whole of STORY-052, which
-      # took these images from 16.6GB to 399MB.
+      # No extras, so this measures the lean image docker-compose.lean.yml produces —
+      # not the default path, which ADR-029 put back at ~16.6GB. A regression here
+      # means ADR-029's lean path has regrown; that path is what STORY-052 took from
+      # 16.6GB to 399MB, and what this gate has protected ever since.
       #
       # `docker image inspect .Size` is NOT the figure `docker images` prints and the
       # ADRs quote: measured 2026-08-23, the backend is 399MB by `docker images` and
       # 96MB by `.Size`, and ollama is 8.43GB against 3379MB. `.Size` is used because
       # it is a byte count a shell can compare; the 1GB threshold sits far above the
-      # default image and far below the regression in *either* measure, so the gap
+      # lean image and far below the regression in *either* measure, so the gap
       # between them cannot make this pass when it should fail.
-      - name: The default image has not regrown
+      - name: The lean image has not regrown
         run: |
           for image in policy_grapher-backend policy_grapher-worker; do
             bytes=$(docker image inspect "$image" --format '{{.Size}}')
             echo "$image: $((bytes / 1000000)) MB"
             if [ "$bytes" -gt 1000000000 ]; then
-              echo "::error::$image exceeds 1GB. ADR-021 keeps the model runtime out of the default image."
+              echo "::error::$image exceeds 1GB. ADR-029 keeps the model runtime out of the lean stack; this measures docker-compose.lean.yml, not the default image."
               exit 1
             fi
           done
