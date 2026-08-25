@@ -29,7 +29,10 @@ navigation by [ADR-008](docs/specs/adr/ADR-008-authenticated-non-cypher-audience
 ## Setting up and running
 
 Two commands. You need Docker with the Compose plugin, and nothing else — no Python, no Node,
-no database. The second one is expensive on a cold cache: `docker compose up --build` brings
+no database. The lean stack below needs Compose 2.24 or newer: `docker-compose.lean.yml` uses
+a `!override` YAML tag that earlier Compose can't parse, and the failure is an opaque YAML-tag
+parse error, not a message that says what's wrong; the default stack below doesn't use the tag
+and isn't affected. The second one is expensive on a cold cache: `docker compose up --build` brings
 up the whole product, model server included, and that means roughly 13GB of pulls —
 `ollama` at 8.43GB, `llama3.1:8b` at about 4.9GB — on top of two 16.6GB image builds, backend
 and worker sharing a layer. Budget tens of minutes for the first build. A long silent wait
