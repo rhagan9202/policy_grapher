@@ -3,14 +3,19 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const reset = vi.fn()
+const exportGraph = vi.fn()
 vi.mock('../api/client', () => ({
   reset: () => reset(),
+  exportGraph: () => exportGraph(),
   ApiError: class extends Error {},
 }))
 
 import Reset from './Reset'
 
-afterEach(() => reset.mockReset())
+afterEach(() => {
+  reset.mockReset()
+  exportGraph.mockClear()
+})
 
 // STORY-046. `POST /reset` and `reset()` were both built and unreachable. It is
 // destructive and irreversible, so the confirmation carries the whole weight here.
@@ -108,5 +113,42 @@ describe('Reset', () => {
     await userEvent.click(screen.getByRole('button', { name: /^delete everything$/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/unreachable/i)
+  })
+})
+
+
+// STORY-083. The screen said "There is no undo and no export" and was right —
+// no export route existed anywhere in the API. Half of that stops being true
+// here, and the copy has to stop saying it in the same change, because Reset is
+// the one screen where being behind on documentation is actively dangerous.
+
+describe('Reset export', () => {
+  it('offers a copy before the destructive action', async () => {
+    exportGraph.mockResolvedValue({ documents: [], decisions: [] })
+    render(<Reset />)
+
+    const download = screen.getByRole('button', { name: /export/i })
+    await userEvent.click(download)
+
+    expect(exportGraph).toHaveBeenCalled()
+  })
+
+  it('no longer claims there is no export', () => {
+    render(<Reset />)
+
+    expect(screen.queryByText(/no undo and no export/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/no undo/i)).toBeInTheDocument()
+  })
+
+  it('does not promise the export makes this reversible', () => {
+    render(<Reset />)
+
+    // Export is not restore. Saying or implying otherwise would be worse than
+    // having no export at all: a user would empty the graph believing they could
+    // put it back. Restore is a separate, larger item — writing decisions back
+    // means deciding what happens when the graph beneath them has moved, which is
+    // what ADR-027 had to work through for rebuilds.
+    expect(screen.queryByText(/can be restored/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/undo/i)).toBeInTheDocument()
   })
 })

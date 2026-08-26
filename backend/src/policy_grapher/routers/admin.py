@@ -8,6 +8,7 @@ from policy_grapher.auth import Principal, require_principal
 from policy_grapher.config import Settings
 from policy_grapher.db import clear_graph
 from policy_grapher.dependencies import get_app_settings, get_driver
+from policy_grapher.export import export_graph
 from policy_grapher.ingest import ingest_file
 from policy_grapher.models import (
     DocumentIngestResult,
@@ -94,6 +95,21 @@ def ingest(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except VersionConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/export")
+def export(
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
+) -> dict[str, list[dict]]:
+    """A copy of everything Reset deletes.
+
+    No response_model: the categories are data, not a fixed schema, and pinning
+    one here would mean editing two places every time the graph grows a label.
+    `tests/test_export.py` asserts the categories and their identifiers instead.
+    """
+    return export_graph(driver, settings.neo4j_database)
 
 
 @router.post("/reset", response_model=ResetResult)

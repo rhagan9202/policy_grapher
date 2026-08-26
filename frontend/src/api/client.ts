@@ -119,6 +119,12 @@ export function removeReference(slug: string, targetSlug: string): Promise<void>
   )
 }
 
+// STORY-083. Returns the parsed document rather than a Blob: the caller decides
+// how to hand it to the user, and a test can assert on its contents.
+export function exportGraph(): Promise<Record<string, unknown[]>> {
+  return request<Record<string, unknown[]>>('/export')
+}
+
 export function reset(): Promise<ResetResult> {
   return request<ResetResult>('/reset', { method: 'POST' })
 }

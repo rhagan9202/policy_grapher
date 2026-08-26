@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { reset } from '../api/client'
+import { exportGraph, reset } from '../api/client'
 import type { ResetResult } from '../api/types'
 
 // The phrase a reader has to type. Long enough not to be muscle memory, and it says
@@ -19,8 +19,38 @@ export default function Reset() {
   const [typed, setTyped] = useState('')
   const [result, setResult] = useState<ResetResult | null>(null)
   const [mismatch, setMismatch] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // STORY-083. A snapshot the user keeps, not a restore — the copy above is
+  // careful about that distinction, because a user who believed this was an undo
+  // would empty the graph on a promise the product cannot keep.
+  async function download() {
+    setExporting(true)
+    setExportError(null)
+    try {
+      const graph = await exportGraph()
+      const blob = new Blob([JSON.stringify(graph, null, 2)], {
+        type: 'application/json',
+      })
+      const url = URL.createObjectURL(blob)
+      const link = window.document.createElement('a')
+      link.href = url
+      link.download = 'policy-grapher-export.json'
+      window.document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (cause: unknown) {
+      setExportError(
+        cause instanceof Error ? cause.message : 'Could not export the graph.',
+      )
+    } finally {
+      setExporting(false)
+    }
+  }
 
   async function onReset() {
     // The button is deliberately not disabled while the phrase is unmatched, but a
@@ -54,8 +84,18 @@ export default function Reset() {
 
       <p>
         Empties the graph: every document, edition, chunk, obligation, proposal and
-        recorded decision. There is no undo and no export.
+        recorded decision. <strong>There is no undo.</strong> Take a copy first if
+        you might want one — the export below is a readable snapshot, not a
+        restore.
       </p>
+
+      <p>
+        <button type="button" onClick={download} disabled={exporting}>
+          {exporting ? 'Preparing export…' : 'Export a copy first'}
+        </button>
+      </p>
+
+      {exportError && <div role="alert">Export failed: {exportError}</div>}
 
       <button type="button" onClick={() => setConfirming(true)} disabled={busy}>
         Empty the graph
