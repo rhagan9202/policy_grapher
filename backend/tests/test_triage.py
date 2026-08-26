@@ -277,6 +277,58 @@ def test_every_modality_the_schema_allows_has_a_weight():
     assert set(MODALITY_WEIGHT) == {m.value for m in Modality}
 
 
+# The table as decided, written out. STORY-085: the test above compares the
+# table's *keys* against the enum and caught WILL's addition within a minute of
+# it being made — which is exactly what sprint 5's retrospective praises it for.
+# It says nothing about the values, so every ranking decision this project has
+# taken lived in a comment and was enforced by nothing.
+EXPECTED_MODALITY_WEIGHT = {
+    "SHALL": 4.0,
+    "MUST": 4.0,
+    "WILL": 4.0,
+    "SHOULD": 2.0,
+    "MAY": 1.0,
+}
+
+
+def test_will_is_weighted_as_heavily_as_shall():
+    """The ranking claim ADR-025 makes, asserted rather than commented.
+
+    DoD's plain-language drafting replaced the directive `shall` with `will`, so
+    the two impose the same duty. In this corpus `will` appears 458 times against
+    `shall`'s 93 (ADR-025), which makes WILL the dominant binding modality — and
+    means a single character here moves most of the corpus, not an edge case.
+
+    Weighting WILL below SHALL would also rank a 2020 re-issue as less urgent
+    than its 2003 edition purely because the drafting convention changed
+    underneath it, which is the specific wrong answer ADR-025 exists to prevent.
+    """
+    assert MODALITY_WEIGHT["WILL"] == MODALITY_WEIGHT["SHALL"], (
+        f"ADR-025 decided WILL is as binding as SHALL, but WILL weighs "
+        f"{MODALITY_WEIGHT['WILL']} against SHALL's {MODALITY_WEIGHT['SHALL']}. "
+        f"This corpus uses `will` 458 times to `shall`'s 93, so this sends its "
+        f"dominant binding modality to the bottom of every Triage ranking."
+    )
+
+
+def test_the_modality_weights_are_exactly_what_was_decided():
+    """An explicit mapping, so a changed value fails and names what changed.
+
+    The ordering assertions above allow any values that keep the order, so
+    halving every weight — or moving WILL to sit between SHOULD and SHALL —
+    passes them all while re-ranking the corpus.
+    """
+    assert MODALITY_WEIGHT == EXPECTED_MODALITY_WEIGHT, (
+        "the modality weights no longer match what ADR-025 decided; "
+        + "; ".join(
+            f"{modality} is {MODALITY_WEIGHT.get(modality)} not {expected}"
+            for modality, expected in EXPECTED_MODALITY_WEIGHT.items()
+            if MODALITY_WEIGHT.get(modality) != expected
+        )
+        + ". Ranking is what a reviewer sees first, so change the ADR before the table."
+    )
+
+
 @pytest.mark.integration
 def test_an_obligation_anchored_to_two_chunks_produces_one_row(clean_graph, database):
     """Chunk overlap repeats a sentence across a section split, so an obligation
