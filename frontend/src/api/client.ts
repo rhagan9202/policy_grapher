@@ -6,6 +6,7 @@ import type {
   DocumentVersionOut,
   GraphOut,
   IngestResult,
+  ObligationsOut,
   QueryResult,
   RebuildStarted,
   RebuildStatus,
@@ -138,6 +139,18 @@ export function listChunks(slug: string, versionId?: string): Promise<ChunkOut[]
   const path = `/documents/${encodeURIComponent(slug)}/chunks`
   return request<ChunkOut[]>(
     versionId ? `${path}?version_id=${encodeURIComponent(versionId)}` : path,
+  )
+}
+
+// STORY-081. An edition that exists and holds nothing answers 200 with an empty
+// list; one that does not exist answers 404. The screen needs both answers kept
+// apart, so this must not swallow the 404 into an empty result.
+export function listObligations(
+  slug: string,
+  versionId: string,
+): Promise<ObligationsOut> {
+  return request<ObligationsOut>(
+    `/documents/${encodeURIComponent(slug)}/versions/${encodeURIComponent(versionId)}/obligations`,
   )
 }
 

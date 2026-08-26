@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 const getDocument = vi.fn()
@@ -9,6 +9,7 @@ const listChunks = vi.fn()
 const startRebuild = vi.fn()
 const getRebuild = vi.fn()
 const listDocuments = vi.fn()
+const listObligations = vi.fn()
 vi.mock('../api/client', () => ({
   getDocument: (slug: string) => getDocument(slug),
   listVersions: (slug: string) => listVersions(slug),
@@ -17,6 +18,8 @@ vi.mock('../api/client', () => ({
     startRebuild(slug, versionId, candidates),
   getRebuild: (runId: string) => getRebuild(runId),
   listDocuments: () => listDocuments(),
+  listObligations: (slug: string, versionId: string) =>
+    listObligations(slug, versionId),
   ApiError: class extends Error {},
 }))
 
@@ -75,6 +78,18 @@ function renderAt(slug = 'dodd-5000-01') {
   )
 }
 
+// Every test renders the whole screen, so the obligations fetch fires in all of
+// them. A benign default keeps tests that are about something else from having to
+// know this route exists; the ones that are about it override.
+beforeEach(() => {
+  listObligations.mockResolvedValue({
+    obligations: [],
+    total: 0,
+    returned: 0,
+    truncated: false,
+  })
+})
+
 afterEach(() => {
   getDocument.mockReset()
   listVersions.mockReset()
@@ -82,6 +97,7 @@ afterEach(() => {
   startRebuild.mockReset()
   getRebuild.mockReset()
   listDocuments.mockReset()
+  listObligations.mockReset()
 })
 
 // STORY-017, the "corpus management" MVP item. `GET /documents/{slug}/chunks` has
@@ -432,5 +448,95 @@ describe('DocumentDetail — building the derived layer', () => {
     const status = await screen.findByRole('status')
     expect(status).not.toHaveTextContent(/could not be replayed/i)
     expect(status).not.toHaveTextContent(/carried across/i)
+  })
+})
+
+
+// STORY-081. Obligations are the product's central noun and had no screen at all:
+// reachable only as a count in a rebuild report, two at a time in Review, or
+// quoted in a Triage row. Confirming that a 2026-08-25 rebuild wrote 113 of them
+// required `cypher-shell`.
+
+describe('DocumentDetail obligations', () => {
+  const threeObligations = {
+    obligations: [
+      {
+        obligation_id: 'ob1',
+        statement: 'Components shall apply this issuance.',
+        modality: 'SHALL',
+        section_path: ['SECTION 1', '1.1'],
+        page: 3,
+      },
+      {
+        obligation_id: 'ob2',
+        statement: 'Components will record their compliance.',
+        modality: 'WILL',
+        section_path: ['SECTION 1', '1.1'],
+        page: 3,
+      },
+    ],
+    total: 2,
+    returned: 2,
+    truncated: false,
+  }
+
+  it('says how many obligations the edition holds and shows them', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+    listObligations.mockResolvedValue(threeObligations)
+
+    renderAt()
+
+    expect(
+      await screen.findByText(/Components shall apply this issuance\./),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Components will record their compliance\./),
+    ).toBeInTheDocument()
+    // The section and page are what make a statement checkable against the source.
+    expect(screen.getAllByText(/SECTION 1/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/p\. 3/).length).toBeGreaterThan(0)
+  })
+
+  it('does not report an unbuilt edition as one that yielded nothing', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+    listObligations.mockResolvedValue({
+      obligations: [],
+      total: 0,
+      returned: 0,
+      truncated: false,
+    })
+
+    renderAt()
+
+    // Three of four editions in the live graph on 2026-08-26 were in exactly this
+    // state. "None found" and "never built" need opposite actions, and the route
+    // cannot yet tell them apart, so the screen must not assert either one.
+    expect(
+      await screen.findByText(/no obligations recorded for this edition/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/may not have been built yet/i),
+    ).toBeInTheDocument()
+  })
+
+  it('says so when it shows fewer obligations than the edition holds', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+    listObligations.mockResolvedValue({
+      ...threeObligations,
+      total: 604,
+      returned: 2,
+      truncated: true,
+    })
+
+    renderAt()
+
+    expect(await screen.findByText(/604/)).toBeInTheDocument()
+    expect(screen.getByText(/showing the first 2/i)).toBeInTheDocument()
   })
 })

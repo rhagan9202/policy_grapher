@@ -94,6 +94,23 @@ export interface DocumentVersionOut {
 }
 
 /** One side of a proposed link, with enough context to decide from. */
+export interface Obligation {
+  obligation_id: string
+  statement: string
+  modality: string
+  section_path: string[]
+  page: number
+}
+
+// Bounded, like GraphOut: `total` is what the edition holds, `returned` what
+// came back. STORY-081.
+export interface ObligationsOut {
+  obligations: Obligation[]
+  total: number
+  returned: number
+  truncated: boolean
+}
+
 export interface ObligationCitation {
   obligation_id: string
   statement: string

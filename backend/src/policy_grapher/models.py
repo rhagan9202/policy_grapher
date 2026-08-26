@@ -123,6 +123,35 @@ class ChunkOut(BaseModel):
     ordinal: int
 
 
+class ObligationOut(BaseModel):
+    """One obligation as a reader meets it — STORY-081.
+
+    Deliberately the same five fields `ObligationCitationOut` carries minus the
+    document name, which is redundant here: the route already names the edition.
+    """
+
+    obligation_id: str
+    statement: str
+    modality: str
+    section_path: list[str]
+    page: int
+
+
+class ObligationsOut(BaseModel):
+    """Bounded, and honest about it.
+
+    `total` is the count in the graph, `returned` the count in this response.
+    The largest edition in `data/samples` is 204 chunks and can produce several
+    hundred obligations, so an unbounded list would be the same defect the
+    document table had before STORY-070 — same idiom as `GraphOut`.
+    """
+
+    obligations: list[ObligationOut]
+    total: int
+    returned: int
+    truncated: bool
+
+
 class ObligationCitationOut(BaseModel):
     """One side of a proposed link, with enough context to decide from.
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from neo4j import Driver, RoutingControl
 
 from policy_grapher.auth import Principal, require_principal
@@ -15,7 +15,15 @@ from policy_grapher.documents import (
     list_documents,
     remove_reference,
 )
-from policy_grapher.models import ChunkOut, DocumentIn, DocumentOut, DocumentVersionOut
+from policy_grapher.models import (
+    ChunkOut,
+    DocumentIn,
+    DocumentOut,
+    DocumentVersionOut,
+    ObligationOut,
+    ObligationsOut,
+)
+from policy_grapher.obligations import primary_anchor
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -176,3 +184,95 @@ def list_chunks(
         routing_=RoutingControl.READ,
     )
     return [ChunkOut(**dict(record)) for record in records]
+
+
+# --- an edition's obligations (STORY-081) --------------------------------------
+
+# Two lookups rather than one, so "no such document" and "no such edition" are
+# different answers. Collapsing them would tell a user their document is missing
+# when only the edition is, which is the wrong thing to go and fix.
+VERSION_EXISTS = """
+MATCH (d:Document {slug: $slug})
+OPTIONAL MATCH (d)-[:HAS_VERSION]->(v:DocumentVersion {version_id: $version_id})
+RETURN v IS NOT NULL AS version_exists
+"""
+
+COUNT_OBLIGATIONS = """
+MATCH (:DocumentVersion {version_id: $version_id})-[:MANDATES]->(o:Obligation)
+RETURN count(o) AS total
+"""
+
+# Ordered by the anchoring chunk's `ordinal`, which already follows the document,
+# then by `obligation_id` — two obligations read out of one chunk have no order
+# between them, and without the tie-break the list reshuffles between requests.
+# `primary_anchor` rather than a plain MATCH: an obligation can anchor to more
+# than one chunk where chunking overlaps a section split, and that multiplies
+# rows, showing a reader the same clause twice and inflating `returned`.
+LIST_OBLIGATIONS = f"""
+MATCH (:DocumentVersion {{version_id: $version_id}})-[:MANDATES]->(o:Obligation)
+{primary_anchor("o", "c")}
+RETURN o.obligation_id AS obligation_id,
+       o.statement     AS statement,
+       o.modality      AS modality,
+       o.section_path  AS section_path,
+       c.page          AS page
+ORDER BY c.ordinal, o.obligation_id
+LIMIT $limit
+"""
+
+
+@router.get(
+    "/{slug}/versions/{version_id}/obligations", response_model=ObligationsOut
+)
+def list_obligations(
+    slug: str,
+    version_id: str,
+    limit: int | None = Query(default=None, ge=0),
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
+) -> ObligationsOut:
+    """What extraction found in one edition.
+
+    An edition that exists and holds nothing answers 200 with an empty list; an
+    edition that does not exist answers 404. Those are different facts needing
+    different actions — "extraction found nothing here" against "you are looking
+    at something that was never ingested" — and a route that returned `[]` for
+    both would make the screen unable to tell a user which one they have.
+    """
+    records, _, _ = driver.execute_query(
+        VERSION_EXISTS,
+        {"slug": slug, "version_id": version_id},
+        database_=settings.neo4j_database,
+        routing_=RoutingControl.READ,
+    )
+    if not records:
+        raise HTTPException(status_code=404, detail=f"No document {slug!r}.")
+    if not records[0]["version_exists"]:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Document {slug!r} has no edition {version_id!r}.",
+        )
+
+    counted, _, _ = driver.execute_query(
+        COUNT_OBLIGATIONS,
+        {"version_id": version_id},
+        database_=settings.neo4j_database,
+        routing_=RoutingControl.READ,
+    )
+    total = counted[0]["total"]
+
+    effective_limit = settings.obligation_list_cap if limit is None else limit
+    found, _, _ = driver.execute_query(
+        LIST_OBLIGATIONS,
+        {"version_id": version_id, "limit": effective_limit},
+        database_=settings.neo4j_database,
+        routing_=RoutingControl.READ,
+    )
+    obligations = [ObligationOut(**dict(record)) for record in found]
+    return ObligationsOut(
+        obligations=obligations,
+        total=total,
+        returned=len(obligations),
+        truncated=len(obligations) < total,
+    )

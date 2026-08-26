@@ -5,6 +5,7 @@ import {
   getRebuild,
   listChunks,
   listDocuments,
+  listObligations,
   listVersions,
   startRebuild,
 } from '../api/client'
@@ -12,6 +13,7 @@ import type {
   ChunkOut,
   DocumentOut,
   DocumentVersionOut,
+  ObligationsOut,
   RebuildStatus,
 } from '../api/types'
 
@@ -26,6 +28,18 @@ export default function DocumentDetail() {
   const [document, setDocument] = useState<DocumentOut | null>(null)
   const [versions, setVersions] = useState<DocumentVersionOut[]>([])
   const [chunks, setChunks] = useState<ChunkOut[] | null>(null)
+  // Keyed by the edition each result describes rather than reset when the edition
+  // changes. Clearing state in the effect body triggers cascading renders — the
+  // lint rule says so and an intermittent test failure agreed — and the key makes
+  // the reset unnecessary: a result for the previous edition simply stops matching.
+  const [obligations, setObligations] = useState<{
+    target: string
+    data: ObligationsOut
+  } | null>(null)
+  const [obligationsError, setObligationsError] = useState<{
+    target: string
+    message: string
+  } | null>(null)
   const [edition, setEdition] = useState<string | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
   const [namesBySlug, setNamesBySlug] = useState<Map<string, string>>(new Map())
@@ -104,6 +118,36 @@ export default function DocumentDetail() {
     }
   }, [slug, edition])
 
+  // STORY-081. Unlike `/chunks`, the obligations route takes an explicit edition:
+  // it answers 404 for one that does not exist, and resolving "newest" on the
+  // server would make that 404 ambiguous. `versions` is ordered oldest-first by
+  // `LIST_VERSIONS`, so the last entry is the newest — the same edition the chunks
+  // route would have picked.
+  const obligationTarget = edition ?? versions[versions.length - 1]?.version_id
+
+  useEffect(() => {
+    if (!obligationTarget) return
+
+    let cancelled = false
+    listObligations(slug, obligationTarget)
+      .then((result) => {
+        if (!cancelled) setObligations({ target: obligationTarget, data: result })
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setObligationsError({
+            target: obligationTarget,
+            message:
+              cause instanceof Error ? cause.message : 'Failed to load obligations.',
+          })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug, obligationTarget])
+
   // Polls until the run leaves a running state. Deliberately not a fixed number of
   // attempts: with a real model a rebuild is one call per chunk over dozens of
   // chunks and takes tens of minutes (ADR-023), so a poll budget would time out on
@@ -152,6 +196,18 @@ export default function DocumentDetail() {
 
   if (error) return <div role="alert">Could not load this document: {error}</div>
   if (!document) return <p>Loading document…</p>
+
+  // Only ever show a result that belongs to the edition currently selected.
+  // `obligations &&` rather than `obligations?.target ===`: with no editions loaded
+  // yet, `obligationTarget` is undefined and so is `obligations?.target`, so the
+  // optional-chaining form compared undefined to undefined, took the true branch
+  // and dereferenced null. Three existing tests caught it.
+  const shownObligations =
+    obligations && obligations.target === obligationTarget ? obligations.data : null
+  const shownObligationsError =
+    obligationsError && obligationsError.target === obligationTarget
+      ? obligationsError.message
+      : null
 
   return (
     <div style={{ padding: '1rem' }}>
@@ -325,6 +381,54 @@ export default function DocumentDetail() {
           )}
         </section>
       )}
+
+      <h2>Obligations</h2>
+
+      {shownObligationsError && (
+        <div role="alert">Could not load obligations: {shownObligationsError}</div>
+      )}
+
+      {shownObligations === null ? (
+        !shownObligationsError && <p>Loading obligations…</p>
+      ) : shownObligations.total === 0 ? (
+        // Deliberately not "extraction found nothing". An edition with no
+        // obligations is either one nobody has built or one built with the `null`
+        // extractor, which writes chunks and no obligations by design (ADR-028) —
+        // and those need opposite actions. Three of the four editions in the live
+        // graph on 2026-08-26 were in this state. STORY-082 records what a rebuild
+        // actually did, and this copy tightens to name the real cause once it lands.
+        <p>
+          <strong>No obligations recorded for this edition.</strong> It may not have
+          been built yet, or it may have been built with no extraction model
+          configured — both write text and no obligations. Use{' '}
+          <em>Build derived layer</em> above with a real model configured.
+        </p>
+      ) : (
+        <>
+          <p>
+            {shownObligations.total} obligation
+            {shownObligations.total === 1 ? '' : 's'}.
+            {shownObligations.truncated && (
+              <> Showing the first {shownObligations.returned}.</>
+            )}
+          </p>
+          <ol>
+            {shownObligations.obligations.map((obligation) => (
+              <li key={obligation.obligation_id}>
+                <p>{obligation.statement}</p>
+                <p>
+                  <small>
+                    {obligation.modality} · {obligation.section_path.join(' / ')} ·
+                    p. {obligation.page}
+                  </small>
+                </p>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+
+      <h2>Text</h2>
 
       {chunks === null ? (
         <p>Loading text…</p>

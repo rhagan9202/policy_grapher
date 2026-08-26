@@ -25,6 +25,12 @@ class Settings(BaseSettings):
 
     graph_render_cap: int = 300
     query_row_cap: int = 1000
+    # An edition's obligation list (STORY-081). Sized against the corpus rather
+    # than guessed: the largest edition in `data/samples` is 204 chunks, and the
+    # 37-chunk edition rebuilt on 2026-08-25 yielded 113 obligations — roughly
+    # three per chunk, so 204 chunks lands near 600. This caps well above any
+    # edition in the sample corpus while still bounding a pathological one.
+    obligation_list_cap: int = 800
     query_timeout_seconds: float = 10.0
 
     # "name:sha256hex" pairs, comma-separated. Empty means nobody can authenticate.
