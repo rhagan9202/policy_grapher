@@ -210,6 +210,28 @@ describe('Triage', () => {
     expect(await screen.findByText(/no obligation changed/i)).toBeInTheDocument()
   })
 
+  it('does not send the user to Review when the baseline edition was never built', async () => {
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    // The live state on 2026-08-26, which is how this was found: the 2020 edition
+    // had been rebuilt and held 113 obligations; the 2018 baseline held none. Every
+    // obligation in the newer edition therefore reads as an addition, so
+    // total_changes is 113 rather than 0 and STORY-067's guard — which asks
+    // `total_changes === 0` first — misses entirely. The screen then told the user
+    // to "Approve links in Review first" when Review cannot be filled at all: a
+    // proposal needs obligations on both sides, and one side has none.
+    getTriage.mockResolvedValue({
+      from_version_id: 'd@2018-01-01', to_version_id: 'd@2020-01-01',
+      rows: [], total_changes: 113, unlinked_changes: 113,
+      from_obligations: 0, to_obligations: 113,
+    })
+    showTriage()
+    await chooseAnEdition()
+
+    expect(await screen.findByText(/no obligations have been extracted/i)).toBeInTheDocument()
+    expect(screen.queryByText(/approve links in review/i)).not.toBeInTheDocument()
+  })
+
   it('names which earlier edition it compared against', async () => {
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue(versions)

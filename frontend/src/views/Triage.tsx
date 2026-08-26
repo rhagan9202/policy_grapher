@@ -106,6 +106,17 @@ export default function Triage() {
     setError(null)
   }
 
+  // A triage answer is about *changes* only when both editions have obligations
+  // to compare. With one side empty every obligation on the other counts as a
+  // change, so `total_changes` is an artefact of an unbuilt edition rather than a
+  // finding — and both the unlinked-changes line and the "approve links in Review"
+  // prompt would mislead: Review's queue cannot be filled at all, because a
+  // proposal needs obligations on both sides. STORY-067 drew this distinction only
+  // for `total_changes === 0`, so the one-sided case reached neither branch and
+  // fell through to the Review prompt. Found live on 2026-08-26 against
+  // from_obligations 0 / to_obligations 113 / total_changes 113.
+  const bothSidesExtracted =
+    result !== null && result.from_obligations > 0 && result.to_obligations > 0
   return (
     <div style={{ padding: '1rem' }}>
       <h1>Triage</h1>
@@ -175,7 +186,7 @@ export default function Triage() {
             "nothing you own is affected" and "nothing has been reviewed yet" are
             the same blank screen, and one of them is a false all-clear.
           */}
-          {result.unlinked_changes > 0 && (
+          {result.unlinked_changes > 0 && bothSidesExtracted && (
             <p>
               {result.unlinked_changes} of {result.total_changes} changes have no
               reviewed link to anything of ours, so they do not appear below.
@@ -183,25 +194,31 @@ export default function Triage() {
           )}
 
           {result.rows.length === 0 ? (
-            result.total_changes === 0 ? (
-              result.from_obligations === 0 || result.to_obligations === 0 ? (
-                <p>
-                  <strong>
-                    No obligations have been extracted for{' '}
-                    {result.from_obligations === 0 && result.to_obligations === 0
-                      ? 'either edition'
-                      : result.from_obligations === 0
-                        ? `${result.from_version_id}`
-                        : `${result.to_version_id}`}
-                    .
-                  </strong>{' '}
-                  Nothing can have changed between them, because there is nothing
-                  yet to compare. Build the derived layer for both editions with a
-                  real extraction model configured.
-                </p>
-              ) : (
-                <p>No obligation changed between these editions.</p>
-              )
+            !bothSidesExtracted ? (
+              <p>
+                <strong>
+                  No obligations have been extracted for{' '}
+                  {result.from_obligations === 0 && result.to_obligations === 0
+                    ? 'either edition'
+                    : result.from_obligations === 0
+                      ? `${result.from_version_id}`
+                      : `${result.to_version_id}`}
+                  .
+                </strong>{' '}
+                {result.total_changes === 0
+                  ? `Nothing can have changed between them, because there is nothing
+                     yet to compare.`
+                  : `The ${result.total_changes} changes counted above are an artefact
+                     of that: with one side empty, every obligation on the other reads
+                     as ${result.from_obligations === 0 ? 'an addition' : 'a removal'}.
+                     Review cannot help here either — a proposal needs obligations on
+                     both sides, so its queue cannot be filled until this edition is
+                     built.`}{' '}
+                Build the derived layer for both editions with a real extraction
+                model configured.
+              </p>
+            ) : result.total_changes === 0 ? (
+              <p>No obligation changed between these editions.</p>
             ) : (
               <p>
                 Nothing has been linked to these changes yet — this is not a

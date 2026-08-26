@@ -199,7 +199,7 @@ def test_every_sentence_of_an_answer_is_backed_by_a_citation(client_with_auth):
     ).json()
 
     assert "notify the Comptroller" in body["answer"]
-    assert any(c["quote"] in body["answer"] or c["quote"] for c in body["citations"])
+    assert any(c["quote"] in body["answer"] for c in body["citations"])
 
 
 @pytest.mark.integration

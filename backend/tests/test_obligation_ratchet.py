@@ -69,8 +69,12 @@ US_ORIGIN_EMBEDDING_MODELS = frozenset(
 # Modality is deliberately NOT raised to the observed 1.000: it was computed over
 # three matched pairs, where one error would read as 0.667. A floor that fires on
 # noise rather than on regression teaches people to ignore it.
+# `null` is deliberately absent. It extracts nothing, so any floor it could be
+# given is one it cannot fail — and recording zeros for it disarmed both of the
+# loud skips below, leaving the gate green and measuring nothing on every CI run.
+# With no entry, the default configuration skips and says so, which is the truth.
+# `test_no_recorded_floor_is_unfailable` keeps it out.
 FLOORS = {
-    "null": {"precision": 0.0, "recall": 0.0, "modality_accuracy": 0.0},
     "local:llama3.1:8b": {"precision": 0.60, "recall": 0.50, "modality_accuracy": 0.85},
 }
 
@@ -278,4 +282,33 @@ def test_compose_does_not_override_the_default_with_an_ineligible_model():
         f"default {Settings(_env_file=None).extractor_model!r}. They must agree, or "
         "the model a container requests is not the model anything else describes — "
         "and `ollama-pull` would pull one model while the worker asked for another."
+    )
+
+
+def test_no_recorded_floor_is_unfailable():
+    """A floor of 0.0 cannot be scored below, so recording one converts the gate
+    from "measure this adapter" into "pass unconditionally".
+
+    `FLOORS["null"] = {0.0, 0.0, 0.0}` was exactly that, and it disarmed both of
+    the loud skips in `test_the_configured_extractor_clears_its_floors` at once:
+    a recorded entry makes `floors is None` false, and the null adapter also
+    bypasses the model-reachability skip because that one is guarded on
+    `extractor_adapter != "null"`. `Settings()` resolves to the null adapter by
+    default, which is what CI runs — so the project's headline extraction gate
+    reported green while measuring nothing, on every push, for as long as the
+    entry existed. The two "THE EXTRACTION GATE DID NOT RUN" messages were
+    written to make precisely that impossible.
+
+    An adapter with no floors is the honest state: the gate skips and says so.
+    """
+    unfailable = {
+        adapter: floors
+        for adapter, floors in FLOORS.items()
+        if all(value == 0.0 for value in floors.values())
+    }
+
+    assert not unfailable, (
+        f"these adapters are recorded with floors nothing can score below: "
+        f"{sorted(unfailable)}. Remove the entry so the gate skips loudly "
+        f"instead of passing green."
     )
