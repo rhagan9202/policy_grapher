@@ -6,6 +6,7 @@ regardless, because that is what keeps behaviour identical across adapters.
 """
 
 import json
+import time
 
 import httpx
 from pydantic import ValidationError
@@ -18,6 +19,12 @@ from policy_grapher.extraction.schema import ExtractedObligation
 # setting is (STORY-058).
 DEFAULT_TIMEOUT_SECONDS = 600.0
 
+# Between retries of a transport failure. Short, because the failure this exists
+# for was momentary — the server answered normally on the next call — and because
+# `timeout_seconds` is already the bound on a model that has stopped responding
+# rather than fallen over.
+DEFAULT_BACKOFF_SECONDS = 2.0
+
 
 class LocalExtractor:
     def __init__(
@@ -27,30 +34,66 @@ class LocalExtractor:
         model: str,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         transport: httpx.BaseTransport | None = None,
+        backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._client = httpx.Client(transport=transport, timeout=timeout_seconds)
+        self._backoff_seconds = backoff_seconds
 
     @property
     def adapter_id(self) -> str:
         return f"local:{self._model}"
 
+
+    # A 37-chunk rebuild died at chunk 24 on a single 500 from a model server that
+    # was healthy again seconds later and had served twenty-three calls before it.
+    # ADR-023 already settled the principle for a chunk whose *output* fails the
+    # schema — one bad item costs its chunk, not the run — and the transport was
+    # left outside it, so the cheaper failure was recoverable and the more
+    # expensive one was not.
+    #
+    # Only transport-level failures are retried. A schema rejection is not: a model
+    # that returned invalid output will return it again, so retrying is pure cost,
+    # and ADR-023 says that case already costs its chunk and continues.
+    RETRYABLE_STATUS = frozenset({500, 502, 503, 504})
+    ATTEMPTS = 3
+
+    def _post_with_retries(
+        self, chunk_text: str, section_path: list[str]
+    ) -> httpx.Response:
+        body = {
+            "model": self._model,
+            "prompt": EXTRACTION_PROMPT.format(
+                section_path="/".join(section_path), chunk_text=chunk_text
+            ),
+            "format": "json",
+            "stream": False,
+            "options": {"temperature": 0},
+        }
+        url = f"{self._base_url}/api/generate"
+
+        for attempt in range(1, self.ATTEMPTS + 1):
+            last = attempt == self.ATTEMPTS
+            try:
+                response = self._client.post(url, json=body)
+            except httpx.TransportError:
+                # A dropped connection mid-run is the same failure as a 500 and has
+                # the same consequence; a rebuild is hours long and the socket has
+                # every opportunity to die once.
+                if last:
+                    raise
+            else:
+                if response.status_code not in self.RETRYABLE_STATUS or last:
+                    return response
+            time.sleep(self._backoff_seconds)
+
+        raise AssertionError("unreachable: the loop returns or raises on its last pass")
+
     def extract(
         self, chunk_text: str, *, section_path: list[str]
     ) -> list[ExtractedObligation]:
-        response = self._client.post(
-            f"{self._base_url}/api/generate",
-            json={
-                "model": self._model,
-                "prompt": EXTRACTION_PROMPT.format(
-                    section_path="/".join(section_path), chunk_text=chunk_text
-                ),
-                "format": "json",
-                "stream": False,
-                "options": {"temperature": 0},
-            },
-        )
+        response = self._post_with_retries(chunk_text, section_path)
         response.raise_for_status()
         raw = response.json()["response"]
 

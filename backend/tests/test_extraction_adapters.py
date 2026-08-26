@@ -185,3 +185,81 @@ def test_the_result_outlives_the_run_that_produced_it():
     settings = Settings(_env_file=None)
 
     assert settings.rebuild_result_ttl_seconds > settings.rebuild_job_timeout_seconds
+
+
+# --- transient transport failures (found by the 2026-08-26 rebuild) -----------
+
+
+def test_a_transient_server_error_is_retried_rather_than_ending_the_run():
+    """A 37-chunk rebuild died at chunk 24 on a single 500 from Ollama, which was
+    healthy again seconds later and had served twenty-three calls before it.
+
+    That is the same shape ADR-023 already settled for a chunk whose output fails
+    the schema — one bad item costs its chunk, not the run — applied to the
+    transport instead of the payload. Before this, a rejection cost one chunk of
+    thirty-seven and a transient 500 cost everything after it, which is the more
+    expensive failure treated as the less recoverable one.
+    """
+    attempts = {"n": 0}
+    payload = {"obligations": []}
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            return httpx.Response(500, text="upstream fell over")
+        return httpx.Response(200, json={"response": json.dumps(payload)})
+
+    extractor = build_extractor(
+        Settings(_env_file=None, extractor_adapter="local")
+    ).__class__(
+        base_url="http://model", model="test-model",
+        transport=httpx.MockTransport(flaky), backoff_seconds=0,
+    )
+
+    assert extractor.extract("...", section_path=["3.2"]) == []
+    assert attempts["n"] == 2, "the call was not retried"
+
+
+def test_a_server_that_stays_broken_still_fails():
+    """Retrying must not turn a wholly unavailable model into a silent success.
+    The run has to end, and say what ended it."""
+    attempts = {"n": 0}
+
+    def always_500(request: httpx.Request) -> httpx.Response:
+        attempts["n"] += 1
+        return httpx.Response(500, text="still down")
+
+    extractor = build_extractor(
+        Settings(_env_file=None, extractor_adapter="local")
+    ).__class__(
+        base_url="http://model", model="test-model",
+        transport=httpx.MockTransport(always_500), backoff_seconds=0,
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        extractor.extract("...", section_path=["3.2"])
+    assert attempts["n"] > 1, "it gave up without retrying"
+
+
+def test_a_schema_rejection_is_not_retried():
+    """A model that returned invalid output will return it again — retrying is
+    pure cost, and ADR-023 already says this costs its chunk and continues."""
+    attempts = {"n": 0}
+
+    def bad_schema(request: httpx.Request) -> httpx.Response:
+        attempts["n"] += 1
+        return httpx.Response(
+            200,
+            json={"response": json.dumps({"obligations": [{"statement": "x"}]})},
+        )
+
+    extractor = build_extractor(
+        Settings(_env_file=None, extractor_adapter="local")
+    ).__class__(
+        base_url="http://model", model="test-model",
+        transport=httpx.MockTransport(bad_schema),
+    )
+
+    with pytest.raises(ValueError):
+        extractor.extract("...", section_path=["3.2"])
+    assert attempts["n"] == 1
