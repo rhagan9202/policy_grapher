@@ -371,13 +371,28 @@ miss and both are guarded:
   start, and since `dev` now depends on the extra, downloads torch with them. `tests/test_image.py`
   guards the line. See [ADR-021](adr/ADR-021-the-default-image-carries-no-model-runtime.md).
 
-**Every backend route has a UI caller.** Checked by comparing the routers' declared
-paths against `api/client.ts`, which is the check that matters — the earlier version compared
-`client.ts` against itself and therefore could not see a route the client had never modelled.
-That is how sprint 4's rebuild routes went a whole sprint with no way to reach them, and how
-`GET /documents/{slug}/chunks` went several. Every route has a caller. `POST /query`
-is the single deliberate exception at the *screen* level: `runQuery` exists and
-[ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md) parks the screen on purpose.
+**Every backend route the browser needs is one the browser models**, and since STORY-086 that
+is asserted rather than described: `test_the_browser_can_reach_every_route_the_server_declares`
+in `backend/tests/test_routers.py` compares the routers' declared paths against
+`api/client.ts` and fails naming any route the client has never heard of.
+
+The comparison is the point. The earlier version compared `client.ts` against itself — "no
+client function is left without a caller" — which passes trivially against a route the client
+never modelled, and is how sprint 4's rebuild routes went a whole sprint with no way to reach
+them, and `GET /documents/{slug}/chunks` several. This paragraph described the correct check
+from sprint 5 until sprint 6, and nothing ran it; the routes stayed reachable by luck rather
+than by gate.
+
+It compares paths, not path-and-method, and the reason is written into the test: `listChunks`
+builds its path into a local before calling `request`, so a method-accurate parse would have to
+follow assignments, and one that silently failed to resolve a path would produce exactly the
+false green the test exists to prevent.
+
+`POST /query` is the single deliberate exception, recorded in the test as
+`DELIBERATELY_UNREACHABLE` with the decision that parked it: `runQuery` exists, and
+[ADR-008](adr/ADR-008-authenticated-non-cypher-audience.md) parks the screen on purpose. A
+second test asserts that list still holds exactly that one entry, so a blanket exception list
+cannot quietly become a place to hide failures.
 
 **The screens, and what each one is the only way to reach:** Graph, Documents (create, delete,
 cross-reference — STORY-044), a document's detail page (its text by edition, and the control

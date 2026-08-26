@@ -95,3 +95,103 @@ def test_health_still_serves_through_the_router(client_with_graph):
     response = client_with_graph.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+# --- STORY-086: the browser can reach what the server declares -----------------
+
+import re
+from pathlib import Path
+
+CLIENT = Path(__file__).resolve().parents[2] / "frontend" / "src" / "api" / "client.ts"
+
+# `POST /query` is declared unreachable on purpose.
+# ADR-008 superseded ADR-001 precisely to stop assuming the audience writes
+# Cypher, so putting a query box in front of them argues against a decision this
+# project has already taken once. STORY-045 parks it in Ideas for the same reason.
+DELIBERATELY_UNREACHABLE = {"/query"}
+
+# `/health` is covered rather than exempt: `getHealth` models it, and the compose
+# healthcheck calling it is not a reason for the browser not to.
+PATH_PARAMETER = re.compile(r"\{[^}]*\}")
+INTERPOLATION = re.compile(r"\$\{[^}]*\}")
+CLIENT_PATH = re.compile(r"""['"`](/[^'"`]*)['"`]""")
+
+
+def _cut_at_suffix_interpolation(path: str) -> str:
+    """Drop a trailing `${...}` that is appending a query string, not a segment.
+
+    The client writes both shapes. `/documents/${slug}/chunks` interpolates a path
+    *parameter* — it follows a slash and a real segment continues after it.
+    `/review/queue${query}` and `/graph${query ? `?${query}` : ''}` interpolate a
+    query string onto a complete path, and the second nests a template literal
+    inside the first, which no flat quote-to-quote capture survives.
+
+    A `${` that does not follow `/` therefore ends the path, and cutting there
+    handles both without parsing TypeScript.
+    """
+    at = 0
+    while True:
+        found = path.find("${", at)
+        if found == -1:
+            return path
+        if found > 0 and path[found - 1] == "/":
+            at = found + 2
+            continue
+        return path[:found]
+
+
+def _normalise(path: str) -> str:
+    """One shape for both sides: parameters collapse, query strings drop."""
+    path = _cut_at_suffix_interpolation(path)
+    path = INTERPOLATION.sub("{}", path)
+    path = PATH_PARAMETER.sub("{}", path)
+    return path.split("?", 1)[0].rstrip("/") or "/"
+
+
+def _paths_the_client_models() -> set[str]:
+    source = CLIENT.read_text(encoding="utf-8")
+    return {_normalise(found) for found in CLIENT_PATH.findall(source)}
+
+
+def test_the_browser_can_reach_every_route_the_server_declares():
+    """Sprint 5's retrospective made this its number-one change, and it was
+    written into `architecture.md` as prose and never automated.
+
+    Its Definition of Done had said "no client function in `api/client.ts` is left
+    without a caller". That check passes trivially against a route the client never
+    modelled at all — which is exactly the state sprint 4's rebuild routes were in,
+    and `GET /documents/{slug}/chunks` before them. The claim was about *backend
+    capability being reachable*; the check was about *client functions being
+    called*. A capability can therefore ship complete on the server and be invisible
+    to the only audience ADR-008 says this product has.
+
+    This compares paths rather than path-and-method, deliberately and with a cost.
+    `listChunks` builds its path into a local before calling `request`, so a
+    method-accurate parse would have to follow assignments, and a parser that
+    silently failed to resolve one would produce exactly the false green this test
+    exists to prevent. A path the client has never heard of is the defect that has
+    actually occurred here, twice.
+    """
+    declared = {
+        _normalise(path)
+        for path, _method in registered_routes()
+    } - DELIBERATELY_UNREACHABLE
+
+    unreachable = sorted(declared - _paths_the_client_models())
+
+    assert not unreachable, (
+        f"the browser cannot reach {len(unreachable)} route(s) the server "
+        f"declares: {unreachable}. Add a client function in {CLIENT.name}, or — if "
+        f"the route is deliberately not for the browser — record it in "
+        f"DELIBERATELY_UNREACHABLE with the decision that parked it."
+    )
+
+
+def test_the_parked_route_is_still_parked_on_purpose():
+    """A blanket exception list rots into a place to hide failures.
+
+    This asserts the one entry is the one ADR-008 argued for, so adding a second
+    has to be a deliberate edit to a test that says why the first is there.
+    """
+    assert DELIBERATELY_UNREACHABLE == {"/query"}
+    assert "/query" in {_normalise(p) for p, _ in registered_routes()}
