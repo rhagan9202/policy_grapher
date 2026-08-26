@@ -1,6 +1,6 @@
 # Backlog
 
-*Living document — edit in place. Last reviewed: 2026-08-25*
+*Living document — edit in place. Last reviewed: 2026-08-26*
 
 Ordered by priority: the top row is the next thing to pick up. See
 [README](README.md) for how items move through this list, and
@@ -32,18 +32,30 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
-**Ready is still empty**, but not for the sprint-5 reason any longer. Between the surge's close
-and now, an eleven-item audit of the running app — citation page numbers, back matter, rebuild
-identity, legacy-cover ingestion, ingest and triage reporting, the document table, and two
-network-exposure gaps — was found and fixed directly, the same way STORY-057 and STORY-058
+**Ready holds three items as of 2026-08-26**, the first since the surge closed. They come from
+a full walkthrough of every screen and endpoint on 2026-08-25, run against a stack with real
+models after the first end-to-end rebuild this project has completed. Each names a capability
+the product needs for its own purpose rather than a defect: obligations cannot be read
+(STORY-081), an edition does not say whether it was ever built (STORY-082), and the graph
+cannot be exported before Reset destroys it (STORY-083). The walkthrough's fourth finding —
+that there is no search — was already filed as STORY-014 and stays in
+[Refining](#refining).
+
+Before those, Ready had been empty for a reason worth keeping. Between the surge's close and
+2026-08-25, an eleven-item audit of the running app — citation page numbers, back matter,
+rebuild identity, legacy-cover ingestion, ingest and triage reporting, the document table, and
+two network-exposure gaps — was found and fixed directly, the same way STORY-057 and STORY-058
 were in sprint 4: landed as work, not filed as a queue for someone else. All eleven are in
 [Done](#done). The audit also surfaced three items that were genuinely still open work, in
 [Refining](#refining) (STORY-073) and [Ideas](#ideas) (STORY-075) — the third, STORY-074, has
 since been fixed inside the same function as the ambiguous-statement defect a whole-branch
-review found, and is in [Done](#done). That review added STORY-076 in its place. Sprint 6's
-planning session starts from those two sections, and the
-[Definition of Ready](README.md#definition-of-ready) still has to be met before anything moves
-into this one.
+review found, and is in [Done](#done). That review added STORY-076 in its place. The same
+pattern produced the rebuild job timeout fix on 2026-08-26, also landed rather than filed.
+
+Sprint 6's planning session no longer starts from nothing, but three items is not a sprint:
+[Refining](#refining) and [Ideas](#ideas) are still where the rest of its capacity has to come
+from, and the [Definition of Ready](README.md#definition-of-ready) still has to be met before
+anything else moves into this one.
 
 Two things sprint 5 found and closed that were never in it: **STORY-061**, because sprint 4's
 rebuild routes had no client function and so the app could not build its own derived layer; and
@@ -60,6 +72,9 @@ row** through product actions alone; the sequence is in the
 
 | ID | Item | Epic | Est. | Sprint | Notes |
 | --- | --- | --- | --- | --- | --- |
+| STORY-081 | A user can read the obligations extracted from an edition | — | M | — | The product's central noun, with no endpoint and no screen. Reachable today only as a count in a rebuild report, two at a time in Review, or quoted in a Triage row. A 2026-08-25 rebuild wrote **113 obligations** and confirming that took `cypher-shell` — so extraction quality is unauditable from inside the app. Response shape already exists as `ObligationCitationOut`. See [STORY-081](stories/STORY-081-obligations-are-readable.md) |
+| STORY-082 | A document says whether its derived layer was built, when, and with what | — | M | — | Zero obligations has two causes needing opposite actions — never built, or built with the `null` extractor — and nothing durable distinguishes them. `RebuildStatus` already reports both adapters for exactly this reason, but only for the lifetime of one poll. The run id lives in React state alone, so reloading the tab strands a run that is still going; raising the job timeout to eight hours on 2026-08-26 made that sharper, since `config.py` now promises an overnight rebuild can be read in the morning and it cannot. See [STORY-082](stories/STORY-082-a-document-says-whether-it-was-built.md) |
+| STORY-083 | A graph can be exported before it is destroyed | — | M | — | Reset says it itself: "There is no undo and no export." Accurate — no export route exists. It destroys hours of inference and, worse, every review decision, which the confirm dialog already notes a rebuild replays and cannot bring back. Extraction is repeatable; human judgment is not. Export only — restore is a separate **L**, for the reasons [ADR-027](../specs/adr/ADR-027-a-rebuild-repoints-decisions.md) had to work through. See [STORY-083](stories/STORY-083-the-graph-can-be-exported.md) |
 
 ## Refining
 
