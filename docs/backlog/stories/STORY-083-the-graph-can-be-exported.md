@@ -1,6 +1,6 @@
 # STORY-083: A graph can be exported before it is destroyed
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 

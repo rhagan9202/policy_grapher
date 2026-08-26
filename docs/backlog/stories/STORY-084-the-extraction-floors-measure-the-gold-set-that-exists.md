@@ -1,6 +1,6 @@
 # STORY-084: The extraction floors are measured against the gold set that exists
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

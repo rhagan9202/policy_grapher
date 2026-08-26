@@ -155,7 +155,18 @@ reviewed link to anything of ours, so they stay off the ranked list. That is del
 reads as a broken screen until you know it — which is why the screen says the number out loud.
 
 On the lean stack, where `EXTRACTOR_ADAPTER=null`, every step still works and writes chunks,
-but no obligations, so Triage and Review stay empty.
+but no obligations, so Triage and Review stay empty. **The document's own page says so** — each
+edition reports whether its derived layer was built, when, and with which extractor, so "no
+obligations" is never left ambiguous between "nobody built this", "a `null` extractor built it",
+and "a run died partway". The obligations themselves are listed there too, with the section and
+page each was read from, which is the only way to judge from inside the app whether extraction
+found what the document actually requires.
+
+**Take a copy before you empty the graph.** `Reset` deletes every document, edition, chunk,
+obligation, proposal and recorded decision, and the export button beside it writes the lot to a
+JSON file first. It is a readable snapshot, not a restore: extraction is cached and a rebuild
+reproduces it, but a reviewer's verdict about whether one clause implements another is the one
+thing here nothing can regenerate.
 
 ### The same thing through the API
 

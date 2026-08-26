@@ -1,6 +1,6 @@
 # STORY-081: A user can read the obligations extracted from an edition
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 

@@ -1,7 +1,7 @@
 # Velocity
 
 *Living document — one row per completed sprint, plus any interval that delivered work
-without being one. Last reviewed: 2026-08-26*
+without being one. Last reviewed: 2026-08-26 (sprint 6 closed)*
 
 | Sprint | Committed | Delivered | Notes |
 | --- | --- | --- | --- |
@@ -13,7 +13,9 @@ without being one. Last reviewed: 2026-08-26*
 
 | *(no sprint)* | — | 16 stories | **Not a sprint, and the row says so on purpose.** Between sprint 5 closing on 2026-08-23 and sprint 6's planning on 2026-08-26, **16 items (STORY-062…080) and 75 commits** landed with no plan, no review, no retrospective and no acceptance criteria read back — an eleven-item audit of the running app, a default-stack inversion, and a rebuild job-timeout fix. Backfilled at sprint 6 planning so this table describes the project rather than only its ceremonies. It cannot be read as throughput: nothing was sized before it was built, so "16" counts outcomes chosen after the fact, which is the measurement error every row above warns about. Its real signal is governance, not velocity — **more items reached Done outside a sprint in three days than sprint 5 delivered inside one.** |
 
-**Rolling average (last 3):** 7.7 stories (7, 7, 9) — and read it loosely. Sprint 1's row still
+| 6 | 6 stories | 6 stories | 3M + 3S committed, all six delivered, plus three defects found by the planning review and fixed before the sprint opened. The estimation scale was amended at planning so those three M items were not forced to L — see [backlog README](../backlog/README.md#estimation). **STORY-084 was committed as S and delivered as L**: it asked for a re-measurement, the re-measurement failed, and the work became fixing the extractor rather than recording a number. That is the sprint in one row — the value was in a check that could finally fail, not in the six items. Counting stories says nothing about it. |
+
+**Rolling average (last 3):** 7.3 stories (7, 9, 6) — and read it loosely. Sprint 1's row still
 says 11 against a true 13, sprints 1 and 2 counted unestimated items, and sprint 3 is the first
 sized one. Counting *stories* is now actively misleading in a second way: sprint 4's seven
 includes one L that consumed a design session, a spec and a plan before any code, and two

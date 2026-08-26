@@ -1,6 +1,6 @@
 # STORY-085: The ranking weights ADR-025 records are asserted, not just commented
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

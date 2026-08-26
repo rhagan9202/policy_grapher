@@ -1,6 +1,6 @@
 # STORY-086: Route reachability is a test, not a paragraph
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

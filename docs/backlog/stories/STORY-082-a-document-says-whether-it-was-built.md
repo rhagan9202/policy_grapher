@@ -1,6 +1,6 @@
 # STORY-082: A document says whether its derived layer was built, when, and with what
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 
