@@ -44,7 +44,21 @@ therefore never actually met.
 | --- | --- | --- |
 | **S** | Understood, contained, one file or one obvious change | A defect with a known cause, a config fix |
 | **M** | Understood, but touches several files or needs new tests to design | A new endpoint, a new screen, a wired-up pipeline stage |
-| **L** | Contains a decision that is not yet made, or crosses backend and frontend | Anything needing an ADR first, or a rework of something already shipped |
+| **L** | Contains a decision that is not yet made, or reworks something already shipped | Anything needing an ADR first |
+
+**Crossing backend and frontend is a signal to check, not a size on its own.** Amended at
+sprint 6 planning, 2026-08-26. The L row used to read "or crosses backend and frontend", which
+made the crossing *sufficient* — and a review found three items where it mispredicted badly.
+STORY-081, 082 and 083 each add one read route and the screen that consumes it, over response
+shapes, query patterns, bounding idioms and empty-state idioms that already exist; the backend
+and UI leads independently costed all three at M from the code, while the written rule said L.
+STORY-077 had already landed at that shape inside one sprint.
+
+What the clause was reaching for is real: work that spans both tiers has more places to be
+wrong, and two suites to satisfy. So it stays a prompt — when an item crosses, look for the
+unmade decision, and size L if you find one. What it must not be is an automatic L, because
+that inflates exactly the items this project has shipped most reliably, and an inflated L
+displaces roughly three real items from a session.
 
 Points were considered and rejected for now: [velocity](../sprints/velocity.md) has two data
 points and one of them is known to be understated, so a numeric scale would imply a precision

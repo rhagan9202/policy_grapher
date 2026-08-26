@@ -45,8 +45,16 @@ durable facts live, and the precedent is already set: `ExtractionCache` is a gra
 
 ## Acceptance criteria
 
-- [ ] A rebuild that completes records on the `DocumentVersion` it built: when it finished, the
-      extractor adapter, the embedder adapter, and the counts it wrote.
+- [ ] A rebuild records its run on the `DocumentVersion` it is building **when it starts**, and
+      updates that record when it finishes or fails: the run id, the state, when it started,
+      when it last changed, the extractor adapter, the embedder adapter, and — once finished —
+      the counts it wrote.
+
+      *Revised at sprint 6 planning.* This first said a rebuild "that completes" records its
+      state, which contradicted the two criteria below outright: if only completions are
+      recorded, there is nothing durable for a reloaded page to re-attach to and nothing to
+      distinguish a dead worker from an edition nobody ever built. Recording at start is what
+      makes the rest of this story possible, and it is the same single `SET` either way.
 - [ ] `GET /documents/{slug}/versions` returns those fields, empty or null for an edition never
       built.
 - [ ] A document's page shows, per edition, whether the derived layer was built, when, and with
@@ -58,13 +66,18 @@ durable facts live, and the precedent is already set: `ExtractionCache` is a gra
       the run id.
 - [ ] Given a rebuild failed, **When** a user returns later, **Then** the page says the last
       attempt failed and why, rather than showing the edition as merely unbuilt.
-- [ ] A run whose worker died leaves the edition readable as "last build failed", not
-      permanently "building".
+- [ ] Given a run recorded as in progress whose RQ job no longer exists — the worker died
+      without reporting — **When** a user opens the edition, **Then** it reads as a build that
+      failed, not as one still running. The recorded run id is what makes this checkable: the
+      route can ask RQ whether that job is still known and reconcile the two.
+
+      *Revised at sprint 6 planning.* This first asserted the outcome with no mechanism that
+      could produce it, so it was not testable.
 
 ## Notes
 
-**Scope is the last build, not full run history.** One set of fields per edition, overwritten by
-each rebuild. A durable log of every run that ever executed is a larger thing, needs a decision
+**Scope is the current or last build, not full run history.** One set of fields per edition,
+overwritten by each rebuild — written when a run starts and updated as it progresses. A durable log of every run that ever executed is a larger thing, needs a decision
 about retention, and is not required by anything above — it belongs in Ideas if it is wanted.
 Keeping this to last-build state is what holds the item at M.
 

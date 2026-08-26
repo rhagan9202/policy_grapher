@@ -32,14 +32,20 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
-**Ready holds three items as of 2026-08-26**, the first since the surge closed. They come from
-a full walkthrough of every screen and endpoint on 2026-08-25, run against a stack with real
-models after the first end-to-end rebuild this project has completed. Each names a capability
-the product needs for its own purpose rather than a defect: obligations cannot be read
-(STORY-081), an edition does not say whether it was ever built (STORY-082), and the graph
-cannot be exported before Reset destroys it (STORY-083). The walkthrough's fourth finding —
-that there is no search — was already filed as STORY-014 and stays in
-[Refining](#refining).
+**Ready holds six items, all committed to [sprint 6](../sprints/sprint-06/plan.md).** Three come
+from a full walkthrough of every screen and endpoint on 2026-08-25, run against a stack with real
+models after the first end-to-end rebuild this project has completed: obligations cannot be read
+(STORY-081), an edition does not say whether it was ever built (STORY-082), and the graph cannot
+be exported before Reset destroys it (STORY-083). The walkthrough's fourth finding — that there
+is no search — was already filed as STORY-014 and stays in [Refining](#refining).
+
+The other three come from sprint 6's planning review and are all gates that could not fail:
+the extraction floors guard a gold set that has since doubled (STORY-084), the ranking weights
+ADR-025 decided are enforced nowhere (STORY-085), and the route-reachability check sprint 5's
+retrospective demanded was written as prose and never automated (STORY-086). All three of the
+walkthrough items had their acceptance criteria repaired at planning before being committed —
+one contradicted itself, one could not fail, and one needed a property the schema does not
+store; each revision is marked in its file.
 
 Before those, Ready had been empty for a reason worth keeping. Between the surge's close and
 2026-08-25, an eleven-item audit of the running app — citation page numbers, back matter,
@@ -72,9 +78,12 @@ row** through product actions alone; the sequence is in the
 
 | ID | Item | Epic | Est. | Sprint | Notes |
 | --- | --- | --- | --- | --- | --- |
-| STORY-081 | A user can read the obligations extracted from an edition | — | M | — | The product's central noun, with no endpoint and no screen. Reachable today only as a count in a rebuild report, two at a time in Review, or quoted in a Triage row. A 2026-08-25 rebuild wrote **113 obligations** and confirming that took `cypher-shell` — so extraction quality is unauditable from inside the app. Response shape already exists as `ObligationCitationOut`. See [STORY-081](stories/STORY-081-obligations-are-readable.md) |
-| STORY-082 | A document says whether its derived layer was built, when, and with what | — | M | — | Zero obligations has two causes needing opposite actions — never built, or built with the `null` extractor — and nothing durable distinguishes them. `RebuildStatus` already reports both adapters for exactly this reason, but only for the lifetime of one poll. The run id lives in React state alone, so reloading the tab strands a run that is still going; raising the job timeout to eight hours on 2026-08-26 made that sharper, since `config.py` now promises an overnight rebuild can be read in the morning and it cannot. See [STORY-082](stories/STORY-082-a-document-says-whether-it-was-built.md) |
-| STORY-083 | A graph can be exported before it is destroyed | — | M | — | Reset says it itself: "There is no undo and no export." Accurate — no export route exists. It destroys hours of inference and, worse, every review decision, which the confirm dialog already notes a rebuild replays and cannot bring back. Extraction is repeatable; human judgment is not. Export only — restore is a separate **L**, for the reasons [ADR-027](../specs/adr/ADR-027-a-rebuild-repoints-decisions.md) had to work through. See [STORY-083](stories/STORY-083-the-graph-can-be-exported.md) |
+| STORY-081 | A user can read the obligations extracted from an edition | — | M | 6 | The product's central noun, with no endpoint and no screen. Reachable today only as a count in a rebuild report, two at a time in Review, or quoted in a Triage row. A 2026-08-25 rebuild wrote **113 obligations** and confirming that took `cypher-shell` — so extraction quality is unauditable from inside the app. Response shape already exists as `ObligationCitationOut`. See [STORY-081](stories/STORY-081-obligations-are-readable.md) |
+| STORY-082 | A document says whether its derived layer was built, when, and with what | — | M | 6 | Zero obligations has two causes needing opposite actions — never built, or built with the `null` extractor — and nothing durable distinguishes them. `RebuildStatus` already reports both adapters for exactly this reason, but only for the lifetime of one poll. The run id lives in React state alone, so reloading the tab strands a run that is still going; raising the job timeout to eight hours on 2026-08-26 made that sharper, since `config.py` now promises an overnight rebuild can be read in the morning and it cannot. See [STORY-082](stories/STORY-082-a-document-says-whether-it-was-built.md) |
+| STORY-083 | A graph can be exported before it is destroyed | — | M | 6 | Reset says it itself: "There is no undo and no export." Accurate — no export route exists. It destroys hours of inference and, worse, every review decision, which the confirm dialog already notes a rebuild replays and cannot bring back. Extraction is repeatable; human judgment is not. Export only — restore is a separate **L**, for the reasons [ADR-027](../specs/adr/ADR-027-a-rebuild-repoints-decisions.md) had to work through. See [STORY-083](stories/STORY-083-the-graph-can-be-exported.md) |
+| STORY-084 | The extraction floors are measured against the gold set that exists | — | S | 6 | Sprint 5's carried action, which [ADR-025](../specs/adr/ADR-025-will-is-a-modality-and-bindingness-is-derived.md) records was not done: floors set over 3 fixtures and 6 obligations, before `WILL` existed, now guard a 4-fixture 12-obligation gold set. `FLOORS`'s own comment says "**They pass by zero margin**" and that widening the gold set is the prerequisite. That prerequisite landed 2026-08-26 — `FLOORS["null"]` was `{0.0, 0.0, 0.0}`, which disarmed both of the gate's loud skips and made it report green while measuring nothing. See [STORY-084](stories/STORY-084-the-extraction-floors-measure-the-gold-set-that-exists.md) |
+| STORY-085 | The ranking weights ADR-025 records are asserted, not just commented | — | S | 6 | `MODALITY_WEIGHT` carries a six-line ADR-025 justification that `WILL` is as binding as `SHALL`, and nothing asserts the value. The existing test checks the table's *keys* equal the enum's members — which correctly caught `WILL`'s addition — and says nothing about the values, so one character sends this corpus's dominant binding modality to the bottom of every Triage ranking with the suite green. Same shape as the ADR-020 defect. See [STORY-085](stories/STORY-085-the-modality-weights-are-asserted.md) |
+| STORY-086 | Route reachability is a test, not a paragraph | — | S | 6 | Sprint 5's retrospective made this its number-one change and wrote it into `architecture.md` as prose; it was never automated. Run by hand at sprint 6 planning: 20 of 20 routes have a client function, 19 of 20 have a UI caller, `POST /query` the one deliberate [ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md) exception. Compliant today, and nothing would notice when it stopped being. See [STORY-086](stories/STORY-086-route-reachability-is-a-test.md) |
 
 ## Refining
 

@@ -36,8 +36,13 @@ It is a missing capability the product already tells them is missing.
       `chunk_id`, `obligation_id`, `decision_key` — so a reader can join the file back together
       and so a future import has something stable to match on.
 - [ ] The route requires bearer auth, like every route except `/health`.
-- [ ] The export is a file a person can read: it opens in a text editor and its structure is
-      obvious without reading the source that produced it.
+- [ ] The export is a single JSON object whose top-level keys name the categories above, each
+      holding a list of records, so a reader can find a category without consulting the code
+      that wrote it.
+
+      *Revised at sprint 6 planning.* This first read "its structure is obvious without reading
+      the source that produced it", which no test can fail — the exact defect sprint 5's
+      retrospective made its number-one change three days before this was written.
 - [ ] Given an empty graph, **When** the export is called, **Then** it returns a valid,
       well-formed document with empty collections rather than failing.
 - [ ] The Reset screen offers the export before the destructive action, in the same flow.

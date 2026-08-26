@@ -49,8 +49,17 @@ reader needs here.
       obligations, **Then** the screen says it has not been built — distinct from an edition
       that was built and yielded none. This is the distinction STORY-067 drew for Triage, and
       it is the same trap here.
-- [ ] Obligations are ordered so a reader can follow the document: by `section_path`, then by
-      position within the section.
+- [ ] Obligations are returned in a deterministic order that follows the document, and the
+      ordering is documented in the route: by the `ordinal` of the `Chunk` each obligation is
+      `ANCHORED_IN`, then by `obligation_id` to break ties within a chunk.
+
+      *Revised at sprint 6 planning.* This first read "by `section_path`, then by position
+      within the section", which is not implementable: `WRITE_OBLIGATIONS`
+      (`backend/src/policy_grapher/obligations.py`) stores statement, modality, actor,
+      deadline, conditions, confidence and section_path — there is no ordinal, so "position
+      within the section" has nothing to sort on. Adding one is a schema change that would
+      re-size this item. Chunk ordinal already exists, already follows the document, and
+      needs no migration.
 
 ## Notes
 

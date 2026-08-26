@@ -1,6 +1,6 @@
 # Roadmap
 
-*Living document — edit in place. Last reviewed: 2026-08-23*
+*Living document — edit in place. Last reviewed: 2026-08-26*
 
 Sequencing and intent, not commitments with dates. Individual work items live in the
 [backlog](../backlog/backlog.md); this is the altitude above that.
@@ -34,10 +34,19 @@ bounded `POST /query` (STORY-024), bearer-token authentication (STORY-019), and 
 generated secrets. Phase 1
 ([versioned schema](../superpowers/plans/2026-08-20-di-2-phase-1-versioned-schema.md)) has
 landed: a `:Document` is now the instrument and its editions hang off it as
-`:DocumentVersion` nodes with a content-derived identity, a derived `SUPERSEDES` chain, and
-`:Authority`/`:Entity` reference nodes alongside them. A single-PDF ingest records one
-edition and `GET /documents/{slug}/versions` serves the chain; the manifest path records
-none, because a CSV row describes no edition. See
+`:DocumentVersion` nodes with a content-derived identity and a derived `SUPERSEDES` chain. A
+single-PDF ingest records one edition and `GET /documents/{slug}/versions` serves the chain;
+the manifest path records none, because a CSV row describes no edition.
+
+**`:Authority` and `:Entity` are written by no code path that runs.** This paragraph claimed
+them as landed until sprint 6's planning review checked: `merge_authority`, `attach_authority`
+and `merge_entity` exist in `backend/src/policy_grapher/versions.py` and are called only by
+`backend/tests/test_versions.py`; no router and no ingest path reaches them, and the live graph
+holds zero of each. The functions and their tests are real, so the capability is *written* but
+not *reachable* — the same distinction sprint 5's retrospective drew about client functions, one
+level up. Corrected 2026-08-26; the two labels belong under [Later](#later) with the richer
+metadata they were meant to serve, and nothing should cite them as delivered until an ingest
+path calls them. See
 [ADR-011](../specs/adr/ADR-011-instruments-have-versions.md). Phase 2
 ([text storage and section-aware chunking](../superpowers/plans/2026-08-20-di-2-phase-2-text-and-chunking.md))
 has landed: a PDF ingest now keeps the page text it used to discard, chunks it along the
