@@ -124,3 +124,29 @@ rather than committed as sprint content:
   104 s recorded in sprint 5, so the longer v2 prompt costs nothing in wall clock — worth
   recording because sprint 5's retrospective made "record what a change costs" a standing rule,
   and the honest answer here is "nothing".
+
+## The rebuild, end to end
+
+Queued from the UI and run against a live model after everything above had landed. The first
+attempt died at chunk 24 of 37 on a single 500 from a model server that recovered seconds later
+— which is how the retry gap was found and fixed, and which STORY-082 recorded durably rather
+than losing with the tab. The retry replayed the cached chunks and finished.
+
+    PROMPT_VERSION 1     113 obligations    2 of 37 chunks rejected
+    PROMPT_VERSION 2     120 obligations    8 of 37 chunks rejected
+
+More obligations, from fewer surviving chunks — and the difference is what they are:
+
+    section headings recorded as obligations   5+  ->  0
+    actors reading "no actor specified"        many ->  0
+
+Statements now carry their subjects, which is what makes an `obligation_id` stable against the
+passage it was read from: "Approved program baseline parameters will serve as control
+objectives", where v1 wrote fragments beginning at the verb.
+
+**The rejection rate is the cost, and it is not small.** One chunk in five is now lost whole to
+`modality: null` on sentences that state scope rather than duty, against one in eighteen before.
+Three prompt variants were tried against it — rewording the rule, removing the quoted negative
+example, generalising the negatives — and none moved it, so this is a real trade for the
+precision gain rather than a wording problem. It is the first question in
+[sprint 7's stub](../sprint-07/plan.md).
