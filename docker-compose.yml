@@ -95,6 +95,7 @@ services:
       # Per model call. 600s because CPU inference is slow — a chunk measured at
       # ~7 tokens/second exceeded the old hardcoded 120s and killed the run (STORY-058).
       EXTRACTOR_TIMEOUT_SECONDS: ${EXTRACTOR_TIMEOUT_SECONDS:-600}
+      REBUILD_JOB_TIMEOUT_SECONDS: ${REBUILD_JOB_TIMEOUT_SECONDS:-28800}
       # `local`, not `null`, for the same reason as EXTRACTOR_ADAPTER above:
       # this is what reaches Ask's semantic leg (ADR-016) from a plain `up`. A
       # `local` embedder needs sentence-transformers, which is why EXTRAS above
@@ -199,6 +200,7 @@ services:
       # Per model call. 600s because CPU inference is slow — a chunk measured at
       # ~7 tokens/second exceeded the old hardcoded 120s and killed the run (STORY-058).
       EXTRACTOR_TIMEOUT_SECONDS: ${EXTRACTOR_TIMEOUT_SECONDS:-600}
+      REBUILD_JOB_TIMEOUT_SECONDS: ${REBUILD_JOB_TIMEOUT_SECONDS:-28800}
       # `local`, not `null`, for the same reason as EXTRACTOR_ADAPTER above: this
       # is the leg that embeds for Ask's semantic search (ADR-016), and it needs
       # the extra above (ADR-029) to have anything to run.

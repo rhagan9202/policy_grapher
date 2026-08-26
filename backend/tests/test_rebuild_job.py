@@ -12,15 +12,24 @@ from policy_grapher.jobs.rebuild import rebuild_edition
 SAMPLES = Path(__file__).resolve().parents[2] / "data" / "samples"
 
 
-def test_the_queue_is_named_and_carries_a_timeout():
-    """A job with no timeout that hangs holds a worker until the process dies."""
-    queue = build_queue(Settings(_env_file=None))
+def test_the_queue_is_named_and_carries_the_configured_timeout():
+    """A job with no timeout that hangs holds a worker until the process dies.
+
+    The asserted value is injected rather than written as a literal. This
+    previously asserted a bare `== 1800`, which passed whether `build_queue`
+    read the setting or ignored it and passed its own constant — and went on
+    passing when the setting was wrong, saying nothing about the thirty-minute
+    default that killed real rebuilds. Injecting proves the wiring.
+    """
+    settings = Settings(_env_file=None, rebuild_job_timeout_seconds=1234)
+
+    queue = build_queue(settings)
 
     assert queue.name == QUEUE_NAME
     # Private on purpose: RQ 2.11 exposes the class constant `Queue.DEFAULT_TIMEOUT`
     # but no public accessor for the value a queue was constructed with, and
     # asserting the constant would test RQ rather than this code.
-    assert queue._default_timeout == 1800
+    assert queue._default_timeout == 1234
 
 
 def test_building_the_queue_does_not_connect():

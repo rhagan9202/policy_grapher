@@ -210,7 +210,7 @@ def test_a_failed_run_reports_its_error(
 @pytest.mark.integration
 def test_an_enqueued_run_keeps_its_result_for_a_day(client_with_auth):
     """The result is the only record of what a run produced. On RQ's 500-second
-    default a legitimate 1800-second run's counts expire eight minutes after they
+    default a legitimate hours-long run's counts expire minutes after they
     land, and `GET /rebuilds/{run_id}` then answers 404 — the same answer it
     gives for a run id that never existed. Asserted on the job because RQ's Queue
     constructor silently discards a `result_ttl` keyword; it is a per-job value."""

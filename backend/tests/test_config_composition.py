@@ -92,3 +92,25 @@ def test_every_deliberate_difference_still_describes_a_real_field():
     """An exception for a setting that no longer exists is an exception nobody reads."""
     stale = sorted(f for f in DELIBERATE_DIFFERENCES if f not in Settings.model_fields)
     assert not stale, f"DELIBERATE_DIFFERENCES names fields that no longer exist: {stale}"
+
+
+def test_the_timeouts_a_real_rebuild_depends_on_can_be_overridden():
+    """The gap this file's own docstring did not close.
+
+    Every test above compares a compose variable to its application default —
+    which means a setting *absent* from compose is not merely un-overridable at
+    deploy time, it is invisible to the guard built to catch exactly this class
+    of divergence. `REBUILD_JOB_TIMEOUT_SECONDS` was absent. Its default killed a
+    real 37-chunk rebuild at chunk 30, and the only remedy was editing config.py
+    and rebuilding the image.
+
+    These two timeouts are the pair that decide whether a real-model rebuild can
+    finish, and both vary by how fast the host's CPU runs inference — the textbook
+    reason for a setting to be deployment-time rather than baked in.
+    """
+    compose = COMPOSE.read_text()
+    env_example = (REPO_ROOT / ".env.example").read_text()
+
+    for key in ("EXTRACTOR_TIMEOUT_SECONDS", "REBUILD_JOB_TIMEOUT_SECONDS"):
+        assert f"${{{key}" in compose, f"{key} cannot be overridden in compose"
+        assert f"\n{key}=" in env_example, f"{key} is undocumented in .env.example"

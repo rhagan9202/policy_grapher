@@ -74,14 +74,27 @@ class Settings(BaseSettings):
     # The rebuild queue (STORY-048). Unreachable Redis fails only the rebuild
     # routes — the connection is lazy and every other route talks to Neo4j.
     redis_url: str = "redis://localhost:6379/0"
-    # Generous on purpose: a rebuild with a real model is one call per chunk over
-    # dozens of chunks, so there is no short timeout that is not a false alarm.
-    rebuild_job_timeout_seconds: int = 1800
-    # Much longer than the timeout, deliberately: the result is the only record
-    # of what a run produced. RQ's 500-second default would expire a legitimate
-    # 1800-second run's counts eight minutes after they landed, and the poll
-    # route would then answer 404 — indistinguishable from a run id that never
-    # existed. One day is long enough for a person to come back and look.
+    # Eight hours, and the size is the whole point. A rebuild with a real model is
+    # one extraction call per chunk, measured at ~104 seconds a chunk on CPU; the
+    # largest edition in `data/samples` is 204 chunks, so a first pass over it needs
+    # close to six hours. This was 1800 — thirty minutes, under three chunks' worth
+    # of the margin it claimed to have — and every edition in the corpus exceeded
+    # it. A real run of DoDD 5000.01 died at chunk 30 of 37 and wrote nothing.
+    #
+    # A job timeout is not the thing that catches a hung model here:
+    # `extractor_timeout_seconds` bounds each individual call, so a wedged Ollama
+    # surfaces in ten minutes regardless. What is left for this number to do is bound
+    # total work, and bounding it below the work's honest duration only ever produces
+    # false alarms. `test_the_job_timeout_outlasts_the_largest_edition_in_the_corpus`
+    # measures the corpus rather than trusting this comment.
+    rebuild_job_timeout_seconds: int = 28800
+    # Longer than the job timeout above, deliberately, and one day still leaves
+    # three times the margin: the result is the only record of what a run
+    # produced. RQ's 500-second default would expire a legitimate run's counts
+    # minutes after they landed, and the poll route would then answer 404 —
+    # indistinguishable from a run id that never existed. One day is long enough
+    # for a person to start an overnight rebuild and read it in the morning.
+    # `test_the_result_outlives_the_run_that_produced_it` keeps the ordering.
     rebuild_result_ttl_seconds: int = 86400
 
     data_dir: Path = Path("/data/samples")

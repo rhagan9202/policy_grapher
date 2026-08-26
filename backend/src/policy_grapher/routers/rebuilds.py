@@ -137,7 +137,7 @@ def start_rebuild(
         # swallows unknown keywords, so setting it there is accepted and ignored.
         # It is much longer than the job timeout on purpose — a finished run's
         # result is the only record of what it produced, and on RQ's 500-second
-        # default a legitimate 1800-second run expires eight minutes after it
+        # default a legitimate hours-long run expires minutes after it
         # lands, leaving the poll route to answer 404 for a run that succeeded.
         job = queue.enqueue(
             rebuild_edition,

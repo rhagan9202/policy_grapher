@@ -141,6 +141,12 @@ seconds a chunk on CPU, so 34 chunks is around an hour. A *second* rebuild over 
 content calls the model zero times and finishes in under a minute — extraction is cached
 ([ADR-013](docs/specs/adr/ADR-013-extraction-is-a-port-with-a-ratchet.md)).
 
+A rebuild job is given eight hours, sized for the largest edition in `data/samples` — DoDM
+8180.01 at 204 chunks, roughly six hours on CPU. Set `REBUILD_JOB_TIMEOUT_SECONDS` to lower it
+if your host runs inference faster. Each individual model call is bounded separately by
+`EXTRACTOR_TIMEOUT_SECONDS` (ten minutes), so a wedged Ollama still surfaces quickly rather
+than sitting inside the eight-hour budget.
+
 Measured on that run: **38 and 34 chunks**, **96 and 115 obligations**, **265 proposals**, and
 2–3 chunks per run rejected by the schema — which costs those chunks and not the run
 ([ADR-023](docs/specs/adr/ADR-023-a-rejected-item-costs-its-chunk-not-the-run.md)); the screen
