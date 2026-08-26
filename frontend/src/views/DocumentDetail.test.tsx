@@ -81,12 +81,33 @@ function renderAt(slug = 'dodd-5000-01') {
 // Every test renders the whole screen, so the obligations fetch fires in all of
 // them. A benign default keeps tests that are about something else from having to
 // know this route exists; the ones that are about it override.
+//
+// These two are cleared rather than reset below, and the difference matters.
+// `mockReset` removes the implementation as well as the calls, which leaves a
+// window between one test's teardown and the next test's setup where a React
+// passive effect that has not flushed yet calls a bare `vi.fn()`, gets
+// `undefined`, and throws "Cannot read properties of undefined (reading 'then')"
+// inside whichever test happens to be running. That was an intermittent failure
+// at roughly one run in eight, and an intermittent failure is worse than a red
+// one — it teaches people to re-run rather than to look.
 beforeEach(() => {
   listObligations.mockResolvedValue({
     obligations: [],
     total: 0,
     returned: 0,
     truncated: false,
+  })
+  getRebuild.mockResolvedValue({
+    run_id: 'idle',
+    version_id: 'idle',
+    state: 'finished',
+    chunks_done: 0,
+    chunks_total: 0,
+    counts: {},
+    rejections: [],
+    extractor_adapter: '',
+    embedder_adapter: '',
+    error: null,
   })
 })
 
@@ -95,9 +116,9 @@ afterEach(() => {
   listVersions.mockReset()
   listChunks.mockReset()
   startRebuild.mockReset()
-  getRebuild.mockReset()
+  getRebuild.mockClear()
   listDocuments.mockReset()
-  listObligations.mockReset()
+  listObligations.mockClear()
 })
 
 // STORY-017, the "corpus management" MVP item. `GET /documents/{slug}/chunks` has
@@ -513,13 +534,14 @@ describe('DocumentDetail obligations', () => {
     renderAt()
 
     // Three of four editions in the live graph on 2026-08-26 were in exactly this
-    // state. "None found" and "never built" need opposite actions, and the route
-    // cannot yet tell them apart, so the screen must not assert either one.
+    // state. "None found" and "never built" need opposite actions, and this is
+    // STORY-081's AC6 — met once STORY-082 landed the build record that can tell
+    // them apart. Before that the copy had to hedge between the two.
     expect(
       await screen.findByText(/no obligations recorded for this edition/i),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/may not have been built yet/i),
+      screen.getByText(/this edition has never been built/i),
     ).toBeInTheDocument()
   })
 
@@ -538,5 +560,168 @@ describe('DocumentDetail obligations', () => {
 
     expect(await screen.findByText(/604/)).toBeInTheDocument()
     expect(screen.getByText(/showing the first 2/i)).toBeInTheDocument()
+  })
+})
+
+
+// STORY-082. Three of four editions in the live graph on 2026-08-26 held chunks
+// and zero obligations, with nothing to say whether that meant never-built,
+// built-with-null, or a run that died. And the run id lived only in React state,
+// so reloading the tab stranded a rebuild that was still going — which the
+// eight-hour job timeout set the same day made a real loss rather than a nuisance.
+
+const built = (over: Record<string, unknown> = {}) => ({
+  ...versions[1],
+  build_state: 'finished',
+  build_run_id: 'run-9',
+  build_started_at: '2026-08-25T10:00:00+00:00',
+  build_changed_at: '2026-08-25T11:00:00+00:00',
+  build_extractor_adapter: 'local',
+  build_embedder_adapter: 'local',
+  build_counts: { chunks_written: 37, obligations_written: 113 },
+  build_error: null,
+  ...over,
+})
+
+describe('DocumentDetail build state', () => {
+  it('says an edition has never been built', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue([versions[0], { ...versions[1] }])
+    listChunks.mockResolvedValue(chunks)
+
+    renderAt()
+
+    expect(
+      await screen.findByText(/has never been built/i),
+    ).toBeInTheDocument()
+  })
+
+  it('names when an edition was built and with which extractor', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue([versions[0], built()])
+    listChunks.mockResolvedValue(chunks)
+
+    renderAt()
+
+    expect(await screen.findByText(/built/i)).toBeInTheDocument()
+    expect(screen.getByText(/local/)).toBeInTheDocument()
+  })
+
+  it('explains a build that used no extraction model', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue([
+      versions[0],
+      built({
+        build_extractor_adapter: 'null',
+        build_counts: { chunks_written: 41, obligations_written: 0 },
+      }),
+    ])
+    listChunks.mockResolvedValue(chunks)
+
+    renderAt()
+
+    // Not "extraction found nothing": the null adapter writes no obligations by
+    // design (ADR-028), and saying otherwise sends a user to debug a document
+    // when the answer is a setting.
+    expect(
+      await screen.findByText(/no extraction model was configured/i),
+    ).toBeInTheDocument()
+  })
+
+  it('reports a build that failed, and why', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue([
+      versions[0],
+      built({
+        build_state: 'failed',
+        build_error: 'JobTimeoutException: Task exceeded maximum timeout value',
+        build_counts: {},
+      }),
+    ])
+    listChunks.mockResolvedValue(chunks)
+
+    renderAt()
+
+    expect(await screen.findByText(/last build failed/i)).toBeInTheDocument()
+    expect(screen.getByText(/JobTimeoutException/)).toBeInTheDocument()
+  })
+
+  it('re-attaches to a rebuild that is still running after a reload', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue([
+      versions[0],
+      built({ build_state: 'started', build_run_id: 'run-live', build_counts: {} }),
+    ])
+    listChunks.mockResolvedValue(chunks)
+    getRebuild.mockResolvedValue({
+      run_id: 'run-live',
+      version_id: versions[1].version_id,
+      state: 'started',
+      chunks_done: 12,
+      chunks_total: 37,
+      counts: {},
+      rejections: [],
+      extractor_adapter: 'local',
+      embedder_adapter: 'local',
+      error: null,
+    })
+
+    renderAt()
+
+    // The whole point: no one clicked Build in this session, and the page still
+    // finds the run. Before this, the id existed only in the state of the tab
+    // that started it.
+    expect(await screen.findByText(/12 of 37/i)).toBeInTheDocument()
+    expect(getRebuild).toHaveBeenCalledWith('run-live')
+  })
+
+  it('does not leave a dead run reading as one still building', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue([
+      versions[0],
+      built({ build_state: 'started', build_run_id: 'run-gone', build_counts: {} }),
+    ])
+    listChunks.mockResolvedValue(chunks)
+    // The worker died without reporting, so RQ no longer knows the job. The
+    // record says "started" and will say so for ever unless the two are
+    // reconciled against each other.
+    getRebuild.mockRejectedValue(new Error('No such run.'))
+
+    renderAt()
+
+    expect(await screen.findByText(/did not finish/i)).toBeInTheDocument()
+  })
+
+
+  it('does not call an edition unbuilt when it plainly holds obligations', async () => {
+    getDocument.mockResolvedValue(document)
+    // Exactly the live state on 2026-08-26: dodd-5000-01@2020-09-09 holds 113
+    // obligations from a rebuild that predates the build record, so it has none.
+    // Saying "never built" over a list of its obligations is a contradiction the
+    // screen would put in front of a user on the very first edition they open.
+    listVersions.mockResolvedValue([versions[0], { ...versions[1] }])
+    listChunks.mockResolvedValue(chunks)
+    listObligations.mockResolvedValue({
+      obligations: [
+        {
+          obligation_id: 'ob1',
+          statement: 'Components shall apply this issuance.',
+          modality: 'SHALL',
+          section_path: ['SECTION 1'],
+          page: 3,
+        },
+      ],
+      total: 113,
+      returned: 1,
+      truncated: true,
+    })
+
+    renderAt()
+
+    expect(await screen.findByText(/113/)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/has never been built/i),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(/before builds were recorded/i)).toBeInTheDocument()
   })
 })

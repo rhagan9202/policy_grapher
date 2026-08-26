@@ -106,6 +106,19 @@ class DocumentVersionOut(BaseModel):
     source_uri: str
     supersedes: str | None
 
+    # STORY-082. All optional, because an edition nobody has built has no build
+    # to describe — and `build_state is None` is the answer that distinguishes
+    # "never built" from "built and found nothing", which are the two readings an
+    # obligation count of zero has and which need opposite actions.
+    build_state: str | None = None
+    build_run_id: str | None = None
+    build_started_at: str | None = None
+    build_changed_at: str | None = None
+    build_extractor_adapter: str | None = None
+    build_embedder_adapter: str | None = None
+    build_counts: dict[str, int] = Field(default_factory=dict)
+    build_error: str | None = None
+
 
 class DocumentIn(BaseModel):
     name: str = Field(min_length=1)

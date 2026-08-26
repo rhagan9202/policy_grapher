@@ -9,6 +9,11 @@ worker process outlives any single job and would otherwise leak one per run.
 from neo4j import Driver
 from rq import get_current_job
 
+from policy_grapher.builds import (
+    record_build_failed,
+    record_build_finished,
+    record_build_started,
+)
 from policy_grapher.config import Settings, get_settings
 from policy_grapher.db import create_driver
 from policy_grapher.embedding import build_embedder, embed_chunks
@@ -124,14 +129,56 @@ def rebuild_edition(
     """
     settings = get_settings()
     driver = create_driver(settings)
+    job = get_current_job()
+    # Direct calls (the unit tests) have no job and therefore no run id. They
+    # still exercise the rebuild; they just leave no durable record, the same way
+    # `_progress_reporter` degrades rather than requiring a queue to exist.
+    run_id = job.id if job is not None else None
+
     try:
-        return _run(
-            driver,
-            settings.neo4j_database,
-            settings,
-            version_id=version_id,
-            candidate_version_ids=candidate_version_ids,
-            proposer=proposer,
-        )
+        if run_id is not None:
+            with driver.session(database=settings.neo4j_database) as session:
+                session.execute_write(
+                    record_build_started,
+                    version_id=version_id,
+                    run_id=run_id,
+                    extractor_adapter=settings.extractor_adapter,
+                    embedder_adapter=settings.embedder_adapter,
+                )
+
+        try:
+            counts = _run(
+                driver,
+                settings.neo4j_database,
+                settings,
+                version_id=version_id,
+                candidate_version_ids=candidate_version_ids,
+                proposer=proposer,
+            )
+        except BaseException as failure:
+            # BaseException, not Exception: RQ enforces its job timeout by
+            # raising `JobTimeoutException`, which inherits from BaseException.
+            # Catching only Exception would let the one failure mode this record
+            # exists to explain pass through unrecorded — and that is exactly
+            # how the 2026-08-25 run died.
+            if run_id is not None:
+                with driver.session(database=settings.neo4j_database) as session:
+                    session.execute_write(
+                        record_build_failed,
+                        version_id=version_id,
+                        run_id=run_id,
+                        error=f"{type(failure).__name__}: {failure}",
+                    )
+            raise
+
+        if run_id is not None:
+            with driver.session(database=settings.neo4j_database) as session:
+                session.execute_write(
+                    record_build_finished,
+                    version_id=version_id,
+                    run_id=run_id,
+                    counts=counts,
+                )
+        return counts
     finally:
         driver.close()

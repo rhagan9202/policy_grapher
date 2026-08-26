@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   getDocument,
@@ -36,6 +36,7 @@ export default function DocumentDetail() {
     target: string
     data: ObligationsOut
   } | null>(null)
+  const [runLost, setRunLost] = useState(false)
   const [obligationsError, setObligationsError] = useState<{
     target: string
     message: string
@@ -148,6 +149,49 @@ export default function DocumentDetail() {
     }
   }, [slug, obligationTarget])
 
+  // STORY-082. The run id used to live only in this component's state, so
+  // reloading the tab stranded a rebuild that was still going — a nuisance when a
+  // job timed out after thirty minutes, a real loss once it could run for eight
+  // hours. The edition now carries the id of its current or last run, so the page
+  // can find one it did not start.
+  //
+  // A ref, not state: this only guards against re-fetching, and setting state in
+  // an effect body triggers cascading renders — the lint rule rejects it and it
+  // produced an intermittent failure earlier in this sprint.
+  const attachedRun = useRef<string | null>(null)
+  const selectedVersion = versions.find(
+    (version) => version.version_id === obligationTarget,
+  )
+  const recordedRunId = selectedVersion?.build_run_id ?? null
+  const recordedState = selectedVersion?.build_state ?? null
+
+  useEffect(() => {
+    if (recordedState !== 'started' || !recordedRunId) return
+    if (attachedRun.current === recordedRunId || run?.run_id === recordedRunId) {
+      return
+    }
+
+    let cancelled = false
+    attachedRun.current = recordedRunId
+
+    getRebuild(recordedRunId)
+      .then((found) => {
+        if (!cancelled) setRun(found)
+      })
+      .catch(() => {
+        // RQ no longer knows this job, and the record still says "started". A
+        // worker died without reporting, and without reconciling the two the
+        // edition reads as permanently building. `rebuild_result_ttl_seconds`
+        // also expires a legitimate result after a day, so an old record reaches
+        // here too — both mean the same thing to a reader: it did not finish.
+        if (!cancelled) setRunLost(true)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [recordedRunId, recordedState, run])
+
   // Polls until the run leaves a running state. Deliberately not a fixed number of
   // attempts: with a real model a rebuild is one call per chunk over dozens of
   // chunks and takes tens of minutes (ADR-023), so a poll budget would time out on
@@ -198,10 +242,6 @@ export default function DocumentDetail() {
   if (!document) return <p>Loading document…</p>
 
   // Only ever show a result that belongs to the edition currently selected.
-  // `obligations &&` rather than `obligations?.target ===`: with no editions loaded
-  // yet, `obligationTarget` is undefined and so is `obligations?.target`, so the
-  // optional-chaining form compared undefined to undefined, took the true branch
-  // and dereferenced null. Three existing tests caught it.
   const shownObligations =
     obligations && obligations.target === obligationTarget ? obligations.data : null
   const shownObligationsError =
@@ -209,6 +249,24 @@ export default function DocumentDetail() {
       ? obligationsError.message
       : null
 
+  // STORY-082. `null` writes chunks and no obligations by design (ADR-028), so an
+  // empty result under it is a setting to change, not a document to debug.
+  const builtWithoutAModel =
+    selectedVersion?.build_state === 'finished' &&
+    selectedVersion?.build_extractor_adapter === 'null'
+  // No record at all has two meanings, and obligations are what separate them.
+  // The build record began on 2026-08-26; an edition built before that holds its
+  // obligations and carries no record of where they came from. Calling that
+  // "never built" over a list of them is a contradiction a user meets on the
+  // first edition they open — `dodd-5000-01@2020-09-09` was in exactly this state
+  // with 113 obligations when this shipped.
+  const hasNoBuildRecord =
+    selectedVersion != null && selectedVersion.build_state == null
+  const builtBeforeRecording =
+    hasNoBuildRecord && (shownObligations?.total ?? 0) > 0
+  const neverBuilt = hasNoBuildRecord && !builtBeforeRecording
+
+  // Only ever show a result that belongs to the edition currently selected.
   return (
     <div style={{ padding: '1rem' }}>
       <h1>
@@ -384,6 +442,52 @@ export default function DocumentDetail() {
 
       <h2>Obligations</h2>
 
+      {selectedVersion && (
+        <p>
+          {builtBeforeRecording ? (
+            <>
+              <strong>Built before builds were recorded.</strong> This edition
+              holds obligations, but nothing recorded which extractor produced
+              them or when. Build it again to record that; extraction is cached,
+              so a rebuild over unchanged text calls no model.
+            </>
+          ) : neverBuilt ? (
+            <>
+              <strong>This edition has never been built.</strong> Its text is
+              ingested; nothing has been extracted from it yet.
+            </>
+          ) : runLost ? (
+            <>
+              <strong>The last build did not finish.</strong> It was recorded as
+              running and the queue no longer knows it, which means the worker
+              stopped without reporting — or the result has aged out. Build it
+              again; extraction is cached, so chunks already paid for are not
+              repeated.
+            </>
+          ) : selectedVersion.build_state === 'failed' ? (
+            <>
+              <strong>The last build failed.</strong>{' '}
+              {selectedVersion.build_error}
+            </>
+          ) : selectedVersion.build_state === 'started' ? (
+            <>Building — this edition has a run in progress.</>
+          ) : (
+            <>
+              Built {selectedVersion.build_changed_at?.slice(0, 10)} with extractor{' '}
+              <code>{selectedVersion.build_extractor_adapter}</code>.
+              {builtWithoutAModel && (
+                <>
+                  {' '}
+                  <strong>No extraction model was configured</strong>, so it wrote
+                  text and no obligations — that is what <code>null</code> does, not
+                  a failure. Set an extractor and build again.
+                </>
+              )}
+            </>
+          )}
+        </p>
+      )}
+
       {shownObligationsError && (
         <div role="alert">Could not load obligations: {shownObligationsError}</div>
       )}
@@ -391,17 +495,15 @@ export default function DocumentDetail() {
       {shownObligations === null ? (
         !shownObligationsError && <p>Loading obligations…</p>
       ) : shownObligations.total === 0 ? (
-        // Deliberately not "extraction found nothing". An edition with no
-        // obligations is either one nobody has built or one built with the `null`
-        // extractor, which writes chunks and no obligations by design (ADR-028) —
-        // and those need opposite actions. Three of the four editions in the live
-        // graph on 2026-08-26 were in this state. STORY-082 records what a rebuild
-        // actually did, and this copy tightens to name the real cause once it lands.
+        // STORY-081 AC6, completed once STORY-082 landed the build record. The
+        // paragraph above now names the actual cause — never built, built with
+        // `null`, failed — so this no longer has to hedge between them. It says
+        // only what is true of every case: extraction recorded nothing here.
         <p>
-          <strong>No obligations recorded for this edition.</strong> It may not have
-          been built yet, or it may have been built with no extraction model
-          configured — both write text and no obligations. Use{' '}
-          <em>Build derived layer</em> above with a real model configured.
+          <strong>No obligations recorded for this edition.</strong>{' '}
+          {neverBuilt
+            ? 'Build the derived layer to extract them.'
+            : 'See what the last build did, above.'}
         </p>
       ) : (
         <>

@@ -91,9 +91,22 @@ export interface DocumentVersionOut {
   checksum: string
   source_uri: string
   supersedes: string | null
+
+  // STORY-082. `build_state` null means no rebuild has ever been recorded for
+  // this edition — which is the answer that separates "never built" from "built
+  // and found nothing", two readings of an obligation count of zero that need
+  // opposite actions.
+  build_state?: 'started' | 'finished' | 'failed' | null
+  build_run_id?: string | null
+  build_started_at?: string | null
+  build_changed_at?: string | null
+  build_extractor_adapter?: string | null
+  build_embedder_adapter?: string | null
+  build_counts?: Record<string, number>
+  build_error?: string | null
 }
 
-/** One side of a proposed link, with enough context to decide from. */
+/** One obligation as a reader meets it — STORY-081. */
 export interface Obligation {
   obligation_id: string
   statement: string

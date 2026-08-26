@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from neo4j import Driver, RoutingControl
 
@@ -126,7 +128,15 @@ RETURN v.version_id   AS version_id,
        v.effective_date AS effective_date,
        v.checksum     AS checksum,
        v.source_uri   AS source_uri,
-       older.version_id AS supersedes
+       older.version_id AS supersedes,
+       v.build_run_id            AS build_run_id,
+       v.build_state             AS build_state,
+       v.build_started_at        AS build_started_at,
+       v.build_changed_at        AS build_changed_at,
+       v.build_extractor_adapter AS build_extractor_adapter,
+       v.build_embedder_adapter  AS build_embedder_adapter,
+       v.build_counts            AS build_counts,
+       v.build_error             AS build_error
 ORDER BY coalesce(v.effective_date, ''), v.ingested_at
 """
 
@@ -144,7 +154,15 @@ def list_versions(
         database_=settings.neo4j_database,
         routing_=RoutingControl.READ,
     )
-    return [DocumentVersionOut(**dict(record)) for record in records]
+    # `build_counts` is a JSON string on the node — Neo4j stores no maps on a
+    # property — so it is decoded here rather than leaking a string into a field
+    # the model declares as a dict.
+    editions = []
+    for record in records:
+        fields = dict(record)
+        fields["build_counts"] = json.loads(fields.get("build_counts") or "{}")
+        editions.append(DocumentVersionOut(**fields))
+    return editions
 
 
 LIST_CHUNKS = """
