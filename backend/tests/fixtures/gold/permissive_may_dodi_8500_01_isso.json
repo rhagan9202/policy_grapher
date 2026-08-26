@@ -1,0 +1,23 @@
+{
+  "note": "The only MAY in the gold set, and the reason this fixture exists: modality_accuracy is scored over matched pairs, so a modality with no gold example is one the floor cannot measure. It is also a precision test of the rule the prompt states — modality is 'the word the passage actually uses'. The five lettered ISSO duties below carry no modal verb at all, so under this schema they are not extractable obligations: assigning one would mean inventing a word the document did not use. A keyword matcher or an eager model reports six here; the correct answer is one.",
+  "source": {
+    "file": "850001_2014.pdf",
+    "page": 49,
+    "document": "DoDI 8500.01"
+  },
+  "section_path": [
+    "ENCLOSURE 3",
+    "19"
+  ],
+  "chunk_text": "19.  INFORMATION SYSTEM SECURITY OFFICER (ISSO).  When circumstances warrant, \na single individual may fulfill both the ISSM and the ISSO roles.  ISSOs: \n \na.  Assist the ISSMs in meeting their duties and responsibilities. \n \nb.  Implement and enforce all DoD IS and PIT system cybersecurity policies and procedures, \nas defined by cybersecurity-related documentation.  \n \nc.  Ensure that all users have the requisite security clearances and access authorization, and \nare aware of their cybersecurity responsibilities for DoD IS and PIT systems under their purview \nDoDI 8500.01, March 14, 2014 \n \nChange 1, 10/07/2019 50 ENCLOSURE 3 \nbefore being granted access to those systems. \n \nd.  In coordination with the ISSM, initiate protective or corrective measures when a \ncybersecurity incident or vulnerability is discovered and ensure that a process is in place for \nauthorized users to report all cybersecurity-related events and potential threats and vulnerabilities \nto the ISSO.  \n \ne.  Ensure that all DoD IS cybersecurity-related documentation is current and accessible to \nproperly authorized individuals.",
+  "obligations": [
+    {
+      "statement": "When circumstances warrant, a single individual may fulfill both the ISSM and the ISSO roles.",
+      "modality": "MAY",
+      "actor": "a single individual",
+      "deadline": null,
+      "conditions": "when circumstances warrant",
+      "confidence": 1.0
+    }
+  ]
+}

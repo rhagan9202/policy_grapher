@@ -21,7 +21,7 @@ import pytest
 
 from policy_grapher.config import Settings
 from policy_grapher.extraction import build_extractor
-from policy_grapher.extraction.schema import ExtractedObligation, normalize
+from policy_grapher.extraction.schema import ExtractedObligation, Modality, normalize
 from policy_grapher.extraction.scoring import micro_average, score
 
 GOLD = Path(__file__).parent / "fixtures" / "gold"
@@ -130,6 +130,30 @@ def test_the_gold_set_covers_the_cases_that_discriminate():
     assert counts[0] == 0, "no fixture whose correct answer is empty"
     assert counts[-1] >= 3, "no fixture dense enough to measure recall"
     assert len(modalities) >= 2, "no fixture mixing modalities"
+
+
+def test_the_gold_set_covers_every_modality_the_schema_allows():
+    """STORY-084 AC5, and the same shape as
+    `test_every_modality_the_schema_allows_has_a_weight` in `test_triage.py`.
+
+    `modality_accuracy` is scored over matched pairs, so a modality with no gold
+    example is a modality the floor cannot measure: an adapter could get MAY
+    wrong every time and the number would not move. The enum is the definition of
+    what has to be covered, so comparing against it means adding a modality later
+    fails here until the gold set catches up — which is exactly what happened when
+    ADR-025 added WILL, and what the weight-table test caught within a minute.
+    """
+    labelled = {
+        obligation["modality"]
+        for case in dict(_gold_cases()).values()
+        for obligation in case["obligations"]
+    }
+
+    missing = {m.value for m in Modality} - labelled
+    assert not missing, (
+        f"the gold set labels no {sorted(missing)} obligation, so the ratchet's "
+        f"modality_accuracy cannot measure it. Add a fixture quoting one."
+    )
 
 
 class _InventingExtractor:
