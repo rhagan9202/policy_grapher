@@ -57,25 +57,35 @@ US_ORIGIN_EMBEDDING_MODELS = frozenset(
 # **Measured 2026-08-21** against llama3.1:8b on CPU, temperature 0 — the first
 # time this gate has ever run against a real model rather than skipping (it had
 # no model server to reach until the `models` compose profile existed). Observed,
-# micro-averaged over the three gold fixtures: precision 0.600, recall 0.500,
-# modality accuracy 1.000, from matched=3, predicted=5, gold=6.
+# Re-measured 2026-08-26 (STORY-084) against the five-fixture, thirteen-obligation
+# gold set, with a live llama3.1:8b at temperature 0. Observed, and identical on
+# three consecutive runs:
 #
-# Precision and recall are recorded exactly as observed, which happens to equal
-# the estimates they replace. **They pass by zero margin**, and with six gold
-# obligations a single different answer moves recall by 0.167 — so a red build
-# here means "the answer changed", not necessarily "the model got worse".
-# Widening the gold set is the prerequisite for treating this as a real gate.
+#     precision 0.625   recall 0.769   modality 1.000   matched 10 of 13
 #
-# Modality is deliberately NOT raised to the observed 1.000: it was computed over
-# three matched pairs, where one error would read as 0.667. A floor that fires on
-# noise rather than on regression teaches people to ignore it.
-# `null` is deliberately absent. It extracts nothing, so any floor it could be
-# given is one it cannot fail — and recording zeros for it disarmed both of the
-# loud skips below, leaving the gate green and measuring nothing on every CI run.
-# With no entry, the default configuration skips and says so, which is the truth.
-# `test_no_recorded_floor_is_unfailable` keeps it out.
+# Recorded exactly as observed, which this file has always done. The previous
+# floors were measured over three fixtures and six obligations and their comment
+# said the widened gold set was "the prerequisite for treating this as a real
+# gate"; that prerequisite is now met, and one differing answer moves recall by
+# 0.077 rather than 0.167.
+#
+# **Getting here meant fixing the extractor, not the floor.** Run against the
+# widened gold set the model first scored precision 0.294 / recall 0.385, well
+# under the floors then recorded — the gate's own message says "Fix the extractor
+# — do not lower the floor", and lowering them would have rebuilt the vacuous gate
+# `FLOORS["null"]` had just been removed for. The failure was real: llama3.1:8b
+# was writing statements that began at the verb, dropping the subject into
+# `actor`, so "PMs shall manage programs..." came back as "manage programs...".
+# `scoring.py` matches on the same normalised form `obligation_id` is hashed from,
+# so those are different obligations and the human decisions attached to the old
+# id are orphaned. PROMPT_VERSION 2 makes the quoting rule explicit and names the
+# three shapes that look like duties and carry no modal verb.
+#
+# modality is deliberately NOT raised to the observed 1.000. Over ten matched
+# pairs a single error reads as 0.900, and a floor that fires on one different
+# answer teaches people to ignore it. 0.85 tolerates one and catches two.
 FLOORS = {
-    "local:llama3.1:8b": {"precision": 0.60, "recall": 0.50, "modality_accuracy": 0.85},
+    "local:llama3.1:8b": {"precision": 0.625, "recall": 0.769, "modality_accuracy": 0.85},
 }
 
 
@@ -214,9 +224,20 @@ def test_the_configured_extractor_clears_its_floors():
 
     scores = []
     for name, case in _gold_cases():
-        predicted = extractor.extract(
-            case["chunk_text"], section_path=case["section_path"]
-        )
+        try:
+            predicted = extractor.extract(
+                case["chunk_text"], section_path=case["section_path"]
+            )
+        except ValueError:
+            # What production does with a chunk whose output fails the schema
+            # (ADR-023): reject the chunk, keep the run. Letting it raise here
+            # would end the gate with an error instead of a score, which reports
+            # "the suite broke" for what is really "the model produced invalid
+            # output" — a quality failure the recall floor should price in, not a
+            # crash. Measured 2026-08-26: llama3.1:8b does this on the
+            # definitional fixture, returning a null modality for a scope
+            # sentence.
+            predicted = []
         gold = [ExtractedObligation.model_validate(o) for o in case["obligations"]]
         scores.append(score(predicted, gold))
 
