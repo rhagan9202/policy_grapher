@@ -136,8 +136,8 @@ a wiped volume against `llama3.1:8b`:
 4. **Review** shows the queue. Approve one — and that is what puts a row in **Triage**, because
    a change is only actionable once it reaches a clause something of yours implements.
 
-**Expect it to be slow.** With a real model a rebuild is one call per chunk: measured at ~104
-seconds a chunk on CPU, so 34 chunks is around an hour. A *second* rebuild over unchanged
+**Expect it to be slow.** With a real model a rebuild is one call per chunk: measured at ~91
+seconds a chunk on CPU across sprint 6 and 7's runs, so a 37-chunk edition is around an hour. A *second* rebuild over unchanged
 content calls the model zero times and finishes in under a minute — extraction is cached
 ([ADR-013](docs/specs/adr/ADR-013-extraction-is-a-port-with-a-ratchet.md)).
 
@@ -147,12 +147,26 @@ if your host runs inference faster. Each individual model call is bounded separa
 `EXTRACTOR_TIMEOUT_SECONDS` (ten minutes), so a wedged Ollama still surfaces quickly rather
 than sitting inside the eight-hour budget.
 
-Measured on that run: **38 and 34 chunks**, **96 and 115 obligations**, **265 proposals**, and
-2–3 chunks per run rejected by the schema — which costs those chunks and not the run
-([ADR-023](docs/specs/adr/ADR-023-a-rejected-item-costs-its-chunk-not-the-run.md)); the screen
-reports how many and why. Triage then showed 204 changes and **one row**: the other 203 have no
-reviewed link to anything of ours, so they stay off the ranked list. That is deliberate, and it
-reads as a broken screen until you know it — which is why the screen says the number out loud.
+**Measured on 2026-08-27**, running the two editions of DoDD 5000.01 through the product from
+the browser: **38 and 37 chunks**, **93 and 56 obligations**, **112 proposals**, and one
+approved link. Triage then showed 149 changes and **one row** — the other 148 have no reviewed
+link to anything of ours, so they stay off the ranked list. That is deliberate, and it reads as
+a broken screen until you know it, which is why the screen says the number out loud.
+
+**Expect roughly half of each document to yield nothing, and expect that to be right.** That run
+rejected 20 of 37 chunks and 11 of 38, and dropped a further 85 and 16 individual statements.
+Almost all of it is the model labelling something a duty that names none: section headings like
+"e. Emphasize Competition." reported as SHALL, and preamble fragments. The schema requires a
+statement to contain the modality it is labelled with, so those are refused — a rejected
+statement costs itself and a rejected chunk costs its chunk, never the run
+([ADR-030](docs/specs/adr/ADR-030-a-rejected-item-costs-itself-not-its-chunk.md),
+[ADR-023](docs/specs/adr/ADR-023-a-rejected-item-costs-its-chunk-not-the-run.md)). The screen
+reports both counts and why.
+
+*The numbers above replace ones measured before that check existed. They were higher — 96 and
+115 obligations, 265 proposals — and the difference is not a regression: it is the headings no
+longer being counted as duties. A smaller honest number is worth more than a larger one nobody
+can trust, and this project spent a sprint learning that the earlier figures described a defect.*
 
 On the lean stack, where `EXTRACTOR_ADAPTER=null`, every step still works and writes chunks,
 but no obligations, so Triage and Review stay empty. **The document's own page says so** — each
