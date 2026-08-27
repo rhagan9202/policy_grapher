@@ -1,6 +1,6 @@
 # STORY-036: Ingestion accepts an XLSX manifest
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 

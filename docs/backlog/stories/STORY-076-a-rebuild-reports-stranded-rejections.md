@@ -1,6 +1,6 @@
 # STORY-076: A rebuild says how many rejections a re-key stranded
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

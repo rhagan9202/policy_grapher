@@ -1,6 +1,6 @@
 # STORY-095: The rejection rate is diagnosed
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 

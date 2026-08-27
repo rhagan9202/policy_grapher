@@ -1,6 +1,6 @@
 # STORY-031: Near-duplicate documents can be reconciled
 
-**Epic:** — · **Status:** Ready · **Estimate:** L
+**Epic:** — · **Status:** Done · **Estimate:** L
 
 ## User story
 

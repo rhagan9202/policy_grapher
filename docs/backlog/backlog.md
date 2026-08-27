@@ -32,27 +32,23 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
-**Ready holds four items, all committed to [sprint 8](../sprints/sprint-08/plan.md)**, and they
-serve one goal: the product meets its own definition of done, and the definition is checked
-rather than attested. Two close the last reachable MVP bars (STORY-036, STORY-014), one makes a
-blocked bar say so where it is stated (STORY-093), and one turns the definition itself into
-something that can fail (STORY-094).
+**Ready is empty, and the MVP is met.** All ten of sprint 8's items are in [Done](#done) — the
+largest commitment this project has made, delivered whole. Every bar in the
+[vision](../planning/vision.md#what-success-looks-like)'s definition of done is now closed or
+recorded as blocked, and [STORY-094](stories/STORY-094-the-definition-of-done-is-checked.md)
+fails a build when one stops being true. The corpus bar had silently fallen to 2 documents
+against a bar of 20; it is back to 23.
 
-**That last one exists because a bar stopped being met and nothing noticed.** Sprints 6 and 7
-rebuilt the graph around two editions of one directive; at sprint 8 planning it held 2 corpus
-documents against a bar of 20, and 48 of its 50 `:Document` nodes were `:External` references.
+[Sprint 9's planning session](../sprints/sprint-09/plan.md) starts from [Refining](#refining),
+which holds the finding sprint 8 could not have predicted: **the product cannot see the
+responsibilities section of a DoD issuance**, because DoD writes the part that assigns duties to
+organisations without modal verbs (STORY-097). That is now the largest open question about
+whether this product does what it says.
 
-**Every deferred item was pulled in at planning**, on request, and the goal widened to match
-rather than leaving half the slate unserved by it. That took Ready from four items to **ten —
-2L + 5M + 3S**, roughly sixteen item-equivalents against a session that has twice delivered six,
-and half again the size of sprint 5's record overcommit. The [plan](../sprints/sprint-08/plan.md)
-records that as a deliberate overcommit with a drop order decided in advance.
-
-**STORY-035 is the one deferred item that was not pulled in.** It cannot be started: no `.docx`
-exists in this repository to design extraction against, and rules fitted to a document we
-invented would be measured by a ratchet that could not tell us they were wrong. It stays in
-[Refining](#refining), and STORY-093 makes that blocker visible in the vision where the bar is
-stated.
+**STORY-035 remains the one item that cannot be started.** No `.docx` exists in this repository
+to design extraction against, and rules fitted to a document we invented would be measured by a
+ratchet that could not tell us they were wrong. STORY-093 made that blocker visible in the vision
+where the bar is stated.
 
 The two open MVP bars — STORY-036 (XLSX) and STORY-014 (search) — are deliberately **not** in
 this sprint. Both are real and neither serves this goal, and planning picks the goal first.
@@ -96,16 +92,6 @@ row** through product actions alone; the sequence is in the
 
 | ID | Item | Epic | Est. | Sprint | Notes |
 | --- | --- | --- | --- | --- | --- |
-| STORY-095 | The rejection rate is diagnosed | — | M | 8 | Sprint 7's retrospective assigned this and sprint 8's planning deferred it once. 20 of 37 chunks yield nothing, and a rejected chunk is one where the model returned items and *none* validated — so it is over-extracting, not reading empty passages. Prompt, model or chunker, tested against evidence rather than argued. A spike: the output is an answer, and the fix is a separate item. See [STORY-095](stories/STORY-095-the-rejection-rate-is-diagnosed.md) |
-| STORY-096 | How a reissue's edits are recognised is decided | — | S | 8 | The decision half of STORY-047, split out because three of its five criteria are decisions: a similarity threshold, whether [ADR-015](../specs/adr/ADR-015-changes-are-detected-and-ranked.md) is superseded, and what Triage shows when a pairing is ambiguous. Same pattern as STORY-087/088, which worked. See [STORY-096](stories/STORY-096-how-a-reissue-is-paired-is-decided.md) |
-| STORY-047 | A reissued document's edits are recognised as edits, not as wholesale replacement | — | M | 8 | Diffing the 2018 and 2020 editions produced **0 MODIFIED, 11 ADDED, 80 REMOVED** — ADR-015's fallback behaving as designed, and reading to a reviewer as "the whole document was replaced". Unstartable before STORY-096: a pairing rule written before the decision *is* the decision. See [STORY-047](stories/STORY-047-reissues-read-as-replacement.md) |
-| STORY-076 | A rebuild says how many rejections a re-key stranded | — | S | 8 | `UNPROMOTABLE` filters `{verdict: 'approve'}`, so a stranded *rejection* is counted by nothing — and it is worse than a stranded approval, because the proposal returns and the reviewer has no way to know they already refused it. Newly testable: no `:LinkDecision` existed at all before 2026-08-27. See [STORY-076](stories/STORY-076-a-rebuild-reports-stranded-rejections.md) |
-| STORY-073 | Each document edition is ratcheted against its own reference set, not its current successor's | — | L | 8 | Two of seven sample PDFs carry no floor, both editions of the corpus's one multi-edition document. Scored against the CSV row describing a *later* edition, the 2003 edition reads as 7% recall with 11 inventions that are genuine citations. **L because where a per-edition expected set lives is undecided**, and that is its first acceptance criterion. See [STORY-073](stories/STORY-073-editions-ratchet-against-their-own-reference-set.md) |
-| STORY-031 | Near-duplicate documents can be reconciled | — | L | 8 | Ingest flags them (STORY-003) and nothing acts on the flag, so one issuance cited two ways is two documents splitting their own references. Scoped tractable by deciding a *person* resolves each pair — the same shape as Review. **L because what a merge means for the graph is undecided**, and that is its first criterion. See [STORY-031](stories/STORY-031-near-duplicate-documents-are-reconciled.md) |
-| STORY-036 | Ingestion accepts an XLSX manifest | — | M | 8 | One of the two open file-type bars in the [vision](../planning/vision.md#what-success-looks-like), and the only one that can be started: a manifest is *our* format — the three columns `sources/manifest.py` already requires — so a fixture built from the sample CSV is a faithful sample rather than a fabrication. Sized M against sprint 6's S, which costed the parser and not the fixture. See [STORY-036](stories/STORY-036-ingestion-accepts-an-xlsx-manifest.md) |
-| STORY-093 | The vision says which of its bars cannot be started | — | S | 8 | DOCX has been blocked across three sprints for a reason recorded only in a backlog note: no `.docx` exists in the repo, so extraction rules would be fitted to a document we invented. XLSX sits in the same sentence and is not blocked. A reader cannot tell those apart from the vision. See [STORY-093](stories/STORY-093-the-vision-says-which-bars-are-blocked.md) |
-| STORY-014 | A user can search for a document by name or ID from anywhere in the UI | — | M | 8 | The last reachable MVP bar. STORY-010's filter matches `name` only and lives on one screen; the bar asks for the **ID** — the slug a reader has seen in every citation — and for reach from anywhere. The decision was taken at sprint 8 planning: a header control submitting to the existing table, not a new results screen. See [STORY-014](stories/STORY-014-search-from-anywhere.md) |
-| STORY-094 | The MVP's definition of done is checked, not attested | — | M | 8 | The vision lists its bars in prose and nothing verifies them, so a bar is met according to whoever last read the list. **The corpus bar stopped being met silently**: sprints 6 and 7 left 2 corpus documents against a bar of 20, and every number they reported was measured against one document without that being said. See [STORY-094](stories/STORY-094-the-definition-of-done-is-checked.md) |
 
 ## Refining
 
@@ -157,6 +143,16 @@ the implementation plans beside them.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-096 | How a reissue's edits are recognised is decided | 8 |
+| STORY-095 | The rejection rate is diagnosed | 8 |
+| STORY-094 | The MVP's definition of done is checked, not attested | 8 |
+| STORY-093 | The vision says which of its bars cannot be started | 8 |
+| STORY-076 | A rebuild says how many rejections a re-key stranded | 8 |
+| STORY-073 | Each document edition is ratcheted against its own reference set, not its current successor's | 8 |
+| STORY-047 | A reissued document's edits are recognised as edits, not as wholesale replacement | 8 |
+| STORY-036 | Ingestion accepts an XLSX manifest | 8 |
+| STORY-031 | Near-duplicate documents can be reconciled | 8 |
+| STORY-014 | A user can search for a document by name or ID from anywhere in the UI | 8 |
 | STORY-092 | The Authority and Entity helpers go | 7 |
 | STORY-091 | The README's corpus numbers describe what the product produces | 7 |
 | STORY-090 | Review's empty queue names its upstream cause | 7 |

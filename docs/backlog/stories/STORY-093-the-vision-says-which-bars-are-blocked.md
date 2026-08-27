@@ -1,6 +1,6 @@
 # STORY-093: The vision says which of its bars cannot be started
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

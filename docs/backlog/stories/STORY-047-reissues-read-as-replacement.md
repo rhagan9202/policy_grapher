@@ -1,6 +1,6 @@
 # STORY-047: A reissued document's edits are recognised as edits, not as wholesale replacement
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 

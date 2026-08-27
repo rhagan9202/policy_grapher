@@ -1,6 +1,6 @@
 # STORY-014: A user can search for a document by name or ID from anywhere in the UI
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 

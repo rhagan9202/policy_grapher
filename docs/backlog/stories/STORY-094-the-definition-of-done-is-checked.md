@@ -1,6 +1,6 @@
 # STORY-094: The MVP's definition of done is checked, not attested
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 

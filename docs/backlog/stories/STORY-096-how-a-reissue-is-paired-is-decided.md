@@ -1,6 +1,6 @@
 # STORY-096: How a reissue's edits are recognised is decided
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

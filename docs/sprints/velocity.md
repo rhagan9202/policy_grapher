@@ -1,7 +1,7 @@
 # Velocity
 
 *Living document — one row per completed sprint, plus any interval that delivered work
-without being one. Last reviewed: 2026-08-27 (sprint 7 closed)*
+without being one. Last reviewed: 2026-08-27 (sprint 8 closed)*
 
 | Sprint | Committed | Delivered | Notes |
 | --- | --- | --- | --- |
@@ -17,7 +17,9 @@ without being one. Last reviewed: 2026-08-27 (sprint 7 closed)*
 
 | 7 | 6 stories | 6 stories | 1M + 5S committed, all six delivered, plus four defects found while executing — three of them this sprint's own changes meeting live data. **The sprint's value is not in the six rows.** It is that the product's loop ran end to end for the first time, on obligations worth trusting, and the first `:LinkDecision` in the project's history was recorded and survived two rebuilds. Also the sprint that found sprint 6's heading measurement was false: a check written against five exact strings, invalidated by the same change it was verifying. |
 
-**Rolling average (last 3):** 7.0 stories (9, 6, 6) — and read it loosely. Sprint 1's row still
+| 8 | 10 stories | 10 stories | 2L + 5M + 3S — **by a wide margin the largest commitment in this project's history**, roughly sixteen item-equivalents against a session that had twice delivered six, and half again sprint 5's record overcommit. Every deferred item was pulled in on request and the goal widened to match. Nothing was dropped, and the plan's own explanation is why it is readable rather than lucky: four of the ten produced a document rather than a feature, and both L items were L because of decisions answerable from evidence already in the repository. **Do not read this row as a new baseline.** It is what happens when the expensive part of an L is a question somebody has already gathered the evidence for; the session that closed the MVP was also the session with the least unknown work in it. |
+
+**Rolling average (last 3):** 7.3 stories (6, 6, 10) — and read it loosely. Sprint 1's row still
 says 11 against a true 13, sprints 1 and 2 counted unestimated items, and sprint 3 is the first
 sized one. Counting *stories* is now actively misleading in a second way: sprint 4's seven
 includes one L that consumed a design session, a spec and a plan before any code, and two
