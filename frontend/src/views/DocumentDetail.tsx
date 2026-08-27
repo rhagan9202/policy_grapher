@@ -399,11 +399,22 @@ export default function DocumentDetail() {
                 {run.counts.chunks_rejected ?? 0} chunk
                 {(run.counts.chunks_rejected ?? 0) === 1 ? '' : 's'} rejected by the
                 schema and skipped.
+                {(run.counts.items_dropped ?? 0) > 0 && (
+                  <>
+                    {' '}
+                    A further {run.counts.items_dropped} statement
+                    {run.counts.items_dropped === 1 ? '' : 's'} dropped from chunks
+                    that were otherwise kept.
+                  </>
+                )}
               </p>
 
-              {/* The count says the edition is incomplete; these say what is
+              {/* The counts say the edition is incomplete; these say what is
                   missing from it. Reading container logs is not an answer for an
-                  operator, which is what STORY-057's criteria asked for. */}
+                  operator, which is what STORY-057's criteria asked for. Since
+                  ADR-030 the list covers both losses — a chunk rejected whole and
+                  a statement dropped from a chunk that survived — because both are
+                  a sentence the model returned and the schema refused. */}
               {run.rejections.length > 0 && (
                 <ul>
                   {run.rejections.map((rejection) => (

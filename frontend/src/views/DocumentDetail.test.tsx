@@ -725,3 +725,54 @@ describe('DocumentDetail build state', () => {
     expect(screen.getByText(/before builds were recorded/i)).toBeInTheDocument()
   })
 })
+
+
+// ADR-030 moved the blast radius from the chunk to the item, and the count is
+// the condition attached to that decision. Reporting only `chunks_rejected`
+// while listing item drops beside it says "0 chunks rejected" above eight
+// entries — which is worse than either number alone.
+
+describe('DocumentDetail rebuild reporting', () => {
+  const finishedRun = (counts: Record<string, number>, rejections: unknown[]) => ({
+    run_id: 'r', version_id: versions[1].version_id, state: 'finished',
+    chunks_done: 38, chunks_total: 38, counts, rejections,
+    extractor_adapter: 'local', embedder_adapter: 'local', error: null,
+  })
+
+  it('reports dropped items separately from rejected chunks', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+    startRebuild.mockResolvedValue({ run_id: 'r' })
+    getRebuild.mockResolvedValue(
+      finishedRun(
+        { chunks_written: 38, obligations_written: 90, chunks_rejected: 1, items_dropped: 8 },
+        [{ chunk_id: 'c1', reason: 'modality' }],
+      ),
+    )
+
+    renderAt()
+    await screen.findByRole('button', { name: /build derived layer/i })
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    expect(await screen.findByText(/8 statements dropped/i)).toBeInTheDocument()
+    expect(screen.getByText(/1 chunk rejected/i)).toBeInTheDocument()
+  })
+
+  it('says nothing about drops when there were none', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+    startRebuild.mockResolvedValue({ run_id: 'r' })
+    getRebuild.mockResolvedValue(
+      finishedRun({ chunks_written: 38, obligations_written: 90, chunks_rejected: 0, items_dropped: 0 }, []),
+    )
+
+    renderAt()
+    await screen.findByRole('button', { name: /build derived layer/i })
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    expect(await screen.findByText(/0 chunks rejected/i)).toBeInTheDocument()
+    expect(screen.queryByText(/statements dropped/i)).not.toBeInTheDocument()
+  })
+})
