@@ -1,0 +1,73 @@
+{
+  "_note": [
+    "What each *edition* cites, transcribed by hand from its own references section —",
+    "STORY-073. The corpus CSV cannot answer this: it holds one row per document name,",
+    "describing whichever edition was current when it was written, so an older edition",
+    "scored against it is measured on how much two editions disagree rather than on how",
+    "well extraction worked. The 2003 edition scored 7% recall with 11 'inventions' that",
+    "were all genuine citations.",
+    "",
+    "A separate file rather than an extra column on the corpus CSV, decided at sprint 8.",
+    "That CSV is a product input, not a fixture: `config.py` names it as `sample_csv`, the",
+    "app auto-ingests it, and six test modules read it. Adding an edition column would",
+    "change the manifest format itself and both of its readers (CSV and XLSX). And it is",
+    "not the same fact twice: the CSV says what a *document* cites, this says what an",
+    "*edition* cites.",
+    "",
+    "Names are written as a correct extractor would produce them, not copied from what",
+    "ours currently produces — an expected set taken from the code under test cannot fail.",
+    "Where that required a judgement it is noted on the entry."
+  ],
+  "500001p_2003.pdf": {
+    "document": "DoDD 5000.01",
+    "edition": "May 12, 2003, incorporating Change 2, August 31, 2018",
+    "transcribed_from": "the inline reference list on the cover, items (a) to (n)",
+    "references": [
+      "DoDD 5000.1",
+      "DoDI 5000.2",
+      "DoDI 5025.01",
+      "Section 8066, Public Law 109-289",
+      "United States Code, Title 10",
+      "Deputy Secretary of Defense Memorandum",
+      "Section 2350a of title 10, United States Code",
+      "Section 2751 of title 22, United States Code",
+      "Section 2531 of title 10, United States Code",
+      "Federal Acquisition Regulation",
+      "Section 2222, title 10, United States Code",
+      "DoDD 8500.01E",
+      "DoDD 4630.05",
+      "DoDD 2060.1"
+    ],
+    "judgements": [
+      "(j) reads 'Federal Acquisition Regulation (FAR), current edition'. Written without the parenthetical, which is how the manifest strips one when deriving a slug.",
+      "(k) reads 'Section 2222, title 10, United States Code' — a comma where (g) and (i) say 'of title 10'. Kept as the document writes it rather than normalised to match its siblings."
+    ]
+  },
+  "500001p_2020.pdf": {
+    "document": "DoDD 5000.01",
+    "edition": "September 9, 2020, as originally issued",
+    "transcribed_from": "the REFERENCES section on page 16",
+    "references": [
+      "Summary of the 2018 National Defense Strategy of the United States of America",
+      "DoDD 1322.18",
+      "DoDD 2060.01",
+      "DoDD 5105.82",
+      "DoDD 5105.84",
+      "DoDD 5124.02",
+      "DoDD 5135.02",
+      "DoDD 5137.02",
+      "DoDD 5141.02",
+      "DoDD 5143.01",
+      "DoDD 5144.02",
+      "DoDI 5015.02",
+      "DoDI 8500.01",
+      "Military-Standard 882E",
+      "Secretary of Defense Memorandum",
+      "United States Code, Title 10",
+      "United States Code, Title 44"
+    ],
+    "judgements": [
+      "The first entry is a quoted title with no issuance number. Written as the document gives it; a correct extractor has to reach titles of that shape, and ours does not."
+    ]
+  }
+}

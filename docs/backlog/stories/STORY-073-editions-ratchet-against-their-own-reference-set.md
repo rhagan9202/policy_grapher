@@ -1,6 +1,6 @@
 # STORY-073: Each document edition is ratcheted against its own reference set, not its current successor's
 
-**Epic:** — · **Status:** Ready · **Estimate:** L
+**Epic:** — · **Status:** Ready · **Estimate:** L (decision taken in-sprint)
 
 ## User story
 
