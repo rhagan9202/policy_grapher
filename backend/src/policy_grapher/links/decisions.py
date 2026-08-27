@@ -75,6 +75,26 @@ WHERE NOT EXISTS { MATCH (:Obligation {obligation_id: d.source_obligation_id}) }
 RETURN count(d) AS unpromotable
 """
 
+# STORY-076. The mirror of the query above, and it was missing: `UNPROMOTABLE`
+# filters on `approve`, so a rejection whose obligations a re-extraction moved
+# beyond repair was counted by nothing — not replayed, not reported.
+#
+# The asymmetry matters more than the symmetry. An approval that cannot be applied
+# leaves a link missing, and the reviewer meets the proposal again in the queue. A
+# rejection that cannot be applied leaves a *suppression nobody is applying*: the
+# proposal returns and the reviewer has no way to know they already refused it. The
+# verdict is not merely lost, it is silently reversed.
+#
+# Counted separately rather than folded into `unpromotable`, because that name
+# means "was going to promote and could not" and a rejection was never going to
+# promote anything.
+REJECTIONS_STRANDED = """
+MATCH (d:LinkDecision {verdict: 'reject'})
+WHERE NOT EXISTS { MATCH (:Obligation {obligation_id: d.source_obligation_id}) }
+   OR NOT EXISTS { MATCH (:Obligation {obligation_id: d.target_obligation_id}) }
+RETURN count(d) AS rejections_stranded
+"""
+
 
 READ_OBLIGATION_STATEMENTS = """
 MATCH (:DocumentVersion {version_id: $version_id})-[:MANDATES]->(o:Obligation)
@@ -252,17 +272,25 @@ def record_decision(
 def replay_decisions(tx: ManagedTransaction) -> dict[str, int]:
     """Apply every recorded verdict to the graph. The sole writer of `IMPLEMENTS`.
 
-    Returns `promoted`, `suppressed` and `unpromotable`. The third is the one a
-    caller must not ignore: an approval whose obligations no longer exist after a
-    re-extraction is still recorded, but the graph cannot express it, and a
-    rebuild that reported only "promoted: 4" would look complete when a human
-    decision had quietly stopped being represented.
+    Returns `promoted`, `suppressed`, `unpromotable` and `rejections_stranded`.
+    The last two are the ones a caller must not ignore: a verdict whose
+    obligations no longer exist after a re-extraction is still recorded, but the
+    graph cannot express it, and a rebuild reporting only "promoted: 4" would look
+    complete when a human decision had quietly stopped being represented.
+
+    They are separate counts because the two losses are not the same event
+    (STORY-076). A stranded approval leaves a link missing and the proposal
+    returns to the queue, where the reviewer meets it again. A stranded rejection
+    leaves a suppression nobody is applying: the proposal returns and nothing
+    tells the reviewer they already refused it.
     """
     unpromotable = tx.run(UNPROMOTABLE).single()["unpromotable"]
+    stranded = tx.run(REJECTIONS_STRANDED).single()["rejections_stranded"]
     promoted = tx.run(PROMOTE).single()["promoted"]
     suppressed = tx.run(SUPPRESS).single()["suppressed"]
     return {
         "promoted": promoted,
         "suppressed": suppressed,
         "unpromotable": unpromotable,
+        "rejections_stranded": stranded,
     }

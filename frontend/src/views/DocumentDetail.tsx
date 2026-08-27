@@ -459,6 +459,22 @@ export default function DocumentDetail() {
                   re-reviewing.
                 </p>
               )}
+
+              {/* STORY-076. Reported separately from the approvals above because
+                  the two losses are different events, and this one is worse: a
+                  stranded approval leaves a link missing and the proposal comes
+                  back to the queue, where it is met again. A stranded rejection
+                  leaves a refusal nobody is applying — the proposal returns and
+                  nothing says it was already refused. */}
+              {(run.counts.rejections_stranded ?? 0) > 0 && (
+                <p>
+                  {run.counts.rejections_stranded} recorded rejection
+                  {run.counts.rejections_stranded === 1 ? '' : 's'} could not be
+                  replayed. The proposals they refused can return to the review
+                  queue, and nothing there will say they were refused before — so
+                  these need deciding again.
+                </p>
+              )}
             </div>
           )}
         </section>

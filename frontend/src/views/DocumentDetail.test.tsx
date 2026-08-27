@@ -811,3 +811,51 @@ describe('pollDelayMs', () => {
     expect(8 * 60 * 60 * 1000 / FIRST_POLL_MS).toBeGreaterThan(14000)
   })
 })
+
+// STORY-076. `UNPROMOTABLE` filtered on approvals, so a stranded rejection was
+// counted by nothing — and it is the worse of the two losses, because the
+// proposal returns to the queue with no sign it was already refused.
+
+describe('DocumentDetail, stranded rejections', () => {
+  const finished = (counts: Record<string, number>) => ({
+    run_id: 'r', version_id: versions[1].version_id, state: 'finished',
+    chunks_done: 37, chunks_total: 37, counts, rejections: [],
+    extractor_adapter: 'local', embedder_adapter: 'local', error: null,
+  })
+
+  it('reports a stranded rejection and says what it costs', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+    startRebuild.mockResolvedValue({ run_id: 'r' })
+    getRebuild.mockResolvedValue(
+      finished({ chunks_written: 37, obligations_written: 56, rejections_stranded: 2 }),
+    )
+
+    renderAt()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /build derived layer/i }),
+    )
+
+    expect(await screen.findByText(/2 recorded rejections/i)).toBeInTheDocument()
+    expect(screen.getByText(/refused before/i)).toBeInTheDocument()
+  })
+
+  it('says nothing about rejections when none were stranded', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+    startRebuild.mockResolvedValue({ run_id: 'r' })
+    getRebuild.mockResolvedValue(
+      finished({ chunks_written: 37, obligations_written: 56, rejections_stranded: 0 }),
+    )
+
+    renderAt()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /build derived layer/i }),
+    )
+
+    await screen.findByText(/37 chunks written|chunks rejected/i)
+    expect(screen.queryByText(/recorded rejection/i)).not.toBeInTheDocument()
+  })
+})

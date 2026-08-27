@@ -629,3 +629,65 @@ def test_two_repoints_that_would_collide_with_each_other_do_not_abort_the_batch(
     stranded = [r for r in records if r["key"] != decision_key("new-x", "target")]
     assert stranded[0]["s"] in {"old-a", "old-b"}
     assert stranded[0]["key"] == decision_key(stranded[0]["s"], "target")
+
+
+# --- STORY-076: a stranded rejection is counted too ----------------------------
+
+
+@pytest.mark.integration
+def test_a_rejection_the_replay_cannot_apply_is_counted(clean_graph, database):
+    """`UNPROMOTABLE` filters `{verdict: 'approve'}`, so a rejection whose
+    obligations a re-extraction moved beyond repair was counted by nothing.
+
+    The asymmetry is worse than it looks. An approval that cannot be applied
+    leaves a link missing, and the reviewer meets it again in the queue. A
+    rejection that cannot be applied leaves a **suppression nobody is applying**:
+    the proposal comes back and the reviewer has no way to know they already
+    refused it. The verdict is not merely lost, it is silently reversed.
+    """
+    source, target = _seed_proposal(clean_graph, database)
+    _decide(clean_graph, database, source=source, target=target, verdict="reject")
+    clean_graph.execute_query(
+        "MATCH (o:Obligation {obligation_id: $id}) DETACH DELETE o",
+        {"id": target},
+        database_=database,
+    )
+
+    result = _replay(clean_graph, database)
+
+    assert result["rejections_stranded"] == 1
+    # Not folded into `unpromotable`: that name means "was going to promote and
+    # could not", and a rejection was never going to promote anything.
+    assert result["unpromotable"] == 0
+
+
+@pytest.mark.integration
+def test_the_two_stranded_counts_move_independently(clean_graph, database):
+    """A stranded approval must not increment the rejection count or vice versa —
+    otherwise one number is doing two jobs and neither can be read."""
+    source_a, target_a = _seed_proposal(clean_graph, database)
+    _decide(clean_graph, database, source=source_a, target=target_a, verdict="approve")
+    clean_graph.execute_query(
+        "MATCH (o:Obligation {obligation_id: $id}) DETACH DELETE o",
+        {"id": target_a},
+        database_=database,
+    )
+
+    result = _replay(clean_graph, database)
+
+    assert result["unpromotable"] == 1
+    assert result["rejections_stranded"] == 0
+
+
+@pytest.mark.integration
+def test_a_rejection_the_replay_can_still_apply_is_not_stranded(
+    clean_graph, database
+):
+    """The count is about loss, not about rejections in general."""
+    source, target = _seed_proposal(clean_graph, database)
+    _decide(clean_graph, database, source=source, target=target, verdict="reject")
+
+    result = _replay(clean_graph, database)
+
+    assert result["rejections_stranded"] == 0
+    assert result["suppressed"] >= 1
