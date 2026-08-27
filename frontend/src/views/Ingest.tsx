@@ -2,10 +2,22 @@ import { useEffect, useState } from 'react'
 import { ingest, listSources } from '../api/client'
 import type { IngestResult, SourceFile } from '../api/types'
 
-/** What ingest will make of a file, in the words the screen's own prose uses. */
-const KIND_LABEL: Record<string, string> = {
-  manifest: 'CSV manifest',
-  document: 'PDF document',
+/** What ingest will make of a file, in the words the screen's own prose uses.
+ *
+ *  Read off the extension rather than only the kind, since STORY-036: the backend
+ *  reports `manifest` for both a CSV and a spreadsheet, and calling an `.xlsx` a
+ *  "CSV manifest" is the same defect this picker exists to fix — a reader who
+ *  cannot tell what a file is. Found by ingesting one and reading the label. */
+const MANIFEST_LABELS: Record<string, string> = {
+  csv: 'CSV manifest',
+  xlsx: 'spreadsheet manifest',
+}
+
+function describeKind(file: { filename: string; kind: string }): string {
+  if (file.kind === 'document') return 'PDF document'
+  if (file.kind !== 'manifest') return file.kind
+  const extension = file.filename.split('.').pop()?.toLowerCase() ?? ''
+  return MANIFEST_LABELS[extension] ?? 'manifest'
 }
 
 /** Readable at a glance, which "1463 KB" is not. */
@@ -15,7 +27,7 @@ function humanSize(bytes: number): string {
 }
 
 function describe(source: SourceFile): string {
-  const kind = KIND_LABEL[source.kind] ?? source.kind
+  const kind = describeKind(source)
   const already = source.ingested ? ' · already ingested' : ''
   return `${source.filename} — ${kind} · ${humanSize(source.size_bytes)}${already}`
 }
@@ -83,7 +95,8 @@ export default function Ingest() {
       <h1>Ingest</h1>
 
       <p>
-        What the backend can read from its own data directory. A CSV manifest lists
+        What the backend can read from its own data directory. A manifest — a CSV
+        or a spreadsheet — lists
         documents and the references between them; a PDF issuance carries one
         document and its text. Nothing is uploaded from this machine — the file has
         to be in that directory already.
@@ -103,7 +116,8 @@ export default function Ingest() {
           <p>
             <strong>No files to ingest.</strong> The backend is reading{' '}
             <code>DATA_DIR</code> inside its own container, and that directory is
-            empty. Put a CSV manifest or a PDF issuance there and reload.
+            empty. Put a manifest (CSV or spreadsheet) or a PDF issuance there and
+            reload.
           </p>
         </div>
       )}

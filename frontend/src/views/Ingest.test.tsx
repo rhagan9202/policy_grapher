@@ -265,3 +265,25 @@ describe('Ingest — choosing a source', () => {
     expect(ingest).toHaveBeenCalledWith('corpus.csv')
   })
 })
+
+// STORY-036 added XLSX manifests, and the picker went on calling every manifest a
+// "CSV manifest" — found by ingesting one through this screen and reading the
+// label it offered. A picker that names the wrong format is the same defect the
+// picker was built to fix (STORY-077): a reader who cannot tell what a file is.
+
+describe('Ingest, naming the format', () => {
+  it('does not call a spreadsheet a CSV', async () => {
+    listSources.mockResolvedValue([
+      { filename: 'corpus.xlsx', kind: 'manifest', size_bytes: 9307 },
+      { filename: 'corpus.csv', kind: 'manifest', size_bytes: 4096 },
+    ])
+
+    render(<Ingest />)
+
+    const options = await screen.findAllByRole('option')
+    const labels = options.map((o) => o.textContent ?? '')
+    expect(labels.find((l) => l.includes('corpus.xlsx'))).not.toMatch(/CSV/i)
+    expect(labels.find((l) => l.includes('corpus.xlsx'))).toMatch(/spreadsheet/i)
+    expect(labels.find((l) => l.includes('corpus.csv'))).toMatch(/CSV/i)
+  })
+})
