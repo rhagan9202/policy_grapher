@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getReviewQueue, listDocuments, recordVerdict } from '../api/client'
 import EmptyState from './EmptyState'
-import type { ObligationCitation, ReviewItem, Verdict } from '../api/types'
+import type { ObligationCitation, ReviewItem, ReviewQueue, Verdict } from '../api/types'
 
 /** "DoDI 5000.88 · 3/3.2 · p. 12" — where to go and read the passage. */
 function Citation({ of }: { of: ObligationCitation }) {
@@ -25,7 +25,7 @@ function Side({ heading, of }: { heading: string; of: ObligationCitation }) {
 }
 
 export default function Review() {
-  const [queue, setQueue] = useState<ReviewItem[] | null>(null)
+  const [queue, setQueue] = useState<ReviewQueue | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [rationale, setRationale] = useState('')
@@ -101,9 +101,9 @@ export default function Review() {
 
   // Deciding removes an item, so the cursor can be left pointing past the end.
   // Clamping at render rather than in the reload keeps the two independent.
-  const total = queue?.length ?? 0
+  const total = queue?.items.length ?? 0
   const position = total === 0 ? 0 : Math.min(index, total - 1)
-  const item = queue?.[position]
+  const item = queue?.items[position]
 
   return (
     <div style={{ padding: '1rem' }}>
@@ -114,7 +114,30 @@ export default function Review() {
       {corpusEmpty ? (
         <EmptyState lead="Nothing has been proposed for review." />
       ) : !item ? (
-        queue && <p>Nothing is waiting for review.</p>
+        // STORY-090. "Nothing is waiting for review" is true of three different
+        // situations and tells a reader only one of them: that they are caught up.
+        // On 2026-08-26 the graph held one edition with 114 obligations and three
+        // with none, so no proposal could exist — and this screen said the queue
+        // was clear. The same false all-clear ADR-015 and STORY-067 fixed on
+        // Triage, on the screen those fixes did not touch.
+        queue &&
+        (queue.editions_with_obligations === 0 ? (
+          <p>
+            <strong>The queue cannot be filled yet.</strong> No edition in the
+            corpus has any obligations extracted from it, so there is nothing for a
+            proposal to be made between. Build an edition's derived layer with a
+            real extraction model configured.
+          </p>
+        ) : queue.documents_comparable === 0 ? (
+          <p>
+            <strong>The queue cannot be filled yet.</strong> Obligations exist, but
+            no document has two editions holding them — and a proposal links a
+            clause in one edition to a clause in another, so it needs both sides.
+            Build a second edition of a document that already has one.
+          </p>
+        ) : (
+          <p>Nothing is waiting for review.</p>
+        ))
       ) : (
         <article>
           <p>

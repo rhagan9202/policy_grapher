@@ -11,7 +11,12 @@ from policy_grapher.auth import Principal, require_principal
 from policy_grapher.config import Settings
 from policy_grapher.dependencies import get_app_settings, get_driver
 from policy_grapher.links.decisions import Verdict, record_decision, replay_decisions
-from policy_grapher.models import ObligationCitationOut, ReviewItemOut, VerdictIn
+from policy_grapher.models import (
+    ObligationCitationOut,
+    ReviewItemOut,
+    ReviewQueueOut,
+    VerdictIn,
+)
 from policy_grapher.obligations import primary_anchor
 
 router = APIRouter(prefix="/review", tags=["review"])
@@ -66,13 +71,27 @@ RETURN count(*) AS total
 """
 
 
-@router.get("/queue", response_model=list[ReviewItemOut])
+# An edition counts only if it actually mandates something; a document is
+# comparable only if two of its editions do. Those are the two facts that separate
+# "caught up" from "nothing could be here yet".
+WHY_EMPTY = """
+OPTIONAL MATCH (v:DocumentVersion)-[:MANDATES]->(:Obligation)
+WITH count(DISTINCT v) AS editions_with_obligations
+OPTIONAL MATCH (d:Document)-[:HAS_VERSION]->(ev:DocumentVersion)-[:MANDATES]->(:Obligation)
+WITH editions_with_obligations, d, count(DISTINCT ev) AS per_document
+WITH editions_with_obligations,
+     count(DISTINCT CASE WHEN per_document > 1 THEN d END) AS documents_comparable
+RETURN editions_with_obligations, documents_comparable
+"""
+
+
+@router.get("/queue", response_model=ReviewQueueOut)
 def queue(
     limit: int = Query(default=50, ge=1, le=500),
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
     principal: Principal = Depends(require_principal),
-) -> list[ReviewItemOut]:
+) -> ReviewQueueOut:
     """Proposals nobody has decided yet, most confident first."""
     records, _, _ = driver.execute_query(
         QUEUE,
@@ -80,7 +99,7 @@ def queue(
         database_=settings.neo4j_database,
         routing_=RoutingControl.READ,
     )
-    return [
+    items = [
         ReviewItemOut(
             source=ObligationCitationOut(
                 obligation_id=record["source_id"],
@@ -104,6 +123,17 @@ def queue(
         )
         for record in records
     ]
+
+    why, _, _ = driver.execute_query(
+        WHY_EMPTY,
+        database_=settings.neo4j_database,
+        routing_=RoutingControl.READ,
+    )
+    return ReviewQueueOut(
+        items=items,
+        editions_with_obligations=why[0]["editions_with_obligations"],
+        documents_comparable=why[0]["documents_comparable"],
+    )
 
 
 @router.post("/{source_id}/{target_id}", response_model=dict[str, int])

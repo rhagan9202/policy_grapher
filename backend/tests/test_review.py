@@ -75,7 +75,7 @@ def test_the_queue_shows_both_sides_with_their_citations(queued):
     response = queued.get("/review/queue")
     assert response.status_code == 200
 
-    item = response.json()[0]
+    item = response.json()["items"][0]
     assert item["source"]["statement"] == ORG
     assert item["target"]["statement"] == HIGHER
     assert item["target"]["document"] == "DoDI 5000.88"
@@ -91,7 +91,7 @@ def test_the_queue_shows_both_sides_with_their_citations(queued):
 def test_a_decided_pair_leaves_the_queue(queued):
     """The queue is what is *unreviewed*. A decided pair reappearing would ask a
     human to redo work they have already done."""
-    item = queued.get("/review/queue").json()[0]
+    item = queued.get("/review/queue").json()["items"][0]
     source, target = item["source"]["obligation_id"], item["target"]["obligation_id"]
 
     posted = queued.post(
@@ -99,12 +99,12 @@ def test_a_decided_pair_leaves_the_queue(queued):
     )
     assert posted.status_code == 200
 
-    assert queued.get("/review/queue").json() == []
+    assert queued.get("/review/queue").json()["items"] == []
 
 
 @pytest.mark.integration
 def test_approving_promotes_the_link(queued):
-    item = queued.get("/review/queue").json()[0]
+    item = queued.get("/review/queue").json()["items"][0]
     source, target = item["source"]["obligation_id"], item["target"]["obligation_id"]
 
     queued.post(f"/review/{source}/{target}", json={"verdict": "approve"})
@@ -120,7 +120,7 @@ def test_approving_promotes_the_link(queued):
 
 @pytest.mark.integration
 def test_rejecting_promotes_nothing(queued):
-    item = queued.get("/review/queue").json()[0]
+    item = queued.get("/review/queue").json()["items"][0]
     source, target = item["source"]["obligation_id"], item["target"]["obligation_id"]
 
     queued.post(f"/review/{source}/{target}", json={"verdict": "reject"})
@@ -137,7 +137,7 @@ def test_rejecting_promotes_nothing(queued):
 def test_the_actor_is_the_authenticated_principal_not_the_request_body(queued):
     """A client-supplied actor would make the audit trail worthless — anyone
     could record a decision as anyone."""
-    item = queued.get("/review/queue").json()[0]
+    item = queued.get("/review/queue").json()["items"][0]
     source, target = item["source"]["obligation_id"], item["target"]["obligation_id"]
 
     queued.post(
@@ -155,7 +155,7 @@ def test_the_actor_is_the_authenticated_principal_not_the_request_body(queued):
 
 @pytest.mark.integration
 def test_an_unknown_verdict_is_a_400(queued):
-    item = queued.get("/review/queue").json()[0]
+    item = queued.get("/review/queue").json()["items"][0]
     source, target = item["source"]["obligation_id"], item["target"]["obligation_id"]
 
     response = queued.post(f"/review/{source}/{target}", json={"verdict": "maybe"})
@@ -243,5 +243,72 @@ def test_an_obligation_anchored_to_two_chunks_appears_once(client_with_auth):
     )
     assert records[0]["anchors"] == 2, "the fixture must actually double-anchor"
 
-    queue = client_with_auth.get("/review/queue").json()
+    queue = client_with_auth.get("/review/queue").json()["items"]
     assert len(queue) == 1
+
+
+# --- why the queue is empty (STORY-090) ---------------------------------------
+
+COMPARABLE = """
+MATCH (d:Document)-[:HAS_VERSION]->(v:DocumentVersion)-[:MANDATES]->(:Obligation)
+WITH d, count(DISTINCT v) AS editions_with_obligations
+WHERE editions_with_obligations > 1
+RETURN count(d) AS comparable
+"""
+
+
+@pytest.mark.integration
+def test_the_queue_says_no_edition_holds_obligations(client_with_auth):
+    """An empty queue has three causes and says which. This is the first: nothing
+    has been extracted anywhere, so no proposal could exist."""
+    body = client_with_auth.get("/review/queue").json()
+
+    assert body["items"] == []
+    assert body["editions_with_obligations"] == 0
+    assert body["documents_comparable"] == 0
+
+
+@pytest.mark.integration
+def test_the_queue_says_one_side_is_missing(client_with_auth):
+    """The second, and the state the live graph was in on 2026-08-26: obligations
+    exist, but no document has two editions holding them, so a proposal has
+    nothing to be made between."""
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    _seed_version(driver, database, version_id="only@2020", name="Only", statement=ORG)
+
+    body = client_with_auth.get("/review/queue").json()
+
+    assert body["items"] == []
+    assert body["editions_with_obligations"] == 1
+    assert body["documents_comparable"] == 0
+
+
+@pytest.mark.integration
+def test_the_queue_reports_a_document_whose_editions_can_be_compared(
+    client_with_auth,
+):
+    """The third: both sides exist, so an empty queue really does mean the work
+    has been done rather than that it could not start."""
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    # One document, two editions, each mandating something — the shape a proposal
+    # needs. `_seed_version` keys a document per version, so this is built here.
+    driver.execute_query(
+        "MERGE (d:Document {slug: 'two-editions', name: 'Two Editions'}) "
+        "MERGE (d)-[:HAS_VERSION]->(a:DocumentVersion {version_id: 'te@2018', "
+        "  checksum: 'a', source_uri: 'file:///a.pdf'}) "
+        "MERGE (d)-[:HAS_VERSION]->(b:DocumentVersion {version_id: 'te@2020', "
+        "  checksum: 'b', source_uri: 'file:///b.pdf'}) "
+        "MERGE (a)-[:MANDATES]->(:Obligation {obligation_id: 'o-a', "
+        "  statement: $higher, modality: 'MUST', section_path: ['1']}) "
+        "MERGE (b)-[:MANDATES]->(:Obligation {obligation_id: 'o-b', "
+        "  statement: $org, modality: 'MUST', section_path: ['1']})",
+        {"higher": HIGHER, "org": ORG},
+        database_=database,
+    )
+
+    body = client_with_auth.get("/review/queue").json()
+
+    assert body["editions_with_obligations"] == 2
+    assert body["documents_comparable"] == 1

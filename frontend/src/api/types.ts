@@ -133,6 +133,13 @@ export interface ObligationCitation {
   page: number
 }
 
+/** The queue plus why it is empty when it is — STORY-090. */
+export interface ReviewQueue {
+  items: ReviewItem[]
+  editions_with_obligations: number
+  documents_comparable: number
+}
+
 export interface ReviewItem {
   source: ObligationCitation
   target: ObligationCitation

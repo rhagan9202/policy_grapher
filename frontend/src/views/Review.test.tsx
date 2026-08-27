@@ -16,6 +16,17 @@ vi.mock('../api/client', () => ({
 
 import Review from './Review'
 
+// STORY-090 changed `GET /review/queue` from a bare list to a payload carrying
+// the counts that say *why* a queue is empty. `q` keeps the fixtures reading as
+// lists; the two counts default to "both sides exist", which is what every test
+// about the queue's contents assumes.
+const q = (
+  items: unknown[],
+  editions_with_obligations = 2,
+  documents_comparable = 1,
+) => ({ items, editions_with_obligations, documents_comparable })
+
+
 // EmptyState links to the Ingest screen, so any view that can render it
 // needs router context.
 const showReview = () =>
@@ -60,7 +71,7 @@ describe('Review', () => {
   it('shows both obligations with their citations', async () => {
     // A reviewer cannot decide without knowing which document each clause is
     // from and where in it to go and read.
-    getReviewQueue.mockResolvedValue([item])
+    getReviewQueue.mockResolvedValue(q([item]))
     showReview()
 
     expect(await screen.findByText(item.source.statement)).toBeInTheDocument()
@@ -76,7 +87,7 @@ describe('Review', () => {
   })
 
   it('shows the rationale and confidence the proposer offered', async () => {
-    getReviewQueue.mockResolvedValue([item])
+    getReviewQueue.mockResolvedValue(q([item]))
     showReview()
 
     expect(await screen.findByText(/share 60%/)).toBeInTheDocument()
@@ -84,7 +95,7 @@ describe('Review', () => {
   })
 
   it('posts an approval for the pair being reviewed', async () => {
-    getReviewQueue.mockResolvedValue([item])
+    getReviewQueue.mockResolvedValue(q([item]))
     recordVerdict.mockResolvedValue({ promoted: 1 })
     showReview()
     await screen.findByText(item.source.statement)
@@ -95,7 +106,7 @@ describe('Review', () => {
   })
 
   it('posts a rejection with the reviewer’s reason', async () => {
-    getReviewQueue.mockResolvedValue([item])
+    getReviewQueue.mockResolvedValue(q([item]))
     recordVerdict.mockResolvedValue({ suppressed: 1 })
     showReview()
     await screen.findByText(item.source.statement)
@@ -113,7 +124,7 @@ describe('Review', () => {
 
   it('disables both buttons while a verdict is in flight', async () => {
     // A double-click would otherwise record two decisions for one judgement.
-    getReviewQueue.mockResolvedValue([item])
+    getReviewQueue.mockResolvedValue(q([item]))
     let settle: (value: unknown) => void = () => {}
     recordVerdict.mockReturnValue(new Promise((resolve) => (settle = resolve)))
     showReview()
@@ -130,7 +141,7 @@ describe('Review', () => {
   })
 
   it('reloads the queue once a verdict is recorded', async () => {
-    getReviewQueue.mockResolvedValueOnce([item]).mockResolvedValueOnce([])
+    getReviewQueue.mockResolvedValueOnce(q([item])).mockResolvedValueOnce(q([]))
     recordVerdict.mockResolvedValue({ promoted: 1 })
     showReview()
     await screen.findByText(item.source.statement)
@@ -141,14 +152,14 @@ describe('Review', () => {
   })
 
   it('says plainly when the queue is empty', async () => {
-    getReviewQueue.mockResolvedValue([])
+    getReviewQueue.mockResolvedValue(q([]))
     showReview()
 
     expect(await screen.findByText(/nothing is waiting/i)).toBeInTheDocument()
   })
 
   it('surfaces a failure to record a verdict rather than looking successful', async () => {
-    getReviewQueue.mockResolvedValue([item])
+    getReviewQueue.mockResolvedValue(q([item]))
     recordVerdict.mockRejectedValue(new Error('backend down'))
     showReview()
     await screen.findByText(item.source.statement)
@@ -183,7 +194,7 @@ describe('Review when nothing has been ingested', () => {
     // ADR-019: "Nothing is waiting for review" is true and misleading when
     // nothing has ever been ingested — it says the work is done.
     listDocuments.mockResolvedValue([])
-    getReviewQueue.mockResolvedValue([])
+    getReviewQueue.mockResolvedValue(q([]))
     showReview()
 
     expect(await screen.findByRole('status')).toHaveTextContent(
@@ -215,14 +226,14 @@ describe('Review — working through the queue', () => {
   beforeEach(() => listDocuments.mockResolvedValue([{ slug: 'a' }]))
 
   it('says where in the queue the reviewer is', async () => {
-    getReviewQueue.mockResolvedValue(queueOf(3))
+    getReviewQueue.mockResolvedValue(q(queueOf(3)))
     showReview()
 
     expect(await screen.findByText(/proposal 1 of 3/i)).toBeInTheDocument()
   })
 
   it('skips to the next proposal without recording anything', async () => {
-    getReviewQueue.mockResolvedValue(queueOf(3))
+    getReviewQueue.mockResolvedValue(q(queueOf(3)))
     showReview()
     await screen.findByText(/Our clause 0\./)
 
@@ -234,7 +245,7 @@ describe('Review — working through the queue', () => {
   })
 
   it('goes back to a proposal it skipped past', async () => {
-    getReviewQueue.mockResolvedValue(queueOf(3))
+    getReviewQueue.mockResolvedValue(q(queueOf(3)))
     showReview()
     await screen.findByText(/Our clause 0\./)
 
@@ -246,7 +257,7 @@ describe('Review — working through the queue', () => {
   })
 
   it('wraps to the first proposal after the last, and says so', async () => {
-    getReviewQueue.mockResolvedValue(queueOf(2))
+    getReviewQueue.mockResolvedValue(q(queueOf(2)))
     showReview()
     await screen.findByText(/Our clause 0\./)
 
@@ -258,7 +269,7 @@ describe('Review — working through the queue', () => {
   })
 
   it('offers no skip when there is only one proposal', async () => {
-    getReviewQueue.mockResolvedValue(queueOf(1))
+    getReviewQueue.mockResolvedValue(q(queueOf(1)))
     showReview()
     await screen.findByText(/Our clause 0\./)
 
@@ -266,7 +277,7 @@ describe('Review — working through the queue', () => {
   })
 
   it('still records a verdict on the proposal actually being shown', async () => {
-    getReviewQueue.mockResolvedValue(queueOf(3))
+    getReviewQueue.mockResolvedValue(q(queueOf(3)))
     recordVerdict.mockResolvedValue({ promoted: 1 })
     showReview()
     await screen.findByText(/Our clause 0\./)
@@ -279,7 +290,7 @@ describe('Review — working through the queue', () => {
 
   it('does not run off the end when the queue shrinks under the cursor', async () => {
     // Deciding removes the item, so the index can point past the new last one.
-    getReviewQueue.mockResolvedValueOnce(queueOf(2)).mockResolvedValueOnce(queueOf(1))
+    getReviewQueue.mockResolvedValueOnce(q(queueOf(2))).mockResolvedValueOnce(q(queueOf(1)))
     recordVerdict.mockResolvedValue({ promoted: 1 })
     showReview()
     await screen.findByText(/Our clause 0\./)
@@ -288,5 +299,45 @@ describe('Review — working through the queue', () => {
     await userEvent.click(screen.getByRole('button', { name: /approve/i }))
 
     await waitFor(() => expect(screen.getByText(/proposal 1 of 1/i)).toBeInTheDocument())
+  })
+})
+
+// STORY-090. "Nothing is waiting for review" was said in three situations and
+// told a reader only one of them. On 2026-08-26 the live graph held one edition
+// with 114 obligations and three with none, so no proposal could exist — and this
+// screen reported the queue as clear. The same false all-clear ADR-015 and
+// STORY-067 fixed on Triage, recurring where those fixes did not reach.
+
+describe('Review, why the queue is empty', () => {
+  beforeEach(() => listDocuments.mockResolvedValue([{ slug: 'd', name: 'D' }]))
+
+  it('says nothing has been extracted anywhere', async () => {
+    getReviewQueue.mockResolvedValue(q([], 0, 0))
+
+    render(<Review />)
+
+    expect(
+      await screen.findByText(/no edition in the corpus has any obligations/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/nothing is waiting/i)).not.toBeInTheDocument()
+  })
+
+  it('says a proposal needs both sides when only one edition is built', async () => {
+    getReviewQueue.mockResolvedValue(q([], 1, 0))
+
+    render(<Review />)
+
+    expect(
+      await screen.findByText(/no document has two editions holding them/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/nothing is waiting/i)).not.toBeInTheDocument()
+  })
+
+  it('still says the queue is clear when it genuinely is', async () => {
+    getReviewQueue.mockResolvedValue(q([], 4, 2))
+
+    render(<Review />)
+
+    expect(await screen.findByText(/nothing is waiting for review/i)).toBeInTheDocument()
   })
 })

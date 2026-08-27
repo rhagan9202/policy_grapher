@@ -11,7 +11,7 @@ import type {
   RebuildStarted,
   RebuildStatus,
   ResetResult,
-  ReviewItem,
+  ReviewQueue,
   SourceFile,
   TriageOut,
   Verdict,
@@ -188,9 +188,9 @@ export function getRebuild(runId: string): Promise<RebuildStatus> {
   return request<RebuildStatus>(`/rebuilds/${encodeURIComponent(runId)}`)
 }
 
-export function getReviewQueue(limit?: number): Promise<ReviewItem[]> {
+export function getReviewQueue(limit?: number): Promise<ReviewQueue> {
   const query = limit === undefined ? '' : `?limit=${limit}`
-  return request<ReviewItem[]>(`/review/queue${query}`)
+  return request<ReviewQueue>(`/review/queue${query}`)
 }
 
 // A write, and therefore dependent on the ADR-018 header that `request` adds.
