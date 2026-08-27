@@ -41,8 +41,15 @@ def test_a_false_positive_costs_precision_but_not_recall():
 
 def test_the_right_statement_with_the_wrong_modality_costs_only_modality():
     """The failure an aggregate F1 hides: the duty was found, its force downgraded."""
-    downgraded = _o("The Director shall notify.", Modality.SHOULD)
-    result = score([downgraded, GOLD[1]], GOLD)
+    # A sentence carrying both words, because the schema now requires a statement
+    # to contain the modality it is labelled with — a model can no longer call a
+    # sentence SHOULD when the word is nowhere in it. Mislabelling is still real,
+    # and this is the shape it now takes.
+    both = "The Director shall notify and should consider delegating."
+    gold = [_o(both, Modality.SHALL), GOLD[1]]
+    downgraded = _o(both, Modality.SHOULD)
+
+    result = score([downgraded, GOLD[1]], gold)
 
     assert result["precision"] == 1.0
     assert result["recall"] == 1.0
@@ -57,7 +64,7 @@ def test_matching_ignores_whitespace_and_case():
 
 def test_inventing_an_obligation_where_there_is_none_scores_zero_precision():
     """The definitional fixture's whole purpose."""
-    assert score([_o("A manufactured duty.")], [])["precision"] == 0.0
+    assert score([_o("A manufactured duty shall be reported.")], [])["precision"] == 0.0
 
 
 def test_correctly_finding_nothing_is_a_perfect_answer():
@@ -87,7 +94,7 @@ def test_a_repeated_statement_is_counted_as_the_duplicate_it_is():
 def test_the_counts_support_micro_averaging_across_fixtures():
     """Averaging per-fixture rates would let the empty-gold fixture contribute a
     vacuous 1.0 recall. The ratchet pools counts instead, so it needs them."""
-    result = score([GOLD[0], _o("Invented.")], GOLD)
+    result = score([GOLD[0], _o("An invented duty shall exist.")], GOLD)
     assert result["matched"] == 1
     assert result["predicted"] == 2
     assert result["gold"] == 2

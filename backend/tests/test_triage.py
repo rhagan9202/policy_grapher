@@ -181,11 +181,11 @@ def test_a_removed_obligation_we_implement_still_produces_a_row(
     old_ids = _seed_version(
         clean_graph, database, version_id="higher-v1", doc_slug="higher",
         doc_name="DoDI 5000.88",
-        entries=[("3.2", HIGHER_OLD, Modality.SHALL), ("9.9", "Keep this.", Modality.SHALL)],
+        entries=[("3.2", HIGHER_OLD, Modality.SHALL), ("9.9", "We shall keep this.", Modality.SHALL)],
     )
     _seed_version(
         clean_graph, database, version_id="higher-v2", doc_slug="higher",
-        doc_name="DoDI 5000.88", entries=[("9.9", "Keep this.", Modality.SHALL)],
+        doc_name="DoDI 5000.88", entries=[("9.9", "We shall keep this.", Modality.SHALL)],
     )
     our_ids = _seed_version(
         clean_graph, database, version_id="ours-v1", doc_slug="ours",
@@ -217,12 +217,12 @@ def test_a_changed_shall_outranks_a_changed_may(clean_graph, database):
     our_ids = _seed_version(
         clean_graph, database, version_id="ours-v1", doc_slug="ours",
         doc_name="ORG 1.0",
-        entries=[("2.4", "We do the binding thing.", Modality.SHALL),
-                 ("2.5", "We do the optional thing.", Modality.SHALL)],
+        entries=[("2.4", "We shall do the binding thing.", Modality.SHALL),
+                 ("2.5", "We shall do the optional thing.", Modality.SHALL)],
     )
-    _link(clean_graph, database, source=our_ids["We do the binding thing."],
+    _link(clean_graph, database, source=our_ids["We shall do the binding thing."],
           target=new_ids["Components shall do the binding thing now."])
-    _link(clean_graph, database, source=our_ids["We do the optional thing."],
+    _link(clean_graph, database, source=our_ids["We shall do the optional thing."],
           target=new_ids["Components may do the optional thing now."])
 
     result = _triage(clean_graph, database)
@@ -251,12 +251,12 @@ def test_a_removed_obligation_outranks_a_modified_one(clean_graph, database):
     our_ids = _seed_version(
         clean_graph, database, version_id="ours-v1", doc_slug="ours",
         doc_name="ORG 1.0",
-        entries=[("2.4", "We keep records.", Modality.SHALL),
-                 ("2.5", "We destroy records.", Modality.SHALL)],
+        entries=[("2.4", "We shall keep records.", Modality.SHALL),
+                 ("2.5", "We shall destroy records.", Modality.SHALL)],
     )
-    _link(clean_graph, database, source=our_ids["We keep records."],
+    _link(clean_graph, database, source=our_ids["We shall keep records."],
           target=new_ids["Components shall keep records forever."])
-    _link(clean_graph, database, source=our_ids["We destroy records."],
+    _link(clean_graph, database, source=our_ids["We shall destroy records."],
           target=old_ids["Components shall destroy records."])
 
     result = _triage(clean_graph, database)

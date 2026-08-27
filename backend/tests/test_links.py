@@ -136,7 +136,7 @@ def _seed_version(driver, database, *, version_id, statements):
 
 HIGHER = "Components must document the cybersecurity strategy in the engineering plan."
 ORG = "The Program Manager must document the cybersecurity strategy in the program plan."
-UNRELATED = "Travel vouchers may be submitted electronically before departure."
+UNRELATED = "Travel vouchers must be submitted electronically before departure."
 
 
 def _seed_pair(driver, database, *, org=ORG, higher=HIGHER):

@@ -26,6 +26,12 @@ KEY = {
 }
 
 
+# The same statement written twice with different modalities is the point of the
+# rewrite test, and the schema now requires a statement to contain the modality it
+# is labelled with — so this sentence carries both words.
+BOTH_WORDS = "The Director shall notify the Comptroller and should log the call."
+
+
 def _obligation(
     statement: str = "The Director shall notify the Comptroller.",
     modality: Modality = Modality.SHALL,
@@ -282,14 +288,14 @@ def test_rewriting_an_obligation_is_authoritative_about_its_fields(
             version_id="v",
             chunk_id=chunk.chunk_id,
             section_path=chunk.section_path,
-            obligations=[_obligation(modality=Modality.SHOULD)],
+            obligations=[_obligation(statement=BOTH_WORDS, modality=Modality.SHOULD)],
         )
         session.execute_write(
             write_obligations,
             version_id="v",
             chunk_id=chunk.chunk_id,
             section_path=chunk.section_path,
-            obligations=[_obligation(modality=Modality.SHALL)],
+            obligations=[_obligation(statement=BOTH_WORDS, modality=Modality.SHALL)],
         )
 
     records, _, _ = clean_graph.execute_query(

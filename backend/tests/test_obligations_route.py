@@ -41,7 +41,7 @@ def _seed(driver, database, *, slug="dodi-5000-88", version_id="v@2020-01-01"):
                 chunks[0],
                 [
                     "Components shall apply this issuance.",
-                    "Components will record their compliance.",
+                    "Components shall record their compliance.",
                 ],
             ),
         ):

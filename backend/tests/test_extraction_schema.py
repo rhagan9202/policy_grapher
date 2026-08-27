@@ -101,9 +101,11 @@ def test_a_will_obligation_is_binding():
 
 
 def test_shall_and_must_stay_binding():
+    # The statement carries the word it is labelled with, which the schema now
+    # requires — a modality is a claim about a word in the passage.
     for modality in (Modality.SHALL, Modality.MUST):
         assert ExtractedObligation(
-            statement="The Director shall notify.",
+            statement=f"The Director {modality.value.lower()} notify.",
             modality=modality,
             actor=None,
             deadline=None,
@@ -117,7 +119,7 @@ def test_should_and_may_are_not_binding():
     advice is the silent downgrade `schema.py` refuses to allow."""
     for modality in (Modality.SHOULD, Modality.MAY):
         assert not ExtractedObligation(
-            statement="The Director should consider notifying.",
+            statement=f"The Director {modality.value.lower()} consider notifying.",
             modality=modality,
             actor=None,
             deadline=None,
@@ -131,7 +133,7 @@ def test_bindingness_is_asked_of_the_obligation_not_pattern_matched():
     which names count — the way a consumer written before WILL existed would."""
     for modality in Modality:
         obligation = ExtractedObligation(
-            statement="A duty.",
+            statement=f"The Component {modality.value.lower()} do the thing.",
             modality=modality,
             actor=None,
             deadline=None,
@@ -139,3 +141,68 @@ def test_bindingness_is_asked_of_the_obligation_not_pattern_matched():
             confidence=0.5,
         )
         assert isinstance(obligation.is_binding, bool)
+
+
+# --- the modality word must be in the statement (sprint 7) ---------------------
+
+
+def test_a_statement_without_its_modality_word_is_rejected():
+    """The prompt has asked for this since PROMPT_VERSION 2 and nothing enforced
+    it, so it kept happening.
+
+    Measured on the live graph 2026-08-27, after a full rebuild under that prompt:
+    18 of 215 obligations were four words or fewer — "Be Responsive.", "Focus on
+    Affordability.", "e. Emphasize Competition." — section headings recorded as
+    duties, each labelled SHALL by a model that had no SHALL to point at.
+
+    Sprint 6 reported these as fixed. That check compared five exact strings
+    without their trailing full stops, and the same prompt change that stopped the
+    model dropping sentence subjects also made it keep the closing "." — so the
+    strings no longer matched and the headings were counted as gone.
+
+    A modality is a claim about a word in the passage. If the word is not in the
+    statement, the claim is not about anything.
+    """
+    with pytest.raises(ValidationError):
+        ExtractedObligation.model_validate(
+            {
+                "statement": "Be Responsive.",
+                "modality": "SHALL",
+                "actor": None,
+                "deadline": None,
+                "conditions": None,
+                "confidence": 0.9,
+            }
+        )
+
+
+def test_the_modality_word_is_matched_regardless_of_case():
+    """Documents write "shall" and the enum records SHALL."""
+    obligation = ExtractedObligation.model_validate(
+        {
+            "statement": "The Director shall notify the Comptroller of any breach.",
+            "modality": "SHALL",
+            "actor": "The Director",
+            "deadline": None,
+            "conditions": None,
+            "confidence": 0.9,
+        }
+    )
+
+    assert obligation.modality is Modality.SHALL
+
+
+def test_a_modality_word_inside_another_word_does_not_count():
+    """"Marshall" contains "shall" and imposes nothing. Substring matching here
+    would let exactly the statements this rejects back in."""
+    with pytest.raises(ValidationError):
+        ExtractedObligation.model_validate(
+            {
+                "statement": "General Marshall commanded the Army.",
+                "modality": "SHALL",
+                "actor": None,
+                "deadline": None,
+                "conditions": None,
+                "confidence": 0.9,
+            }
+        )

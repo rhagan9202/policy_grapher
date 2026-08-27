@@ -167,13 +167,13 @@ def test_the_graph_leg_reaches_what_no_other_leg_can(clean_graph, database):
     """
     _seed(
         clean_graph, database, version_id="higher", doc_name="DoDI 5000.88",
-        text="Components shall document the cybersecurity strategy.",
-        statement="Components shall document the cybersecurity strategy.",
+        text="Components must document the cybersecurity strategy.",
+        statement="Components must document the cybersecurity strategy.",
     )
     ours = _seed(
         clean_graph, database, version_id="ours", doc_name="ORG 1.0",
-        text="Widget calibration is performed quarterly by the technician.",
-        statement="Widget calibration is performed quarterly by the technician.",
+        text="Widget calibration must be performed quarterly by the technician.",
+        statement="Widget calibration must be performed quarterly by the technician.",
     )
     clean_graph.execute_query(
         "MATCH (a:Obligation {obligation_id: $ours}) "
@@ -202,13 +202,13 @@ def test_the_graph_leg_reaches_in_both_directions(clean_graph, database):
     just as a question about the higher duty surfaces ours."""
     _seed(
         clean_graph, database, version_id="higher", doc_name="DoDI 5000.88",
-        text="Widget calibration is performed quarterly by the technician.",
-        statement="Widget calibration is performed quarterly by the technician.",
+        text="Widget calibration must be performed quarterly by the technician.",
+        statement="Widget calibration must be performed quarterly by the technician.",
     )
     higher_chunk_id = _seed(
         clean_graph, database, version_id="ours", doc_name="ORG 1.0",
-        text="Components shall document the cybersecurity strategy.",
-        statement="Components shall document the cybersecurity strategy.",
+        text="Components must document the cybersecurity strategy.",
+        statement="Components must document the cybersecurity strategy.",
     )
     clean_graph.execute_query(
         "MATCH (a:Obligation {obligation_id: $a}) MATCH (b:Obligation {obligation_id: $b}) "
@@ -234,13 +234,13 @@ def test_an_unreviewed_proposal_is_not_a_graph_hop(clean_graph, database):
     keeps. An unreviewed guess must not pull a passage into an answer."""
     _seed(
         clean_graph, database, version_id="higher", doc_name="DoDI 5000.88",
-        text="Components shall document the cybersecurity strategy.",
-        statement="Components shall document the cybersecurity strategy.",
+        text="Components must document the cybersecurity strategy.",
+        statement="Components must document the cybersecurity strategy.",
     )
     ours = _seed(
         clean_graph, database, version_id="ours", doc_name="ORG 1.0",
-        text="Widget calibration is performed quarterly by the technician.",
-        statement="Widget calibration is performed quarterly by the technician.",
+        text="Widget calibration must be performed quarterly by the technician.",
+        statement="Widget calibration must be performed quarterly by the technician.",
     )
     clean_graph.execute_query(
         "MATCH (a:Obligation {obligation_id: $ours}) "
@@ -269,7 +269,7 @@ def test_a_chunk_found_by_two_legs_appears_once_carrying_both(clean_graph, datab
     embedder = local_or_skip()
     chunk = _seed(
         clean_graph, database, version_id="v", doc_name="ORG 1.0",
-        text="Components shall document the cybersecurity strategy.",
+        text="Components must document the cybersecurity strategy.",
     )
     embed_chunks(clean_graph, database, version_id="v", embedder=embedder)
 
@@ -287,7 +287,7 @@ def test_the_limit_is_respected(clean_graph, database):
     for i in range(5):
         _seed(
             clean_graph, database, version_id=f"v{i}", doc_name=f"DOC {i}",
-            text="Components shall document the cybersecurity strategy.",
+            text="Components must document the cybersecurity strategy.",
         )
 
     results = retrieve(

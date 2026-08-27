@@ -81,11 +81,19 @@ US_ORIGIN_EMBEDDING_MODELS = frozenset(
 # id are orphaned. PROMPT_VERSION 2 makes the quoting rule explicit and names the
 # three shapes that look like duties and carry no modal verb.
 #
+# Re-measured again 2026-08-27 (sprint 7), after the schema began requiring a
+# statement to contain the modality it is labelled with. Precision moved 0.625 →
+# 0.833 and recall held at 0.769, identical on three consecutive runs. The gain is
+# the junk no longer being counted as a prediction: the model still writes "Be
+# Responsive." and calls it SHALL, and the schema now refuses it. The permissive-MAY
+# fixture became a rejected chunk rather than four wrong answers, which is honest —
+# under ADR-030 a chunk where nothing validates is still a rejection.
+#
 # modality is deliberately NOT raised to the observed 1.000. Over ten matched
 # pairs a single error reads as 0.900, and a floor that fires on one different
 # answer teaches people to ignore it. 0.85 tolerates one and catches two.
 FLOORS = {
-    "local:llama3.1:8b": {"precision": 0.625, "recall": 0.769, "modality_accuracy": 0.85},
+    "local:llama3.1:8b": {"precision": 0.833, "recall": 0.769, "modality_accuracy": 0.85},
 }
 
 

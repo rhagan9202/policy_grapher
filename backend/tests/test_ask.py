@@ -319,8 +319,8 @@ def test_asking_what_a_document_implements_answers_from_that_template(
     )
     _seed(
         client_with_auth, version_id="ours", doc_name="ORG 1.0",
-        text="We record the cyber plan annually.",
-        statement="We record the cyber plan annually.",
+        text="We shall record the cyber plan annually.",
+        statement="We shall record the cyber plan annually.",
     )
     driver = client_with_auth.app.state.driver
     database = client_with_auth.app.state.settings.neo4j_database
