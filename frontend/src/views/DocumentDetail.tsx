@@ -9,6 +9,7 @@ import {
   listVersions,
   startRebuild,
 } from '../api/client'
+import { pollDelayMs } from './pollDelay'
 import type {
   ChunkOut,
   DocumentOut,
@@ -194,13 +195,22 @@ export default function DocumentDetail() {
 
   // Polls until the run leaves a running state. Deliberately not a fixed number of
   // attempts: with a real model a rebuild is one call per chunk over dozens of
-  // chunks and takes tens of minutes (ADR-023), so a poll budget would time out on
+  // chunks and can take hours (ADR-023), so a poll budget would give up on
   // exactly the runs worth watching.
+  //
+  // STORY-089: the interval backs off instead. `pollCount` is a ref rather than
+  // state because it only chooses the next delay — as state it would re-run this
+  // effect on every tick, which is the cascading render the lint rule forbids.
+  const pollCount = useRef(0)
   useEffect(() => {
-    if (!run || (run.state !== 'started' && run.state !== 'queued')) return
+    if (!run || (run.state !== 'started' && run.state !== 'queued')) {
+      pollCount.current = 0
+      return
+    }
 
     let cancelled = false
     const timer = setTimeout(() => {
+      pollCount.current += 1
       getRebuild(run.run_id)
         .then((next) => {
           if (!cancelled) setRun(next)
@@ -210,7 +220,7 @@ export default function DocumentDetail() {
             setRunError(cause instanceof Error ? cause.message : 'Lost track of the run.')
           }
         })
-    }, 2000)
+    }, pollDelayMs(pollCount.current))
 
     return () => {
       cancelled = true
@@ -316,7 +326,10 @@ export default function DocumentDetail() {
           <p>
             Chunks the text, extracts obligations, and — for each edition named below
             — proposes links between them. With a real extractor this is one model
-            call per chunk and takes tens of minutes.
+            call per chunk, at roughly a minute and a half each: about an hour for a
+            38-chunk edition and most of a working day for the largest. You can close
+            this tab — the run is recorded against the edition and this page finds it
+            again.
           </p>
 
           {versions.length > 1 && (

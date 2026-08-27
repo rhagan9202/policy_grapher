@@ -24,6 +24,7 @@ vi.mock('../api/client', () => ({
 }))
 
 import DocumentDetail from './DocumentDetail'
+import { pollDelayMs, FIRST_POLL_MS, MAX_POLL_MS } from './pollDelay'
 
 const document = {
   slug: 'dodd-5000-01',
@@ -774,5 +775,39 @@ describe('DocumentDetail rebuild reporting', () => {
 
     expect(await screen.findByText(/0 chunks rejected/i)).toBeInTheDocument()
     expect(screen.queryByText(/statements dropped/i)).not.toBeInTheDocument()
+  })
+})
+
+// STORY-089. Asserting the interval that gets computed, not that a timer was set:
+// a test that only checks `setTimeout` was called passes against the flat
+// two-second poll this exists to replace.
+describe('pollDelayMs', () => {
+  it('answers a short run as quickly as the flat poll did', () => {
+    expect(pollDelayMs(0)).toBe(FIRST_POLL_MS)
+  })
+
+  it('grows between successive polls', () => {
+    const delays = [0, 1, 2, 3].map(pollDelayMs)
+    for (let i = 1; i < delays.length; i += 1) {
+      expect(delays[i]).toBeGreaterThan(delays[i - 1])
+    }
+  })
+
+  it('settles at a ceiling rather than growing without bound', () => {
+    expect(pollDelayMs(50)).toBe(MAX_POLL_MS)
+    expect(pollDelayMs(500)).toBe(MAX_POLL_MS)
+  })
+
+  it('cuts an eight-hour run from ~14,400 requests to under a thousand', () => {
+    // The number that motivated the story, computed rather than asserted from
+    // memory: how many polls an 8h run costs at this curve.
+    let elapsed = 0
+    let polls = 0
+    while (elapsed < 8 * 60 * 60 * 1000) {
+      elapsed += pollDelayMs(polls)
+      polls += 1
+    }
+    expect(polls).toBeLessThan(1000)
+    expect(8 * 60 * 60 * 1000 / FIRST_POLL_MS).toBeGreaterThan(14000)
   })
 })
