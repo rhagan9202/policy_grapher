@@ -1,6 +1,6 @@
 # STORY-047: A reissued document's edits are recognised as edits, not as wholesale replacement
 
-**Epic:** — · **Status:** Refining · **Estimate:** —
+**Epic:** — · **Status:** Ready · **Estimate:** M
 
 ## User story
 
@@ -81,3 +81,24 @@ reaching for similarity.
   links, instead of inventing a second confidence mechanism.
 - Does this need to land before DI-3's coverage matrices? A matrix built on 80 false gaps
   would be wrong in a way that is hard to see.
+
+
+## Sprint 8 addendum — the decision was split out
+
+Three of the acceptance criteria above are decisions rather than code: what counts as the same
+obligation reworded, whether the pairing may stop being explainable without a model call, and
+what Triage shows when a pairing is ambiguous. Sprint 6's backend review said so and sprint 8's
+planning acted on it.
+
+**[STORY-096](STORY-096-how-a-reissue-is-paired-is-decided.md) takes those decisions and this
+item implements them.** It is deliberately unstartable before that ADR lands — a pairing rule
+written before the decision *is* the decision, and this project has the scar tissue to prove it.
+
+With the decision made elsewhere, what remains here is contained: a second matching pass over
+obligations unmatched by section, the rule the ADR chose, and the counts and copy that report
+what it did. Sized **M** on that basis.
+
+## Dependencies
+
+- **[STORY-096](STORY-096-how-a-reissue-is-paired-is-decided.md) must land first.** This item is
+  deliberately unstartable without it. Nothing else.

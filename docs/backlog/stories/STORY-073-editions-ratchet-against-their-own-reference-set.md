@@ -1,6 +1,6 @@
 # STORY-073: Each document edition is ratcheted against its own reference set, not its current successor's
 
-**Epic:** — · **Status:** Refining · **Estimate:** L
+**Epic:** — · **Status:** Ready · **Estimate:** L
 
 ## User story
 
@@ -86,3 +86,32 @@ avoids someone reading the cover and writing down what it cites.
   cover two editions here, not one — and the 2020 edition is the cheaper of the two to add,
   since 93% against a neighbouring edition's list is close enough that a floor set from its own
   list would be a real measurement rather than a codified mismatch.
+
+
+## Acceptance criteria
+
+*Added at sprint 8 planning. This item stays **L**, and the first criterion is why: where a
+per-edition expected reference set lives is not decided, and the backlog's own guidance says an L
+caused by a missing decision should have that decision taken first. It is kept inside the item
+rather than split because the decision is local — it changes a test fixture's shape and nothing
+else reads it — unlike STORY-047's, which supersedes an ADR.*
+
+- [ ] The decision is taken and written down before any fixture changes: whether the expected
+      references for an edition live in the existing corpus CSV keyed on `(document, edition)`,
+      or in a second file scoped to ratcheted editions. Both shapes and their costs are set out
+      in the Notes above; what is missing is a choice.
+- [ ] The 2003 edition of DoDD 5000.01 (`500001p_2003.pdf`) has a recorded floor scored against
+      its **own** citation list, not its successor's.
+- [ ] `500001p_2020.pdf` likewise — it is the second unratcheted edition and scores 93% against a
+      neighbouring edition's list today, which is close enough to look fine and is still measuring
+      the wrong thing.
+- [ ] `RATCHETS` names every PDF in `data/samples`, or names the exclusion and its reason, so a
+      fixture cannot be added and silently left unguarded.
+- [ ] The reference list for each added edition is transcribed from the document itself, and how
+      it was produced is recorded — there is no shortcut that avoids someone reading the cover.
+- [ ] Given an edition whose expected set is missing, **When** the ratchet runs, **Then** it says
+      so loudly rather than skipping quietly, the way the extraction gate now does.
+
+## Dependencies
+
+- None in code. The blocker is the decision in the first criterion.
