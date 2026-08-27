@@ -22,6 +22,7 @@ from collections.abc import Callable
 from typing import Protocol
 
 from neo4j import Driver, RoutingControl
+from pydantic import ValidationError
 
 from policy_grapher.extraction.prompt import PROMPT_VERSION
 from policy_grapher.extraction.schema import ExtractedObligation
@@ -122,9 +123,29 @@ class CachedExtractor:
         # re-run the model over the whole document on every rebuild.
         payload = self._store.get(key)
         if payload is not None:
-            return [
-                ExtractedObligation.model_validate(item) for item in json.loads(payload)
-            ]
+            # ADR-030 applies on replay too, and it has to: the cache outlives the
+            # rules it was filled under. Three entries in the live graph on
+            # 2026-08-27 held statements written before the schema required a
+            # statement to contain its modality, and re-validating them raised —
+            # which `rebuild_derived` catches as a *chunk* rejection, losing the
+            # valid obligations cached beside them. That is the blast radius
+            # ADR-030 moved, reappearing because the rule was applied where items
+            # are extracted and not where they are replayed.
+            replayed: list[ExtractedObligation] = []
+            stale = 0
+            for item in json.loads(payload):
+                try:
+                    replayed.append(ExtractedObligation.model_validate(item))
+                except ValidationError as exc:
+                    stale += 1
+                    if on_drop is not None:
+                        on_drop(f"cached item no longer validates: {exc}")
+            if stale and not replayed:
+                raise ValueError(
+                    f"every cached obligation for this chunk is now invalid "
+                    f"({stale} of {stale})"
+                )
+            return replayed
 
         # Forwarded on a miss only. A hit replays items that already validated,
         # so there is nothing left to drop — and re-reporting the drops from the

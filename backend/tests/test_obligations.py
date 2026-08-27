@@ -1,3 +1,4 @@
+import json
 import pytest
 
 from policy_grapher.chunking import chunk_pages
@@ -365,3 +366,72 @@ def test_the_graph_backed_cache_survives_a_new_extractor(clean_graph, database):
 
     assert inner.calls == 1
     assert result[0].statement == _obligation().statement
+
+
+def test_a_cache_entry_that_no_longer_validates_costs_only_that_item():
+    """The cache outlives the rules it was filled under.
+
+    Measured 2026-08-27: three entries in the live graph held statements written
+    before the schema began requiring a statement to contain its modality — "Be
+    Responsive." labelled SHALL. A hit re-validates, so those chunks would have
+    raised on replay, and `rebuild_derived` catches that as a *chunk* rejection —
+    losing the valid obligations cached alongside them.
+
+    That is precisely the blast radius ADR-030 moved, reappearing at the cache
+    boundary because the rule was applied where items are extracted and not where
+    they are replayed. A cached item that no longer validates is the same event as
+    a fresh one that does not: it costs itself.
+    """
+    store = _DictStore()
+    key = cache_key(**{**KEY, "adapter_id": "recording", "prompt_version": 1})
+    # One statement that still validates and one written under the older rules.
+    store.put(
+        key,
+        json.dumps(
+            [
+                {
+                    "statement": "The Director shall notify the Comptroller.",
+                    "modality": "SHALL",
+                    "actor": None, "deadline": None, "conditions": None,
+                    "confidence": 0.9,
+                },
+                {
+                    "statement": "Be Responsive.",
+                    "modality": "SHALL",
+                    "actor": None, "deadline": None, "conditions": None,
+                    "confidence": 0.9,
+                },
+            ]
+        ),
+    )
+    dropped: list[str] = []
+    cached = CachedExtractor(_RecordingExtractor([]), store, prompt_version=1)
+
+    found = cached.extract(KEY["chunk_text"], section_path=["3.2"], on_drop=dropped.append)
+
+    assert [o.statement for o in found] == ["The Director shall notify the Comptroller."]
+    assert len(dropped) == 1
+
+
+def test_a_cache_entry_where_nothing_validates_is_still_a_rejection():
+    """ADR-030's other half, and it has to hold on replay too: a chunk that
+    produces no valid obligation is a rejected chunk, not an empty answer."""
+    store = _DictStore()
+    key = cache_key(**{**KEY, "adapter_id": "recording", "prompt_version": 1})
+    store.put(
+        key,
+        json.dumps(
+            [
+                {
+                    "statement": "Be Responsive.",
+                    "modality": "SHALL",
+                    "actor": None, "deadline": None, "conditions": None,
+                    "confidence": 0.9,
+                }
+            ]
+        ),
+    )
+    cached = CachedExtractor(_RecordingExtractor([]), store, prompt_version=1)
+
+    with pytest.raises(ValueError):
+        cached.extract(KEY["chunk_text"], section_path=["3.2"])
