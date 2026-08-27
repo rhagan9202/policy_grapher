@@ -19,6 +19,7 @@ vi.mock('./api/client', () => ({
 }))
 
 import App from './App'
+import { ROUTES as DECLARED } from './routes'
 
 const ROUTES = [
   [/graph/i, '/'],
@@ -120,7 +121,10 @@ describe('App — backend reachability', () => {
 
 describe('search from anywhere', () => {
   it('offers a search control on every screen', async () => {
-    for (const path of ['/', '/documents', '/ingest', '/triage', '/review', '/ask', '/reset']) {
+    // Iterating the declaration itself, not a copy of it. The list above in this
+    // file mirrors App.tsx by hand, so a route added there would be covered by
+    // neither test — which is the failure this criterion was written against.
+    for (const { to: path } of DECLARED) {
       const view = render(
         <MemoryRouter initialEntries={[path]}>
           <App />

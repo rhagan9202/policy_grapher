@@ -53,6 +53,111 @@ def list_all(
     return list_documents(driver, settings.neo4j_database)
 
 
+# Declared before `/{slug}`, and it has to be: FastAPI matches in declaration
+# order, so the parameterised route reads "duplicates" as a document slug and
+# answers 404. Found by the sprint 8 walkthrough — every unit test passed, because
+# the frontend mocks the client and the reachability check compares declared paths
+# without calling them.
+# --- reconciling near-duplicates (STORY-031, ADR-032) --------------------------
+
+DUPLICATE_CONTEXT = """
+UNWIND $names AS name
+MATCH (d:Document {name: name})
+RETURN name,
+       d.slug AS slug,
+       count { (d)<-[:REFERENCES]-() } AS cited_by,
+       EXISTS { MATCH (d)-[:HAS_VERSION]->() } AS has_text
+"""
+
+
+@router.get("/duplicates", response_model=list[DuplicateCandidate])
+def duplicates(
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
+) -> list[DuplicateCandidate]:
+    """Flagged near-duplicate names nobody has ruled on yet.
+
+    The flag comes from `sources/manifest.py`, re-derived from the corpus file
+    rather than stored: a second detector here would let this screen and the
+    ingest disagree about what is suspicious.
+    """
+    corpus = settings.data_dir / settings.sample_csv
+    if not corpus.exists():
+        return []
+    flagged = parse_corpus(corpus).suspected_duplicates
+
+    with driver.session(database=settings.neo4j_database) as session:
+        pending = session.execute_read(unresolved_duplicates, flagged=flagged)
+
+        found = []
+        for group in pending:
+            names = sorted(group)[:2]
+            rows = {
+                record["name"]: record
+                for record in session.run(DUPLICATE_CONTEXT, names=names)
+            }
+            if len(rows) != len(names):
+                continue
+            has_text = [rows[n]["has_text"] for n in names]
+            found.append(
+                DuplicateCandidate(
+                    names=names,
+                    slugs=[rows[n]["slug"] for n in names],
+                    cited_by=[rows[n]["cited_by"] for n in names],
+                    has_text=has_text,
+                    # ADR-032 takes only the case it can answer.
+                    mergeable=not any(has_text),
+                )
+            )
+    return found
+
+
+@router.post("/duplicates/merge", response_model=dict[str, int])
+def merge_documents(
+    body: MergeIn,
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
+) -> dict[str, int]:
+    """Record that two documents are one, and apply it.
+
+    The actor is the authenticated principal and never the request body — the
+    same rule `POST /review/{source}/{target}` follows, for the same reason.
+    """
+    try:
+        with driver.session(database=settings.neo4j_database) as session:
+            session.execute_write(
+                record_merge,
+                survivor=body.survivor,
+                merged=body.merged,
+                actor=principal.name,
+            )
+            applied = session.execute_write(apply_merges)
+    except MergeRefused as refusal:
+        raise HTTPException(status_code=409, detail=str(refusal)) from refusal
+    return {"applied": applied}
+
+
+@router.post("/duplicates/different", status_code=204)
+def not_duplicates(
+    body: MergeIn,
+    driver: Driver = Depends(get_driver),
+    settings: Settings = Depends(get_app_settings),
+    principal: Principal = Depends(require_principal),
+) -> Response:
+    """Record that a flagged pair is two different documents, so it stops being
+    asked about. A judgement made once is not re-asked (ADR-014's reasoning)."""
+    with driver.session(database=settings.neo4j_database) as session:
+        session.execute_write(
+            record_not_duplicates,
+            first=body.survivor,
+            second=body.merged,
+            actor=principal.name,
+        )
+    return Response(status_code=204)
+
+
 @router.get("/{slug}", response_model=DocumentOut)
 def read_one(
     slug: str,
@@ -304,103 +409,3 @@ def list_obligations(
         returned=len(obligations),
         truncated=len(obligations) < total,
     )
-
-
-# --- reconciling near-duplicates (STORY-031, ADR-032) --------------------------
-
-DUPLICATE_CONTEXT = """
-UNWIND $names AS name
-MATCH (d:Document {name: name})
-RETURN name,
-       d.slug AS slug,
-       count { (d)<-[:REFERENCES]-() } AS cited_by,
-       EXISTS { MATCH (d)-[:HAS_VERSION]->() } AS has_text
-"""
-
-
-@router.get("/duplicates", response_model=list[DuplicateCandidate])
-def duplicates(
-    driver: Driver = Depends(get_driver),
-    settings: Settings = Depends(get_app_settings),
-    principal: Principal = Depends(require_principal),
-) -> list[DuplicateCandidate]:
-    """Flagged near-duplicate names nobody has ruled on yet.
-
-    The flag comes from `sources/manifest.py`, re-derived from the corpus file
-    rather than stored: a second detector here would let this screen and the
-    ingest disagree about what is suspicious.
-    """
-    corpus = settings.data_dir / settings.sample_csv
-    if not corpus.exists():
-        return []
-    flagged = parse_corpus(corpus).suspected_duplicates
-
-    with driver.session(database=settings.neo4j_database) as session:
-        pending = session.execute_read(unresolved_duplicates, flagged=flagged)
-
-        found = []
-        for group in pending:
-            names = sorted(group)[:2]
-            rows = {
-                record["name"]: record
-                for record in session.run(DUPLICATE_CONTEXT, names=names)
-            }
-            if len(rows) != len(names):
-                continue
-            has_text = [rows[n]["has_text"] for n in names]
-            found.append(
-                DuplicateCandidate(
-                    names=names,
-                    slugs=[rows[n]["slug"] for n in names],
-                    cited_by=[rows[n]["cited_by"] for n in names],
-                    has_text=has_text,
-                    # ADR-032 takes only the case it can answer.
-                    mergeable=not any(has_text),
-                )
-            )
-    return found
-
-
-@router.post("/duplicates/merge", response_model=dict[str, int])
-def merge_documents(
-    body: MergeIn,
-    driver: Driver = Depends(get_driver),
-    settings: Settings = Depends(get_app_settings),
-    principal: Principal = Depends(require_principal),
-) -> dict[str, int]:
-    """Record that two documents are one, and apply it.
-
-    The actor is the authenticated principal and never the request body — the
-    same rule `POST /review/{source}/{target}` follows, for the same reason.
-    """
-    try:
-        with driver.session(database=settings.neo4j_database) as session:
-            session.execute_write(
-                record_merge,
-                survivor=body.survivor,
-                merged=body.merged,
-                actor=principal.name,
-            )
-            applied = session.execute_write(apply_merges)
-    except MergeRefused as refusal:
-        raise HTTPException(status_code=409, detail=str(refusal)) from refusal
-    return {"applied": applied}
-
-
-@router.post("/duplicates/different", status_code=204)
-def not_duplicates(
-    body: MergeIn,
-    driver: Driver = Depends(get_driver),
-    settings: Settings = Depends(get_app_settings),
-    principal: Principal = Depends(require_principal),
-) -> Response:
-    """Record that a flagged pair is two different documents, so it stops being
-    asked about. A judgement made once is not re-asked (ADR-014's reasoning)."""
-    with driver.session(database=settings.neo4j_database) as session:
-        session.execute_write(
-            record_not_duplicates,
-            first=body.survivor,
-            second=body.merged,
-            actor=principal.name,
-        )
-    return Response(status_code=204)

@@ -183,3 +183,33 @@ def test_an_ingest_re_applies_recorded_merges(clean_graph, database):
         database_=database,
     )
     assert after[0]["n"] == 1, "the merge was undone by a re-ingest"
+
+
+@pytest.mark.integration
+def test_the_duplicates_route_is_not_swallowed_by_the_slug_route(client_with_auth):
+    """Found by the sprint 8 walkthrough, and only by it.
+
+    FastAPI matches routes in declaration order, and `/documents/{slug}` was
+    declared before `/documents/duplicates`, so the literal path was read as a
+    document named "duplicates" and answered 404. Every unit test passed: the
+    frontend mocks the client, and the reachability test compares declared paths
+    against `client.ts` without calling either.
+    """
+    response = client_with_auth.get("/documents/duplicates")
+
+    assert response.status_code == 200, response.text
+    assert isinstance(response.json(), list)
+
+
+@pytest.mark.integration
+def test_a_document_actually_named_like_a_sub_route_still_resolves(client_with_auth):
+    """The other half: fixing the order must not make a real document called
+    "duplicates" unreachable."""
+    client_with_auth.post("/documents", json={"name": "duplicates"})
+
+    response = client_with_auth.get("/documents/duplicates")
+
+    # The literal route wins, which is the trade — and it is the right way round,
+    # since a document may be renamed and a route may not.
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)

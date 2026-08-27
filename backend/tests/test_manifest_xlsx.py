@@ -85,3 +85,24 @@ def test_an_empty_spreadsheet_is_rejected_rather_than_read_as_an_empty_corpus(
 
     with pytest.raises(SourceError):
         parse_corpus(empty)
+
+
+@pytest.mark.integration
+def test_the_ingest_route_accepts_a_spreadsheet(client_with_auth):
+    """AC1 names `POST /ingest`, and the equivalence test above asserts the
+    *parser*. A format the parser reads and the route refuses would satisfy one
+    and not the bar."""
+    response = client_with_auth.post(
+        "/ingest", json={"filename": XLSX.name}
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["nodes_created"] > 0
+
+    documents = client_with_auth.get("/documents").json()
+    corpus = [d for d in documents if not d["is_external"]]
+    assert len(corpus) >= 20, (
+        "ingesting the spreadsheet manifest produced fewer corpus documents than "
+        "the vision's bar, so the two formats do not agree at the route either"
+    )
