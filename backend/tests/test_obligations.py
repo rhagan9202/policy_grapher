@@ -1,4 +1,5 @@
 import json
+
 import pytest
 
 from policy_grapher.chunking import chunk_pages
