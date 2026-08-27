@@ -1,6 +1,6 @@
 # STORY-087: The blast radius of an unparseable item is decided
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

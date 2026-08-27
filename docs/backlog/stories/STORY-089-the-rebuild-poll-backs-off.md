@@ -1,6 +1,6 @@
 # STORY-089: The rebuild status poll backs off
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

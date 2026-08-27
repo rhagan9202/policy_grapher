@@ -1,7 +1,7 @@
 # Velocity
 
 *Living document — one row per completed sprint, plus any interval that delivered work
-without being one. Last reviewed: 2026-08-26 (sprint 6 closed)*
+without being one. Last reviewed: 2026-08-27 (sprint 7 closed)*
 
 | Sprint | Committed | Delivered | Notes |
 | --- | --- | --- | --- |
@@ -15,7 +15,9 @@ without being one. Last reviewed: 2026-08-26 (sprint 6 closed)*
 
 | 6 | 6 stories | 6 stories | 3M + 3S committed, all six delivered, plus three defects found by the planning review and fixed before the sprint opened. The estimation scale was amended at planning so those three M items were not forced to L — see [backlog README](../backlog/README.md#estimation). **STORY-084 was committed as S and delivered as L**: it asked for a re-measurement, the re-measurement failed, and the work became fixing the extractor rather than recording a number. That is the sprint in one row — the value was in a check that could finally fail, not in the six items. Counting stories says nothing about it. |
 
-**Rolling average (last 3):** 7.3 stories (7, 9, 6) — and read it loosely. Sprint 1's row still
+| 7 | 6 stories | 6 stories | 1M + 5S committed, all six delivered, plus four defects found while executing — three of them this sprint's own changes meeting live data. **The sprint's value is not in the six rows.** It is that the product's loop ran end to end for the first time, on obligations worth trusting, and the first `:LinkDecision` in the project's history was recorded and survived two rebuilds. Also the sprint that found sprint 6's heading measurement was false: a check written against five exact strings, invalidated by the same change it was verifying. |
+
+**Rolling average (last 3):** 7.0 stories (9, 6, 6) — and read it loosely. Sprint 1's row still
 says 11 against a true 13, sprints 1 and 2 counted unestimated items, and sprint 3 is the first
 sized one. Counting *stories* is now actively misleading in a second way: sprint 4's seven
 includes one L that consumed a design session, a spec and a plan before any code, and two

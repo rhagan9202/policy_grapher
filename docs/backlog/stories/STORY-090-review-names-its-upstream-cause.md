@@ -1,6 +1,6 @@
 # STORY-090: Review's empty queue names its upstream cause
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

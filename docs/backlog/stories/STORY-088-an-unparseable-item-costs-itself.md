@@ -1,6 +1,6 @@
 # STORY-088: An unparseable item costs what the ADR says it costs
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 

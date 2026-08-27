@@ -1,6 +1,6 @@
 # STORY-091: The README's corpus numbers describe what the product produces
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

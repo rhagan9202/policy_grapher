@@ -1,6 +1,6 @@
 # STORY-092: The Authority and Entity helpers go
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

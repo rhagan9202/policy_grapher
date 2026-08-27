@@ -4,6 +4,14 @@
 
 *Dated record. Written once, at the end of the sprint.*
 
+> **One measurement in this file is wrong**, and is corrected in
+> [sprint 7's review](../sprint-07/review.md#the-correction-sprint-6-needs). The claim that
+> section headings recorded as obligations went "5+ → 0" came from comparing five exact
+> strings; the same prompt change had just started keeping the closing full stop, so
+> `'Be Responsive'` no longer matched `'Be Responsive.'`. The headings were still there —
+> 18 of 215 obligations, measured by shape a day later. Everything else here stands, and
+> the rest of the file is left as written.
+
 ## The goal
 
 > What the pipeline produced becomes visible to the person who ran it, and the checks that

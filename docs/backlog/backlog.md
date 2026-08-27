@@ -32,11 +32,17 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
-**Ready holds six items, all committed to [sprint 7](../sprints/sprint-07/plan.md).** They serve
-one goal: extraction stops silently losing a fifth of every document, and the loop it feeds is
-run end to end on what it produces. Four came from sprint 6's planning review and were left
-unfiled at the time; two are the halves of the rejection-boundary problem sprint 6 measured and
-deliberately did not solve.
+**Ready is empty.** All six of sprint 7's items are in [Done](#done): the blast-radius decision
+and its implementation (STORY-087, STORY-088), the dead Authority/Entity writers removed
+(STORY-092), a poll that backs off (STORY-089), a Review queue that names why it is empty
+(STORY-090), and a README whose corpus numbers describe what the product actually produces
+(STORY-091).
+
+[Sprint 8's planning session](../sprints/sprint-08/plan.md) starts from [Refining](#refining),
+where **STORY-014 and STORY-036 are the two remaining closable MVP bars** — deliberately held
+out of sprint 7 because they did not serve its goal — and carries one open question: 20 of 37
+chunks now yield no obligation, and whether that is the prompt, the model or the chunker is
+undecided.
 
 The two open MVP bars — STORY-036 (XLSX) and STORY-014 (search) — are deliberately **not** in
 this sprint. Both are real and neither serves this goal, and planning picks the goal first.
@@ -80,12 +86,6 @@ row** through product actions alone; the sequence is in the
 
 | ID | Item | Epic | Est. | Sprint | Notes |
 | --- | --- | --- | --- | --- | --- |
-| STORY-087 | The blast radius of an unparseable item is decided | — | S | 7 | [ADR-023](../specs/adr/ADR-023-a-rejected-item-costs-its-chunk-not-the-run.md) set the boundary at the chunk; sprint 6 made its cost visible. `PROMPT_VERSION 2` bought precision 0.294 → 0.625 and recall 0.385 → 0.769 and took rejections from **2 chunks in 37 to 8**, all `modality: null` on sentences stating scope. Three prompt variants were tried against it and none moved it, so this is a boundary question, not a wording one. Split out as its own item because dropping bad items silently weakens the property `Modality` is closed for. See [STORY-087](stories/STORY-087-the-blast-radius-of-an-unparseable-item-is-decided.md) |
-| STORY-088 | An unparseable item costs what the ADR says it costs | — | M | 7 | The implementation half, deliberately unstartable until STORY-087 lands — a boundary change made before the decision *is* the decision. Touches the adapter and `rebuild_derived` together, since the strictness lives in one and the blast radius in the other. See [STORY-088](stories/STORY-088-an-unparseable-item-costs-itself.md) |
-| STORY-092 | The Authority and Entity helpers go | — | S | 7 | `merge_authority`, `attach_authority` and `merge_entity` have no production caller — verified twice in sprint 6 — and the live graph holds zero of each. The roadmap claimed them as landed until sprint 6 corrected it and moved both labels to Later. Written but unreachable, with tests as the only thing making it look alive. See [STORY-092](stories/STORY-092-the-authority-and-entity-helpers-go.md) |
-| STORY-089 | The rebuild status poll backs off | — | S | 7 | `DocumentDetail` polls on a flat 2-second timer with no backoff or ceiling. Its reasoning for having no attempt limit is sound; what changed is that `rebuild_job_timeout_seconds` went to eight hours on 2026-08-26, so one open tab now issues roughly **14,400** `Job.fetch` round trips per run. Found by sprint 6's planning review and not committed there. See [STORY-089](stories/STORY-089-the-rebuild-poll-backs-off.md) |
-| STORY-090 | Review's empty queue names its upstream cause | — | S | 7 | "Nothing is waiting for review" is said both when every proposal is decided and when no proposal could exist — and on 2026-08-26 the graph was in the second state, with one edition holding obligations and three holding none. The same shape [ADR-015](../specs/adr/ADR-015-changes-are-detected-and-ranked.md) and STORY-067 fixed on Triage, recurring on the screen those fixes did not touch. See [STORY-090](stories/STORY-090-review-names-its-upstream-cause.md) |
-| STORY-091 | The README's corpus numbers describe what the product produces | — | S | 7 | 96 and 115 obligations, 265 proposals, 204 changes — all measured under `PROMPT_VERSION 1`, which sprint 6 proved was recording section headings as duties and writing "no actor specified" as an actor. The counts are inflated by junk and the proposal count derives from it. Sequenced last: its numbers come from this sprint's own walkthrough. See [STORY-091](stories/STORY-091-the-readme-describes-what-the-product-produces.md) |
 
 ## Refining
 
@@ -141,6 +141,12 @@ the implementation plans beside them.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-092 | The Authority and Entity helpers go | 7 |
+| STORY-091 | The README's corpus numbers describe what the product produces | 7 |
+| STORY-090 | Review's empty queue names its upstream cause | 7 |
+| STORY-089 | The rebuild status poll backs off | 7 |
+| STORY-088 | An unparseable item costs what the ADR says it costs | 7 |
+| STORY-087 | The blast radius of an unparseable item is decided | 7 |
 | STORY-086 | Route reachability is a test, not a paragraph | 6 |
 | STORY-085 | The ranking weights ADR-025 records are asserted, not just commented | 6 |
 | STORY-084 | The extraction floors are measured against the gold set that exists | 6 |
