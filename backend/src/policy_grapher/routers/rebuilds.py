@@ -10,7 +10,7 @@ that and not its intent.
 from fastapi import APIRouter, Depends, HTTPException
 from neo4j import Driver, RoutingControl
 from redis.exceptions import RedisError
-from rq import Queue
+from rq import Queue, Worker
 from rq.exceptions import NoSuchJobError
 from rq.job import Job
 from rq.registry import StartedJobRegistry
@@ -177,15 +177,39 @@ def read_rebuild(
     latest = job.latest_result()
     returned = latest.return_value if latest is not None else None
 
+    state = job.get_status()
+    error = (latest.exc_string if latest is not None else None) if job.is_failed else None
+
+    # A run whose worker is gone reports `started` for as long as its timeout
+    # allows, and that timeout is eight hours. Observed on 2026-08-27 when a
+    # worker container was replaced mid-rebuild: progress froze at 17 of 38 and
+    # the screen showed a build in progress with nothing behind it.
+    #
+    # STORY-082 assumed such a job would become unknown and treated a 404 as "did
+    # not finish". It does not — RQ keeps it, and only moves it to failed when the
+    # job timeout expires. The job records the worker that took it, so asking
+    # whether that worker is still alive is the direct question. A job with no
+    # worker name has not been taken yet and is not judged.
+    if state == "started" and job.worker_name:
+        alive = {worker.name for worker in Worker.all(connection=queue.connection)}
+        if job.worker_name not in alive:
+            state = "failed"
+            error = (
+                f"The worker running this rebuild ({job.worker_name}) is no longer "
+                f"alive, and the run stopped at chunk {job.meta.get('chunks_done', 0)} "
+                f"of {job.meta.get('chunks_total', 0)}. Build it again — extraction "
+                f"is cached, so the chunks it already finished are not repeated."
+            )
+
     return RebuildStatus(
         run_id=job.id,
         version_id=job.kwargs.get("version_id", ""),
-        state=job.get_status(),
+        state=state,
         chunks_done=job.meta.get("chunks_done", 0),
         chunks_total=job.meta.get("chunks_total", 0),
         counts=returned if isinstance(returned, dict) else {},
         rejections=job.meta.get("rejections", []),
         extractor_adapter=job.meta.get("extractor_adapter", ""),
         embedder_adapter=job.meta.get("embedder_adapter", ""),
-        error=(latest.exc_string if latest is not None else None) if job.is_failed else None,
+        error=error,
     )

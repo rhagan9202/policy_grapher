@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from rq import Queue
+from rq.job import JobStatus
 
 from policy_grapher.ingest import ingest_file
 from policy_grapher.jobs.rebuild import rebuild_edition
@@ -222,3 +223,49 @@ def test_an_enqueued_run_keeps_its_result_for_a_day(client_with_auth):
 
     job = client_with_auth.app.state.queue.fetch_job(run_id)
     assert job.result_ttl == 86400
+
+
+@pytest.mark.integration
+def test_a_run_whose_worker_died_reads_as_failed(client_with_auth, redis_connection):
+    """STORY-082's AC7, whose stated mechanism turned out to be wrong.
+
+    It assumed a dead worker's job would become unknown, so the screen treated a
+    404 from this route as "did not finish". Observed on 2026-08-27 when a worker
+    container was replaced mid-rebuild: the job stayed `STARTED` in Redis with its
+    progress frozen at 17 of 38, and reported `started` indefinitely. RQ moves an
+    abandoned job to failed only when its timeout expires, and that timeout is now
+    eight hours — so the screen would have shown a run as building for a working
+    day after the process behind it was gone.
+
+    The signal is the job's own: it records the worker that took it, and that
+    worker is no longer among the living.
+    """
+    _slug, version_id = _ingest(client_with_auth)
+    queue = Queue(SYNC_QUEUE, connection=redis_connection, is_async=True)
+    job = queue.enqueue(rebuild_edition, version_id=version_id)
+
+    # Exactly the state a replaced container leaves behind: taken by a worker
+    # that no longer exists, and never finished.
+    job.worker_name = "a-worker-that-is-gone"
+    job._status = JobStatus.STARTED
+    job.save()
+
+    body = client_with_auth.get(f"/rebuilds/{job.id}").json()
+
+    assert body["state"] == "failed"
+    assert "worker" in (body["error"] or "").lower()
+
+
+@pytest.mark.integration
+def test_a_run_on_a_live_worker_is_not_called_dead(client_with_auth, redis_connection):
+    """The guard on the guard. Reporting a healthy run as failed would be the
+    worse error of the two — it invites someone to start a second rebuild of an
+    edition that is already being built."""
+    _slug, version_id = _ingest(client_with_auth)
+    queue = Queue(SYNC_QUEUE, connection=redis_connection, is_async=True)
+    job = queue.enqueue(rebuild_edition, version_id=version_id)
+
+    # Queued and not yet taken: no worker name, so nothing to judge it against.
+    body = client_with_auth.get(f"/rebuilds/{job.id}").json()
+
+    assert body["state"] != "failed"
