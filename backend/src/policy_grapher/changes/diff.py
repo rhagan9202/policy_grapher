@@ -94,6 +94,95 @@ def _by_key(records) -> dict[str, dict]:
     return {content_key(r["section_path"], r["statement"]): dict(r) for r in records}
 
 
+# Higher than the proposer's threshold, deliberately (ADR-031). The proposer offers
+# a candidate to a human who accepts or rejects it; this writes a MODIFIED nobody
+# reviews. The cost of a wrong answer is not symmetric, so the bar is not the same.
+PAIRING_CONFIDENCE = 0.75
+
+# Two candidates this close are not distinguishable by this measure, and picking
+# the higher would be picking whichever the dictionary happened to yield first.
+# ADR-015's answer to "we do not know" is to say so, and ADR-031 keeps it.
+PAIRING_MARGIN = 0.05
+
+
+def _pair_by_wording(
+    unmatched_old: dict[str, dict],
+    unmatched_new: dict[str, dict],
+    paired_old: set[str],
+    paired_new: set[str],
+    changes: list[dict],
+) -> None:
+    """Pair what section-based matching left over — ADR-031.
+
+    Greedy over the best-scoring pairs rather than optimal: an assignment problem
+    would be a better answer to a question nobody is asking, since a document that
+    reworded dozens of clauses into each other's sections is one no pairing rule
+    should be confident about anyway.
+    """
+    from policy_grapher.links.propose import score_pair
+
+    scored: list[tuple[float, str, dict, dict]] = []
+    for before in unmatched_old.values():
+        if before["id"] in paired_old:
+            continue
+        for after in unmatched_new.values():
+            if after["id"] in paired_new:
+                continue
+            candidate = score_pair(after["statement"], before["statement"])
+            if candidate is not None and candidate.confidence >= PAIRING_CONFIDENCE:
+                scored.append(
+                    (candidate.confidence, candidate.rationale, before, after)
+                )
+
+    scored.sort(key=lambda row: row[0], reverse=True)
+
+    # The best score each obligation could have achieved with a *different*
+    # partner. A pair that only just beats its own runner-up is not a pairing this
+    # measure can distinguish, and choosing anyway would be choosing whichever the
+    # dictionary happened to yield first.
+    def _best_elsewhere(obligation_id: str, partner_id: str) -> float:
+        return max(
+            (
+                confidence
+                for confidence, _r, before, after in scored
+                if obligation_id in (before["id"], after["id"])
+                and partner_id not in (before["id"], after["id"])
+            ),
+            default=0.0,
+        )
+
+    for confidence, rationale, before, after in scored:
+        if before["id"] in paired_old or after["id"] in paired_new:
+            continue
+        contested = max(
+            _best_elsewhere(before["id"], after["id"]),
+            _best_elsewhere(after["id"], before["id"]),
+        )
+        if confidence - contested < PAIRING_MARGIN:
+            # Two candidates within a hair of each other: both stay ADDED/REMOVED
+            # and the summary says why, which is ADR-015's answer kept.
+            continue
+
+        paired_old.add(before["id"])
+        paired_new.add(after["id"])
+        changes.append(
+            {
+                "kind": MODIFIED,
+                "obligation_id": after["id"],
+                "section_path": after["section_path"],
+                "statement": after["statement"],
+                "previous_statement": before["statement"],
+                "modality": after["modality"],
+                "summary": (
+                    f"The obligation moved from section "
+                    f"{'/'.join(before['section_path'])} to "
+                    f"{'/'.join(after['section_path'])} and was reworded — "
+                    f"{rationale}"
+                ),
+            }
+        )
+
+
 def _plan_changes(old: dict[str, dict], new: dict[str, dict]) -> list[dict]:
     """Work out the changes without touching the graph, so the rule is testable
     on its own and readable in one place."""
@@ -131,6 +220,19 @@ def _plan_changes(old: dict[str, dict], new: dict[str, dict]) -> list[dict]:
                     ),
                 }
             )
+
+    # ADR-031. What section-based pairing could not reach gets a second pass on
+    # wording. Structure first, always: a section holding one unmatched clause
+    # each side has been edited, and no measurement improves on a certainty.
+    #
+    # The measure is `links/propose.py`'s, unchanged — shared content words
+    # weighted by shared designators, scored against the shorter statement. It
+    # keeps every row explainable by a path a person can walk, which is what
+    # ADR-015 actually required; "no text similarity" was the mechanism, not the
+    # constraint.
+    _pair_by_wording(
+        unmatched_old, unmatched_new, paired_old, paired_new, changes
+    )
 
     def _ambiguous(section: tuple[str, ...]) -> str | None:
         if len(by_section_old.get(section, [])) + len(by_section_new.get(section, [])) > 1:

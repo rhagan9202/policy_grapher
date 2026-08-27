@@ -2,7 +2,15 @@
 
 import pytest
 
-from policy_grapher.changes.diff import content_key, diff_versions, drop_changes
+from policy_grapher.changes.diff import (
+    ADDED,
+    MODIFIED,
+    REMOVED,
+    _plan_changes,
+    content_key,
+    diff_versions,
+    drop_changes,
+)
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
@@ -324,3 +332,129 @@ def test_dropping_changes_leaves_the_obligations_standing(clean_graph, database)
     )
     assert records[0]["changes"] == 0
     assert records[0]["obligations"] == 2
+
+
+# --- ADR-031: pairing by wording, after section fails -------------------------
+
+
+def _entry(oid: str, section: list[str], statement: str, modality: str = "SHALL"):
+    return {
+        "id": oid,
+        "section_path": section,
+        "statement": statement,
+        "modality": modality,
+    }
+
+
+def _keyed(*entries):
+    return {content_key(e["section_path"], e["statement"]): e for e in entries}
+
+
+RENUMBERED_OLD = (
+    "All of the DoD Components shall acquire systems, subsystems, equipment, "
+    "supplies, and services in accordance with the statutory requirements for "
+    "competition."
+)
+RENUMBERED_NEW = (
+    "The DoD Components will acquire systems, subsystems, equipment, supplies, "
+    "product support, sustainment, and services in accordance with the statutory "
+    "requirements for competition."
+)
+
+
+def test_a_clause_that_moved_section_is_a_modification_not_a_replacement():
+    """ADR-031, and the failure that produced it: diffing the 2018 and 2020
+    editions of DoDD 5000.01 gave 0 MODIFIED, 11 ADDED, 80 REMOVED, because DoD
+    renumbered enclosures into sections between them and section-based pairing
+    never fired. It read as "the whole document was replaced", which was both the
+    least actionable answer available and untrue."""
+    old = _keyed(_entry("o1", ["ENCLOSURE 1"], RENUMBERED_OLD))
+    new = _keyed(_entry("n1", ["SECTION 1"], RENUMBERED_NEW))
+
+    changes = _plan_changes(old, new)
+
+    assert [c["kind"] for c in changes] == [MODIFIED]
+    assert changes[0]["previous_statement"] == RENUMBERED_OLD
+    assert changes[0]["obligation_id"] == "n1"
+
+
+def test_a_pairing_found_by_wording_carries_its_evidence():
+    """ADR-031 requires it: a row a reader cannot interrogate is what ADR-015
+    refused to produce, and this one was not found by structure."""
+    old = _keyed(_entry("o1", ["ENCLOSURE 1"], RENUMBERED_OLD))
+    new = _keyed(_entry("n1", ["SECTION 1"], RENUMBERED_NEW))
+
+    summary = _plan_changes(old, new)[0]["summary"]
+
+    assert "acquire" in summary or "wording" in summary.lower()
+    assert "ENCLOSURE 1" in summary and "SECTION 1" in summary
+
+
+def test_two_unrelated_clauses_are_not_paired():
+    """The risk ADR-031 names: a false pairing reports a MODIFIED that never
+    happened, and a reviewer who trusts it reviews a change that does not exist.
+    Over-reporting is visible; a wrong pairing is not."""
+    old = _keyed(_entry("o1", ["ENCLOSURE 1"], "The Director shall notify the Comptroller of any breach."))
+    new = _keyed(_entry("n1", ["SECTION 9"], "Records shall be destroyed at the end of their retention period."))
+
+    changes = _plan_changes(old, new)
+
+    assert sorted(c["kind"] for c in changes) == [ADDED, REMOVED]
+
+
+def test_section_pairing_still_wins_where_it_applies():
+    """Structure first: a section holding one unmatched clause each side has been
+    edited, and no measurement improves on that."""
+    old = _keyed(_entry("o1", ["SECTION 2"], "Components shall report annually."))
+    new = _keyed(_entry("n1", ["SECTION 2"], "Components shall report every year."))
+
+    changes = _plan_changes(old, new)
+
+    assert [c["kind"] for c in changes] == [MODIFIED]
+    assert "reworded" in changes[0]["summary"]
+
+
+def test_a_near_tie_falls_back_rather_than_picking_the_higher_score():
+    """ADR-031 keeps ADR-015's answer to "we do not know", and this is the case
+    that needs the margin rather than mere tie-breaking.
+
+    These two candidates score 0.833 and 0.800 against the same clause — close
+    enough that this measure cannot tell them apart, far enough that a rule
+    comparing scores alone would confidently choose the first. A wrong pairing
+    reports a MODIFIED that never happened, and unlike over-reporting it is
+    invisible to the reviewer who acts on it.
+    """
+    before = (
+        "Components shall submit the annual report to the Comptroller by 31 March "
+        "each year."
+    )
+    old = _keyed(_entry("o1", ["ENCLOSURE 1"], before))
+    new = _keyed(
+        _entry("n1", ["SECTION 1"], before.replace("31 March", "31 April")),
+        _entry(
+            "n2",
+            ["SECTION 2"],
+            "Components shall submit the annual report to the Comptroller by 30 April.",
+        ),
+    )
+
+    changes = _plan_changes(old, new)
+
+    assert MODIFIED not in [c["kind"] for c in changes], (
+        "a near-tie was resolved by score alone; the margin is what stops that"
+    )
+
+
+def test_an_exact_tie_falls_back_too():
+    """The simpler half, which needs no margin — but a rule that only handled
+    exact ties would leave the near-tie above unguarded."""
+    shared = "Components shall submit the annual report to the Comptroller by 31 March."
+    old = _keyed(_entry("o1", ["ENCLOSURE 1"], shared))
+    new = _keyed(
+        _entry("n1", ["SECTION 1"], shared.replace("31 March", "31 April")),
+        _entry("n2", ["SECTION 2"], shared.replace("31 March", "30 April")),
+    )
+
+    changes = _plan_changes(old, new)
+
+    assert MODIFIED not in [c["kind"] for c in changes]
