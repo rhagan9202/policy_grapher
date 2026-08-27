@@ -212,6 +212,7 @@ def rebuild_derived(
     total = len(chunks)
     extracted: list[tuple[str, list[str], list]] = []
     rejected = 0
+    dropped = 0
     for done, chunk in enumerate(chunks, start=1):
         # A chunk the extractor cannot parse costs that chunk, not the run. The
         # strictness is still the adapter's: `Modality` is closed on purpose, so a
@@ -220,8 +221,19 @@ def rebuild_derived(
         # item end a 38-chunk run and discard every chunk before it. Caught here
         # rather than inside the adapter so the port stays strict and the ratchet
         # keeps measuring extraction honestly (ADR-023).
+        # ADR-030 makes reporting dropped items part of the decision to drop
+        # them. `dropped` is the honest replacement for what a rejected chunk used
+        # to say: the run continued, and this many statements did not survive.
+        def drop(reason: str, chunk_id: str = chunk.chunk_id) -> None:
+            nonlocal dropped
+            dropped += 1
+            if on_rejection is not None:
+                on_rejection(chunk_id, reason)
+
         try:
-            found = extractor.extract(chunk.text, section_path=chunk.section_path)
+            found = extractor.extract(
+                chunk.text, section_path=chunk.section_path, on_drop=drop
+            )
         except ValueError as exc:
             rejected += 1
             # The count says an edition is incomplete; the reason says what is
@@ -258,4 +270,5 @@ def rebuild_derived(
     # Always present, so a caller can tell zero rejections from a run by an older
     # build that never counted them.
     counts["chunks_rejected"] = rejected
+    counts["items_dropped"] = dropped
     return counts

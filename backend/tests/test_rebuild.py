@@ -50,7 +50,7 @@ class ModalSentenceExtractor:
         self._skip = skip
 
     def extract(
-        self, chunk_text: str, *, section_path: list[str]
+        self, chunk_text: str, *, section_path: list[str], on_drop=None
     ) -> list[ExtractedObligation]:
         found = []
         for sentence in MODAL_SENTENCE.findall(chunk_text):
@@ -527,7 +527,7 @@ class OneBadChunkExtractor:
         self._inner = inner or ModalSentenceExtractor()
         self.seen = 0
 
-    def extract(self, chunk_text: str, *, section_path: list[str]):
+    def extract(self, chunk_text: str, *, section_path: list[str], on_drop=None):
         self.seen += 1
         if self.seen == self._fail_on:
             raise ValueError(
@@ -539,7 +539,7 @@ class OneBadChunkExtractor:
 class AlwaysBadExtractor:
     adapter_id = "always-bad-stub"
 
-    def extract(self, chunk_text: str, *, section_path: list[str]):
+    def extract(self, chunk_text: str, *, section_path: list[str], on_drop=None):
         raise ValueError("model output did not match the obligation schema")
 
 
@@ -632,3 +632,49 @@ def test_a_clean_rebuild_reports_no_rejections(reviewed_graph, clean_graph, data
     )
 
     assert seen == []
+
+
+class _DropsOneItem:
+    """Returns one good obligation and reports one dropped, the way ADR-030 says
+    an adapter should when a single item fails validation."""
+
+    adapter_id = "drops-one"
+
+    def extract(self, chunk_text: str, *, section_path: list[str], on_drop=None):
+        if on_drop is not None:
+            on_drop("model output did not match the obligation schema: modality")
+        return [
+            ExtractedObligation(
+                statement="Components shall comply with this issuance.",
+                modality=Modality.SHALL,
+                actor=None,
+                deadline=None,
+                conditions=None,
+                confidence=0.9,
+            )
+        ]
+
+
+@pytest.mark.integration
+def test_a_rebuild_counts_the_items_it_dropped(clean_graph, database):
+    """ADR-030 makes the count part of the decision, not an extra.
+
+    Dropping an item quietly is the shape ADR-023's loud-failure argument warns
+    about: a run that stops is hard to ignore and a number in a report is easy.
+    Without this the screen loses the only way it has left to say an edition is
+    incomplete, which is what STORY-057 was for.
+    """
+    version_id = _ingest(clean_graph, database, ORG_FILE)
+
+    counts = rebuild_derived(
+        clean_graph,
+        database,
+        version_id=version_id,
+        extractor=_DropsOneItem(),
+    )
+
+    assert counts["items_dropped"] > 0
+    # And the chunk still produced its surviving obligation, which is the whole
+    # point of moving the boundary.
+    assert counts["obligations_written"] > 0
+    assert counts["chunks_rejected"] == 0

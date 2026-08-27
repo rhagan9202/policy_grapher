@@ -1,6 +1,6 @@
 # ADR-023: A rejected item costs its chunk, not the run
 
-**Status:** Accepted · **Date:** 2026-08-22 · **Deciders:** —
+**Status:** Accepted, amended by [ADR-030](ADR-030-a-rejected-item-costs-itself-not-its-chunk.md) · **Date:** 2026-08-22 · **Deciders:** —
 
 *Dated record — written once, not edited afterward. Supersede rather than revise.*
 

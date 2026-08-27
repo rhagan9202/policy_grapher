@@ -7,6 +7,7 @@ regardless, because that is what keeps behaviour identical across adapters.
 
 import json
 import time
+from collections.abc import Callable
 
 import httpx
 from pydantic import ValidationError
@@ -91,7 +92,11 @@ class LocalExtractor:
         raise AssertionError("unreachable: the loop returns or raises on its last pass")
 
     def extract(
-        self, chunk_text: str, *, section_path: list[str]
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        on_drop: Callable[[str], None] | None = None,
     ) -> list[ExtractedObligation]:
         response = self._post_with_retries(chunk_text, section_path)
         response.raise_for_status()
@@ -102,12 +107,30 @@ class LocalExtractor:
         except json.JSONDecodeError as exc:
             raise ValueError(f"model output was not JSON: {raw[:200]!r}") from exc
 
-        try:
-            return [
-                ExtractedObligation.model_validate(item)
-                for item in payload.get("obligations", [])
-            ]
-        except ValidationError as exc:
-            raise ValueError(
-                f"model output did not match the obligation schema: {exc}"
-            ) from exc
+        # ADR-030. Each item is validated on its own, and one that fails costs
+        # itself rather than everything that shared its chunk. Measured 2026-08-26:
+        # eight chunks in thirty-seven were lost whole, every one of them to a
+        # single `modality: null` on a sentence stating scope and naming no duty.
+        #
+        # The strictness is unchanged — `Modality` is still closed and an invalid
+        # item is still not written. What changed is the blast radius.
+        items = payload.get("obligations", [])
+        found: list[ExtractedObligation] = []
+        reasons: list[str] = []
+        for item in items:
+            try:
+                found.append(ExtractedObligation.model_validate(item))
+            except ValidationError as exc:
+                reason = f"model output did not match the obligation schema: {exc}"
+                reasons.append(reason)
+                if on_drop is not None:
+                    on_drop(reason)
+
+        # Nothing validated out of something the model did return: that is a
+        # wholly broken answer, not a passage without duties, and ADR-030 keeps it
+        # a rejected chunk. An empty `obligations` list is the ordinary case and
+        # reaches here with no reasons, so it stays an empty answer.
+        if reasons and not found:
+            raise ValueError(reasons[0])
+
+        return found

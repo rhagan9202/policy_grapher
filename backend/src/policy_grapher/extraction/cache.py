@@ -18,6 +18,7 @@ edit leaves this cache serving results from a prompt that no longer exists.
 
 import hashlib
 import json
+from collections.abc import Callable
 from typing import Protocol
 
 from neo4j import Driver, RoutingControl
@@ -104,7 +105,11 @@ class CachedExtractor:
         return self._inner.adapter_id
 
     def extract(
-        self, chunk_text: str, *, section_path: list[str]
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        on_drop: Callable[[str], None] | None = None,
     ) -> list[ExtractedObligation]:
         key = cache_key(
             chunk_text,
@@ -121,7 +126,12 @@ class CachedExtractor:
                 ExtractedObligation.model_validate(item) for item in json.loads(payload)
             ]
 
-        result = self._inner.extract(chunk_text, section_path=section_path)
+        # Forwarded on a miss only. A hit replays items that already validated,
+        # so there is nothing left to drop — and re-reporting the drops from the
+        # run that populated the cache would double-count them.
+        result = self._inner.extract(
+            chunk_text, section_path=section_path, on_drop=on_drop
+        )
         self._store.put(
             key, json.dumps([o.model_dump(mode="json") for o in result])
         )

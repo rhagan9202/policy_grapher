@@ -1,5 +1,6 @@
 """Obligation extraction, behind a provider-agnostic port."""
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
 from policy_grapher.extraction.schema import ExtractedObligation
@@ -18,8 +19,23 @@ class ObligationExtractor(Protocol):
     adapter_id: str
 
     def extract(
-        self, chunk_text: str, *, section_path: list[str]
-    ) -> list[ExtractedObligation]: ...
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        on_drop: Callable[[str], None] | None = None,
+    ) -> list[ExtractedObligation]:
+        """Obligations the passage states.
+
+        `on_drop`, when given, is called once per item the adapter discarded for
+        failing validation, with the reason. ADR-030 makes reporting them part of
+        the decision to drop them at all: dropping quietly is the shape ADR-023's
+        loud-failure argument warns about, and the count is the only thing left
+        keeping it honest. An adapter that cannot produce an invalid item never
+        calls it, and still has to accept it — otherwise the caller has to know
+        which adapter it is holding.
+        """
+        ...
 
 
 def build_extractor(settings: Settings) -> ObligationExtractor:

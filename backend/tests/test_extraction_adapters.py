@@ -263,3 +263,80 @@ def test_a_schema_rejection_is_not_retried():
     with pytest.raises(ValueError):
         extractor.extract("...", section_path=["3.2"])
     assert attempts["n"] == 1
+
+
+# --- ADR-030: an item costs itself, not its chunk -----------------------------
+
+VALID = {
+    "statement": "The Director shall notify the Comptroller.",
+    "modality": "SHALL",
+    "actor": "The Director",
+    "deadline": None,
+    "conditions": None,
+    "confidence": 0.9,
+}
+# `modality: null` — the exact failure that cost 8 chunks in 37 on 2026-08-26,
+# on sentences that state scope and name no duty.
+INVALID = {**VALID, "statement": "This issuance applies to the OSD.", "modality": None}
+
+
+def _local(payload, **kwargs):
+    return LocalExtractor(
+        base_url="http://model",
+        model="test-model",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"response": json.dumps(payload)})
+        ),
+        **kwargs,
+    )
+
+
+def test_one_unparseable_item_no_longer_costs_its_whole_chunk():
+    """ADR-030. ADR-023's formula was "the extractor stays strict, the batch
+    tolerates", applied to the run tolerating a bad chunk. A chunk is a batch too,
+    and losing every obligation in it to one unlabelled sentence is a cost wholly
+    out of proportion to the error."""
+    extractor = _local({"obligations": [VALID, INVALID, {**VALID, "confidence": 0.5}]})
+
+    found = extractor.extract("...", section_path=["1.1"])
+
+    assert len(found) == 2
+    assert all(o.modality == "SHALL" for o in found)
+
+
+def test_a_dropped_item_is_reported_rather_than_vanishing():
+    """The condition ADR-030 attaches to the whole decision. Dropping quietly is
+    the shape ADR-023's loud-failure argument warns about, and the count is the
+    only thing keeping it honest — an implementation that drops without reporting
+    has implemented something the ADR did not decide."""
+    dropped = []
+    extractor = _local({"obligations": [VALID, INVALID]})
+
+    extractor.extract("...", section_path=["1.1"], on_drop=dropped.append)
+
+    assert len(dropped) == 1
+    assert "modality" in dropped[0]
+
+
+def test_a_chunk_where_nothing_validates_is_still_rejected():
+    """Tolerating a bad item must not turn a wholly broken model into a green
+    run. ADR-030 keeps this explicitly."""
+    extractor = _local({"obligations": [INVALID, INVALID]})
+
+    with pytest.raises(ValueError):
+        extractor.extract("...", section_path=["1.1"])
+
+
+def test_an_empty_answer_is_still_not_a_rejection():
+    """A passage stating no duty is the common case and always was."""
+    extractor = _local({"obligations": []})
+
+    assert extractor.extract("...", section_path=["1.1"]) == []
+
+
+def test_every_adapter_accepts_the_drop_reporter():
+    """The port changed, so the adapters that never drop anything still have to
+    honour the signature — otherwise the caller has to know which is which."""
+    from policy_grapher.extraction.null import NullExtractor
+
+    assert NullExtractor().extract("...", section_path=["1"], on_drop=print) == []
