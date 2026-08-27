@@ -1,6 +1,6 @@
 # Roadmap
 
-*Living document — edit in place. Last reviewed: 2026-08-26*
+*Living document — edit in place. Last reviewed: 2026-08-27*
 
 Sequencing and intent, not commitments with dates. Individual work items live in the
 [backlog](../backlog/backlog.md); this is the altitude above that.
@@ -139,9 +139,12 @@ has delivered six item-equivalents. That is recorded as a deliberate overcommit 
 expected to slip if one has to.
 
 **What the surge deliberately does not close.** Two MVP bars in the
-[vision](vision.md#what-success-looks-like) stay open, because they are feature work rather
-than debt: DOCX ingestion ([STORY-035](../backlog/backlog.md#refining), blocked on having no
-DOCX sample to design against) and XLSX manifests ([STORY-036](../backlog/backlog.md#refining)).
+[vision](vision.md#what-success-looks-like) stayed open past it, because they are feature work
+rather than debt: DOCX ingestion and XLSX manifests. **Sprint 8 closes one and cannot close the
+other.** XLSX landed as [STORY-036](../backlog/backlog.md#done); DOCX
+([STORY-035](../backlog/backlog.md#refining)) remains unstartable because no `.docx` exists in
+`data/samples` to design against, and the vision now says so where the bar is stated rather than
+leaving the reason in a backlog note.
 [STORY-047](../backlog/stories/STORY-047-reissues-read-as-replacement.md) — a reissue's edits
 reading as wholesale replacement — also stays in Refining: its open questions reopen a frozen
 decision in [ADR-015](../specs/adr/ADR-015-changes-are-detected-and-ranked.md), and that is an

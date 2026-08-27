@@ -59,7 +59,16 @@ The MVP definition of done, from the README:
 
 - Handles a corpus of 20 documents
 - Ingests documents from the file system
-- Processes PDF, DOCX, XLSX, and CSV file types
+- Processes PDF, DOCX, XLSX, and CSV file types. **CSV, PDF and XLSX are done; DOCX is blocked
+  and has been since sprint 5** — not deprioritised, unstartable. There is no `.docx` anywhere in
+  this repository to design extraction against, and the blocker is a missing input rather than a
+  missing intention: PDF's extraction rules were built against seven real DoD issuances and are
+  held by a ratchet scoring them against a corpus CSV describing those documents
+  ([ADR-013](../specs/adr/ADR-013-extraction-is-a-port-with-a-ratchet.md)). Rules fitted to a
+  DOCX we invented would encode our own guess at DoD's conventions, and that same ratchet could
+  not tell us they were wrong. **What unblocks it is one genuine DoD issuance in DOCX in
+  `data/samples`.** XLSX sits in this sentence and was never blocked, because a manifest is a
+  format this project defines rather than one it has to discover (STORY-036).
 - Spins up and runs on Docker containers, on a **current, pinned** Neo4j image. The source
   requirement said "the latest Neo4j container"; taken literally that makes the database
   version depend on when the image was last pulled, so two machines can differ. STORY-018
