@@ -13,6 +13,10 @@ dependencies = [
     "uvicorn[standard]>=0.52",
     "rq>=2.11",
     "redis>=8.1",
+    # STORY-036. A runtime dependency rather than a dev extra: reading an XLSX
+    # manifest is a product action, and the Ingest screen offers those files.
+    # Small and pure-Python, unlike the embeddings extra ADR-021 argued about.
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
