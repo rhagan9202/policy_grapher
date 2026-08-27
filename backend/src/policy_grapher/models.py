@@ -99,6 +99,28 @@ class DocumentOut(BaseModel):
     version_count: int = 0
 
 
+class DuplicateCandidate(BaseModel):
+    """One flagged pair, with enough for a person to rule on it — STORY-031.
+
+    A name and a slug are not enough: what a reader needs is what cites each and
+    whether either carries text, because a pair where both hold editions cannot be
+    merged at all (ADR-032) and the screen must say so before asking.
+    """
+
+    names: list[str]
+    slugs: list[str]
+    cited_by: list[int]
+    has_text: list[bool]
+    mergeable: bool
+
+
+class MergeIn(BaseModel):
+    """Which of a flagged pair survives. Names, not slugs, per ADR-032."""
+
+    survivor: str
+    merged: str
+
+
 class DocumentVersionOut(BaseModel):
     version_id: str
     effective_date: str | None

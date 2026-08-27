@@ -74,6 +74,15 @@ export interface DocumentOut {
   version_count: number
 }
 
+/** One flagged near-duplicate pair, with what a person needs to rule on it. */
+export interface DuplicateCandidate {
+  names: string[]
+  slugs: string[]
+  cited_by: number[]
+  has_text: boolean[]
+  mergeable: boolean
+}
+
 export interface ResetResult {
   nodes_deleted: number
   relationships_deleted: number

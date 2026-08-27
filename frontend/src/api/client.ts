@@ -4,6 +4,7 @@ import type {
   DocumentIn,
   DocumentOut,
   DocumentVersionOut,
+  DuplicateCandidate,
   GraphOut,
   IngestResult,
   ObligationsOut,
@@ -123,6 +124,25 @@ export function removeReference(slug: string, targetSlug: string): Promise<void>
 // how to hand it to the user, and a test can assert on its contents.
 export function exportGraph(): Promise<Record<string, unknown[]>> {
   return request<Record<string, unknown[]>>('/export')
+}
+
+// STORY-031. Flagged near-duplicate names nobody has ruled on yet.
+export function listDuplicates(): Promise<DuplicateCandidate[]> {
+  return request<DuplicateCandidate[]>('/documents/duplicates')
+}
+
+export function mergeDocuments(survivor: string, merged: string): Promise<{ applied: number }> {
+  return request<{ applied: number }>('/documents/duplicates/merge', {
+    method: 'POST',
+    body: JSON.stringify({ survivor, merged }),
+  })
+}
+
+export function markNotDuplicates(first: string, second: string): Promise<void> {
+  return request<void>('/documents/duplicates/different', {
+    method: 'POST',
+    body: JSON.stringify({ survivor: first, merged: second }),
+  })
 }
 
 export function reset(): Promise<ResetResult> {

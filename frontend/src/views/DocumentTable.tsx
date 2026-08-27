@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import Duplicates from './Duplicates'
 import {
   addReference,
   createDocument,
@@ -193,6 +194,8 @@ export default function DocumentTable() {
   return (
     <div style={{ padding: '1rem' }}>
       <h1>Documents</h1>
+
+      <Duplicates />
 
       <input
         type="search"

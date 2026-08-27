@@ -10,6 +10,7 @@ from neo4j import Driver, ManagedTransaction
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import drop_chunks, write_chunks
 from policy_grapher.documents import allocate_slugs, reconcile_slugs
+from policy_grapher.merges import apply_merges
 from policy_grapher.models import DocumentIngestResult, DocumentRef, IngestResult
 from policy_grapher.sources import is_document_source, pdf, resolve_source_path
 from policy_grapher.sources.document import DocumentSourceError, ExtractedDocument
@@ -123,6 +124,11 @@ def ingest_parsed(
             corpus_docs=corpus_docs,
             edges=edges,
         )
+        # ADR-032. A manifest naming both spellings of one document recreates the
+        # node a person merged away, so recorded merges are re-applied here rather
+        # than being silently undone — the failure `:LinkDecision` exists to
+        # prevent for links, in a second place. A no-op when nothing is recorded.
+        session.execute_write(apply_merges)
 
     return IngestResult(
         nodes_created=nodes_created,

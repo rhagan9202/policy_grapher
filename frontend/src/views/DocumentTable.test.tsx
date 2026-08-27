@@ -15,6 +15,10 @@ vi.mock('../api/client', () => ({
   deleteDocument: (slug: string) => deleteDocument(slug),
   addReference: (slug: string, target: string) => addReference(slug, target),
   removeReference: (slug: string, target: string) => removeReference(slug, target),
+  // STORY-031 put the near-duplicate surface on this screen, so the table's tests
+  // now reach a route they are not about. Resolved to nothing: every one of them
+  // is about rows, and `Duplicates.test.tsx` is where that section is tested.
+  listDuplicates: () => Promise.resolve([]),
   ApiError: class extends Error {},
 }))
 
