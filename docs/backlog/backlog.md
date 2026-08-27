@@ -32,17 +32,20 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
-**Ready is empty.** All six of sprint 7's items are in [Done](#done): the blast-radius decision
-and its implementation (STORY-087, STORY-088), the dead Authority/Entity writers removed
-(STORY-092), a poll that backs off (STORY-089), a Review queue that names why it is empty
-(STORY-090), and a README whose corpus numbers describe what the product actually produces
-(STORY-091).
+**Ready holds four items, all committed to [sprint 8](../sprints/sprint-08/plan.md)**, and they
+serve one goal: the product meets its own definition of done, and the definition is checked
+rather than attested. Two close the last reachable MVP bars (STORY-036, STORY-014), one makes a
+blocked bar say so where it is stated (STORY-093), and one turns the definition itself into
+something that can fail (STORY-094).
 
-[Sprint 8's planning session](../sprints/sprint-08/plan.md) starts from [Refining](#refining),
-where **STORY-014 and STORY-036 are the two remaining closable MVP bars** — deliberately held
-out of sprint 7 because they did not serve its goal — and carries one open question: 20 of 37
-chunks now yield no obligation, and whether that is the prompt, the model or the chunker is
-undecided.
+**That last one exists because a bar stopped being met and nothing noticed.** Sprints 6 and 7
+rebuilt the graph around two editions of one directive; at sprint 8 planning it held 2 corpus
+documents against a bar of 20, and 48 of its 50 `:Document` nodes were `:External` references.
+
+Sprint 7's open question — 20 of 37 chunks yield no obligation, and whether that is the prompt,
+the model or the chunker — is **deliberately not here**. It is the largest quality question open
+and it does not serve this goal; planning picks the goal first. The extraction ratchet can answer
+it whenever it is picked up.
 
 The two open MVP bars — STORY-036 (XLSX) and STORY-014 (search) — are deliberately **not** in
 this sprint. Both are real and neither serves this goal, and planning picks the goal first.
@@ -86,6 +89,10 @@ row** through product actions alone; the sequence is in the
 
 | ID | Item | Epic | Est. | Sprint | Notes |
 | --- | --- | --- | --- | --- | --- |
+| STORY-036 | Ingestion accepts an XLSX manifest | — | M | 8 | One of the two open file-type bars in the [vision](../planning/vision.md#what-success-looks-like), and the only one that can be started: a manifest is *our* format — the three columns `sources/manifest.py` already requires — so a fixture built from the sample CSV is a faithful sample rather than a fabrication. Sized M against sprint 6's S, which costed the parser and not the fixture. See [STORY-036](stories/STORY-036-ingestion-accepts-an-xlsx-manifest.md) |
+| STORY-093 | The vision says which of its bars cannot be started | — | S | 8 | DOCX has been blocked across three sprints for a reason recorded only in a backlog note: no `.docx` exists in the repo, so extraction rules would be fitted to a document we invented. XLSX sits in the same sentence and is not blocked. A reader cannot tell those apart from the vision. See [STORY-093](stories/STORY-093-the-vision-says-which-bars-are-blocked.md) |
+| STORY-014 | A user can search for a document by name or ID from anywhere in the UI | — | M | 8 | The last reachable MVP bar. STORY-010's filter matches `name` only and lives on one screen; the bar asks for the **ID** — the slug a reader has seen in every citation — and for reach from anywhere. The decision was taken at sprint 8 planning: a header control submitting to the existing table, not a new results screen. See [STORY-014](stories/STORY-014-search-from-anywhere.md) |
+| STORY-094 | The MVP's definition of done is checked, not attested | — | M | 8 | The vision lists its bars in prose and nothing verifies them, so a bar is met according to whoever last read the list. **The corpus bar stopped being met silently**: sprints 6 and 7 left 2 corpus documents against a bar of 20, and every number they reported was measured against one document without that being said. See [STORY-094](stories/STORY-094-the-definition-of-done-is-checked.md) |
 
 ## Refining
 
@@ -94,10 +101,8 @@ Understood well enough to discuss, not yet ready to start.
 | ID | Item | Epic | Notes |
 | --- | --- | --- | --- |
 | ~~STORY-013~~ | ~~Referenced documents that aren't in the corpus are distinguishable~~ | — | **Superseded by STORY-026.** Resolved by [ADR-002](../specs/adr/ADR-002-external-references-and-corpus-first-graph.md); ID retained per [CONVENTIONS](../CONVENTIONS.md) |
-| STORY-014 | A user can search for a document by name or ID from anywhere in the UI | — | MVP DoD item; broader than STORY-010's table filter. "ID" is the slug from STORY-025 |
 | STORY-031 | Near-duplicate document names are reconciled | — | Ingest flags them (STORY-003); nothing merges them. Real entity resolution — deliberately out of DI-1 |
 | STORY-035 | Ingestion accepts a DOCX issuance | — | Same `extract_document` protocol as STORY-016, own extraction rules. Blocked: no DOCX sample exists to design against. Likely easier than PDF — `python-docx` exposes heading styles, so locating the references section stops being the risky stage |
-| STORY-036 | Ingestion accepts an XLSX manifest | — | The *manifest* path alongside CSV, not document extraction — a sibling of `sources/manifest.py`, far smaller than either extraction story |
 | STORY-047 | A reissued document's edits are recognised as edits, not as wholesale replacement | — | Diffing the 2018 and 2020 editions of DoDD 5000.01 through the live stack produced **0 MODIFIED, 11 ADDED, 80 REMOVED**. That is [ADR-015](../specs/adr/ADR-015-changes-are-detected-and-ranked.md)'s documented fallback behaving exactly as designed — the two editions are structurally rewritten, so no `section_path` held exactly one unmatched obligation on each side and the section-based pairing never fired — but the result reads to a reviewer as "the whole document was replaced", which is the least actionable form the answer can take. Needs a second matching pass for obligations that moved between sections. See [STORY-047](stories/STORY-047-reissues-read-as-replacement.md) |
 | STORY-073 | Each document edition is ratcheted against its own reference set, not its current successor's | — | **Est. L.** `RATCHETS` in `backend/tests/test_extraction_ratchet.py` covers five of the seven PDFs in `data/samples`. The corpus CSV holds one row per document *name*, describing the current edition's citations, so an older edition scores against a list that is not its own: 11 of `500001p_2003.pdf`'s 12 genuine citations read as "invented". Both absent fixtures are editions of DoDD 5000.01, the corpus's one multi-edition document — the 2003 edition (7% recall, 11 spurious) and the original 2020 issuance (93%, 2), against the Change-1 edition the CSV describes. The 2003 one is pinned instead by a direct test in `test_pdf_stages.py`, which proves extraction works but not that it holds a floor; the 2020 one is pinned by nothing. Needs a per-edition expected reference set, and a decision about where that set comes from and who maintains it as new editions are added — that open question is why this is L rather than a mechanical fix. See [STORY-073](stories/STORY-073-editions-ratchet-against-their-own-reference-set.md) |
 | STORY-076 | A rebuild says how many *rejections* a re-key stranded, not only how many approvals | — | `UNPROMOTABLE` (`backend/src/policy_grapher/links/decisions.py`) filters `{verdict: 'approve'}`, so a rejection whose obligations a rebuild re-keyed beyond repair is counted by nothing: not replayed, not reported. [ADR-027](../specs/adr/ADR-027-a-rebuild-repoints-decisions.md) records the gap in its consequences. Two things have to be decided together, which is why this is a row rather than a one-line change: a rejection means "do not write this edge", and a stranded one is therefore not a missing edge but a suppression nobody is applying — so is the right response a count, a distinct field, or a queue item asking the reviewer to re-decide? And `unpromotable` cannot hold it under that name, since a rejection was never going to promote anything |
