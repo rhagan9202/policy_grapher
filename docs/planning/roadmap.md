@@ -46,7 +46,10 @@ holds zero of each. The functions and their tests are real, so the capability is
 not *reachable* — the same distinction sprint 5's retrospective drew about client functions, one
 level up. Corrected 2026-08-26; the two labels belong under [Later](#later) with the richer
 metadata they were meant to serve, and nothing should cite them as delivered until an ingest
-path calls them. See
+path calls them. **The code went in sprint 7 (STORY-092)**: roughly thirty lines of Cypher and
+the tests that were their only caller, which are what made an unreachable capability look
+delivered. Writing them again from a spec that says what they must do will be cheaper than
+maintaining a version that never ran. See
 [ADR-011](../specs/adr/ADR-011-instruments-have-versions.md). Phase 2
 ([text storage and section-aware chunking](../superpowers/plans/2026-08-20-di-2-phase-2-text-and-chunking.md))
 has landed: a PDF ingest now keeps the page text it used to discard, chunks it along the
