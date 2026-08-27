@@ -1,6 +1,6 @@
 # ADR-015: How a change is detected, and how it is ranked
 
-**Status:** Accepted · **Date:** 2026-08-20 · **Deciders:** Project owner
+**Status:** Accepted, amended by [ADR-031](ADR-031-a-reissue-is-paired-by-wording-after-section.md) · **Date:** 2026-08-20 · **Deciders:** Project owner
 
 *Frozen once accepted. To change this decision, write a new ADR and mark this one superseded.*
 
