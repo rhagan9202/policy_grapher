@@ -1,5 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import {
+  Link,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from 'react-router-dom'
 import { getHealth } from './api/client'
 import Ask from './views/Ask'
 import DocumentDetail from './views/DocumentDetail'
@@ -23,6 +31,49 @@ const ROUTES = [
   // Last in the navigation on purpose: it is the only destructive screen.
   { to: '/reset', label: 'Reset', element: <Reset /> },
 ]
+
+/** The query parameter the Documents table reads its filter from. */
+export const SEARCH_PARAM = 'q'
+
+function SearchDocuments() {
+  const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const { pathname } = useLocation()
+  // Controlled from the URL while on Documents, so a search survives a reload and
+  // the box agrees with what the table is showing. Local elsewhere, because the
+  // URL of another screen says nothing about a document search.
+  const applied = pathname === '/documents' ? (params.get(SEARCH_PARAM) ?? '') : ''
+
+  // Uncontrolled and keyed on the applied term rather than mirrored into state.
+  // Changing the key remounts the input with the new default, which is React's
+  // own answer to "reset this when that changes" — and avoids the effect-driven
+  // state sync that causes cascading renders.
+  return (
+    <form
+      role="search"
+      onSubmit={(event) => {
+        event.preventDefault()
+        const field = new FormData(event.currentTarget).get(SEARCH_PARAM)
+        const trimmed = String(field ?? '').trim()
+        navigate(
+          trimmed
+            ? `/documents?${SEARCH_PARAM}=${encodeURIComponent(trimmed)}`
+            : '/documents',
+        )
+      }}
+    >
+      <input
+        key={applied}
+        name={SEARCH_PARAM}
+        type="search"
+        aria-label="Search documents"
+        placeholder="Name or ID, e.g. dodd-5000-01"
+        defaultValue={applied}
+      />
+      <button type="submit">Search</button>
+    </form>
+  )
+}
 
 function NoSuchScreen() {
   const { pathname } = useLocation()
@@ -80,6 +131,13 @@ export default function App() {
             </li>
           ))}
         </ul>
+        {/* STORY-014, an MVP bar: "Users can search by document name or ID".
+            Beside the navigation rather than on a screen, because the bar asks for
+            reach from anywhere — and submitting to the Documents table rather than
+            a results view of its own, because a separate view would duplicate the
+            table's cap-and-say-so behaviour (STORY-070) and its row rendering to
+            show the same rows. */}
+        <SearchDocuments />
       </nav>
 
       <Routes>

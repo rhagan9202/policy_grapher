@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./views/GraphExplorer', () => ({ default: () => <div>graph</div> }))
@@ -109,5 +110,47 @@ describe('App — backend reachability', () => {
     )
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend/i)
+  })
+})
+
+// STORY-014, an MVP definition-of-done item open since DI-1: "Users can search by
+// document name or ID". STORY-010 built a filter on the Documents table that
+// matches `name` only and lives on one screen. The bar asks for two things it does
+// not do — match the ID, and be reachable from anywhere.
+
+describe('search from anywhere', () => {
+  it('offers a search control on every screen', async () => {
+    for (const path of ['/', '/documents', '/ingest', '/triage', '/review', '/ask', '/reset']) {
+      const view = render(
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>,
+      )
+      expect(
+        screen.getByRole('searchbox', { name: /search documents/i }),
+        `no search control on ${path}`,
+      ).toBeInTheDocument()
+      view.unmount()
+    }
+  })
+
+  it('takes a search from another screen to the documents table', async () => {
+    render(
+      <MemoryRouter initialEntries={['/ask']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    const box = screen.getByRole('searchbox', { name: /search documents/i })
+    await userEvent.type(box, 'dodd-5000-01{Enter}')
+
+    // The bar is "from anywhere", so the control has to navigate, not just filter
+    // whatever screen happens to be showing.
+    // DocumentTable is mocked to a stub in this file, so its stub text is what
+    // proves the navigation happened.
+    expect(await screen.findByText('documents')).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: /search documents/i })).toHaveValue(
+      'dodd-5000-01',
+    )
   })
 })

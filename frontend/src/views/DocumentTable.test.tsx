@@ -134,7 +134,11 @@ describe('DocumentTable', () => {
 
     await userEvent.type(screen.getByRole('searchbox'), 'zzzz')
 
-    expect(screen.getByText(/no documents match/i)).toBeInTheDocument()
+    // STORY-014 reworded this to name the term searched for, because "no
+    // documents match that filter" left a reader unable to tell a mistyped
+    // search from an empty corpus.
+    expect(screen.getByText(/no document matches/i)).toBeInTheDocument()
+    expect(screen.getByText(/zzzz/)).toBeInTheDocument()
   })
 
   it('surfaces a fetch failure', async () => {
@@ -370,5 +374,45 @@ describe('DocumentTable — cross-referencing', () => {
     )
 
     expect(removeReference).toHaveBeenCalledWith('dodd-5000-01', 'public-law-116-92')
+  })
+})
+
+// STORY-014. STORY-010's filter matched `name` only. The MVP bar says "name or
+// ID", and the ID is the slug — the thing that appears in every citation this
+// product prints, so a reader who has seen a citation has seen one.
+
+describe('DocumentTable, searching by ID', () => {
+  it('finds a document by its slug, not only its name', async () => {
+    listDocuments.mockResolvedValue([
+      { slug: 'dodd-5000-01', name: 'DoDD 5000.01', is_external: false,
+        references: [], referenced_by: [], version_count: 2 },
+      { slug: 'dodm-8180-01', name: 'DoDM 8180.01', is_external: false,
+        references: [], referenced_by: [], version_count: 1 },
+    ])
+
+    render(
+      <MemoryRouter initialEntries={['/documents?q=dodm-8180']}>
+        <DocumentTable />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('DoDM 8180.01')).toBeInTheDocument()
+    expect(screen.queryByText('DoDD 5000.01')).not.toBeInTheDocument()
+  })
+
+  it('says what it searched for when nothing matches', async () => {
+    listDocuments.mockResolvedValue([
+      { slug: 'dodd-5000-01', name: 'DoDD 5000.01', is_external: false,
+        references: [], referenced_by: [], version_count: 2 },
+    ])
+
+    render(
+      <MemoryRouter initialEntries={['/documents?q=nothing-like-this']}>
+        <DocumentTable />
+      </MemoryRouter>,
+    )
+
+    // An empty table is the blank-that-reads-as-broken ADR-019 forbids.
+    expect(await screen.findByText(/nothing-like-this/)).toBeInTheDocument()
   })
 })

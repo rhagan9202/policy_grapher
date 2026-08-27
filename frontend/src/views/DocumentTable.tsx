@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   addReference,
   createDocument,
@@ -22,7 +22,15 @@ export const TABLE_RENDER_CAP = 200
 export default function DocumentTable() {
   const [documents, setDocuments] = useState<DocumentOut[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState('')
+  // STORY-014. The URL *is* the filter rather than seeding a copy of it: a search
+  // made anywhere else arrives here already applied, a searched URL is shareable
+  // and survives a reload, and there is no second source of truth to synchronise —
+  // which is what the cascading-render lint rule objects to, and rightly.
+  // `replace` so typing does not push a history entry per keystroke.
+  const [params, setParams] = useSearchParams()
+  const filter = params.get('q') ?? ''
+  const setFilter = (value: string) =>
+    setParams(value ? { q: value } : {}, { replace: true })
   const [withText, setWithText] = useState(false)
 
   // Corpus editing (STORY-044). The five client functions behind these three flows
@@ -62,7 +70,12 @@ export default function DocumentTable() {
     const needle = filter.trim().toLowerCase()
     return (documents ?? []).filter(
       (d) =>
-        (!needle || d.name.toLowerCase().includes(needle)) &&
+        // Name **or ID**. The slug is what appears in every citation this product
+        // prints, so a reader who has seen a citation has seen a slug — and until
+        // STORY-014 could not search for it.
+        (!needle ||
+          d.name.toLowerCase().includes(needle) ||
+          d.slug.toLowerCase().includes(needle)) &&
         (!withText || d.version_count > 0),
     )
   }, [documents, filter, withText])
@@ -183,8 +196,8 @@ export default function DocumentTable() {
 
       <input
         type="search"
-        aria-label="Filter documents by name"
-        placeholder="Filter by name…"
+        aria-label="Filter documents by name or ID"
+        placeholder="Filter by name or ID…"
         value={filter}
         onChange={(event) => setFilter(event.target.value)}
       />{' '}
@@ -214,7 +227,14 @@ export default function DocumentTable() {
       </p>
 
       {visible.length === 0 ? (
-        <p>No documents match that filter.</p>
+        // STORY-014: it has to say what it looked for. "No documents match that
+        // filter" left a reader unable to tell a mistyped search from an empty
+        // corpus — the blank that reads as broken, one step removed (ADR-019).
+        <p>
+          <strong>No document matches “{filter}”.</strong> Searching covers a
+          document&rsquo;s name and its ID — the slug that appears in citations,
+          like <code>dodd-5000-01</code>.
+        </p>
       ) : (
         <table>
           <thead>
