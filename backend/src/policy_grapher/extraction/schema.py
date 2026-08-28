@@ -132,9 +132,29 @@ class ExtractedObligation(BaseModel):
         assigns responsibilities — needs to know where the chunk came from, so it
         lives in `validate_extracted` rather than here.
         """
-        if self.modality is Modality.ASSIGNED and not (self.actor or "").strip():
+        if self.modality is not Modality.ASSIGNED:
+            return self
+        actor = (self.actor or "").strip()
+        if not actor:
             raise ValueError(
                 "an ASSIGNED obligation must name the actor it is assigned to"
+            )
+        # Measured on the first real rebuild under ADR-033: two of 33 ASSIGNED
+        # obligations came back with the whole statement copied into `actor`. The
+        # model could not find a role heading and satisfied the rule above by
+        # repeating the sentence, which passes a non-null check while naming
+        # nobody — obeying the guard's letter to defeat its purpose.
+        #
+        # Exact rather than a length heuristic, deliberately. A real actor can be
+        # long — "DoD Component heads, including the Directors of the Defense
+        # Agencies with acquisition authority ..." is one of them — so any rule
+        # shaped like "the actor must be shorter than the statement" would refuse
+        # real duties to catch this one. A model that copied a *prefix* would
+        # still get through; that is a known limit, not an oversight.
+        if normalize(actor) == normalize(self.statement):
+            raise ValueError(
+                f"an ASSIGNED obligation's actor must name who the duty falls on, "
+                f"not repeat the statement: {actor!r}"
             )
         return self
 

@@ -364,3 +364,47 @@ def test_be_responsive_is_refused_by_both_guards_independently():
         validate_extracted(
             {**heading, "actor": "DoD"}, section_title="GENERAL ISSUANCE INFORMATION"
         )
+
+
+def test_an_assigned_actor_may_not_be_the_statement_itself():
+    """Found by rebuilding DoDD 5000.01 (2020) after ADR-033 landed.
+
+    Two of 33 ASSIGNED obligations came back with `actor` set to the whole
+    statement, character for character. The model could not find a role heading
+    and satisfied the "ASSIGNED requires an actor" rule by copying the sentence
+    into the field — which passes a non-null check while naming nobody, and so
+    defeats the guard by obeying its letter.
+
+    The rule is exact rather than a length heuristic on purpose: a real actor can
+    be long ("DoD Component heads, including the Directors of the Defense
+    Agencies with acquisition authority ..." is one), so anything shaped like
+    "the actor must be shorter than the statement" would refuse real duties to
+    catch this one.
+    """
+    with pytest.raises(ValidationError):
+        ExtractedObligation(
+            statement="Reviews and advises the MDA on the DT&E plan in the TEMP.",
+            modality=Modality.ASSIGNED,
+            actor="Reviews and advises the MDA on the DT&E plan in the TEMP.",
+            deadline=None,
+            conditions=None,
+            confidence=0.9,
+        )
+
+
+def test_a_long_but_real_actor_is_still_accepted():
+    """The other side of the rule above: this actor is 150 characters and names
+    real offices, and refusing it would lose the duty."""
+    obligation = ExtractedObligation(
+        statement="Implement the policy in this issuance for programs they oversee.",
+        modality=Modality.ASSIGNED,
+        actor=(
+            "DoD Component heads, including the Directors of the Defense Agencies "
+            "with acquisition authority but not the CJCS"
+        ),
+        deadline=None,
+        conditions=None,
+        confidence=0.9,
+    )
+
+    assert obligation.is_binding

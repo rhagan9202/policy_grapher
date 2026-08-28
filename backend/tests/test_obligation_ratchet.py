@@ -89,11 +89,39 @@ US_ORIGIN_EMBEDDING_MODELS = frozenset(
 # fixture became a rejected chunk rather than four wrong answers, which is honest —
 # under ADR-030 a chunk where nothing validates is still a rejection.
 #
-# modality is deliberately NOT raised to the observed 1.000. Over ten matched
-# pairs a single error reads as 0.900, and a floor that fires on one different
-# answer teaches people to ignore it. 0.85 tolerates one and catches two.
+# Re-measured again 2026-08-28 (sprint 9), after ADR-033 admitted duties assigned
+# by position and PROMPT_VERSION 3 taught the form. The gold set grew from five
+# fixtures and thirteen obligations to six and eighteen. Observed, and identical
+# on three consecutive runs at temperature 0:
+#
+#     precision 0.842   recall 0.889   modality 1.000   matched 16 of 18
+#
+# Both floors move up, and neither moved down at any point — worth saying because
+# the plan for this sprint named a lowered floor as the way this gate would die.
+# Recall gains most (0.769 to 0.889) and the reason is the whole sprint: five
+# duties that no member of `Modality` could express are now expressible, and the
+# model returns all five with the right actor on each.
+#
+# **The first run of this gate after ADR-033 landed failed, and the failure was
+# the gate.** It scored recall 0.61 and the floor fired correctly, but
+# `test_the_configured_extractor_clears_its_floors` called `extract()` without
+# `section_title` — so ADR-033's guard refused every ASSIGNED obligation in the
+# gold set for want of a title the gate never passed, and what was being measured
+# was the guard rejecting its own fixtures. Extracting that fixture by hand with
+# the title supplied returned all five. Fixed there, not here.
+#
+# The permissive-MAY fixture still scores recall 0.000 and has since sprint 7,
+# where it is recorded: the model produces nothing valid for it and ADR-030 makes
+# that a rejected chunk rather than four wrong answers. It is priced into the
+# recall floor rather than hidden, and it is the one fixture this adapter has
+# never read.
+#
+# modality is deliberately NOT raised to the observed 1.000, for the reason given
+# above and now with more room: over sixteen matched pairs a single error reads as
+# 0.938, and a floor that fires on one different answer teaches people to ignore
+# it. 0.85 still tolerates one and catches two.
 FLOORS = {
-    "local:llama3.1:8b": {"precision": 0.833, "recall": 0.769, "modality_accuracy": 0.85},
+    "local:llama3.1:8b": {"precision": 0.842, "recall": 0.889, "modality_accuracy": 0.85},
 }
 
 
