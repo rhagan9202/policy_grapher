@@ -234,7 +234,14 @@ def test_the_configured_extractor_clears_its_floors():
     for name, case in _gold_cases():
         try:
             predicted = extractor.extract(
-                case["chunk_text"], section_path=case["section_path"]
+                case["chunk_text"],
+                section_path=case["section_path"],
+                # ADR-033's guard permits ASSIGNED only in a section whose title
+                # names responsibilities, so a gate that does not pass the title
+                # measures the guard refusing its own gold set rather than the
+                # extractor. Absent from the word-modality fixtures, where None
+                # is the right answer and changes nothing.
+                section_title=case.get("section_title"),
             )
         except ValueError:
             # What production does with a chunk whose output fails the schema
