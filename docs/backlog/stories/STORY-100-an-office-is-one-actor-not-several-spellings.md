@@ -1,6 +1,6 @@
 # STORY-100: An office is one actor, not several spellings
 
-**Epic:** — · **Status:** Ready · **Estimate:** L
+**Epic:** — · **Status:** Done · **Estimate:** L
 
 ## User story
 

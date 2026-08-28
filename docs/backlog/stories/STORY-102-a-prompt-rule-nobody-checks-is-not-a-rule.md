@@ -1,6 +1,6 @@
 # STORY-102: A prompt rule nobody checks is not a rule
 
-**Epic:** — · **Status:** Ready · **Estimate:** L
+**Epic:** — · **Status:** Done · **Estimate:** L
 
 ## User story
 

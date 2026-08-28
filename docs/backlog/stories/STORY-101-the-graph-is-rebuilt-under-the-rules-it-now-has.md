@@ -1,6 +1,6 @@
 # STORY-101: Every edition is rebuilt under the rules the extractor now has
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 
