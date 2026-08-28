@@ -209,6 +209,7 @@ def read_rebuild(
         chunks_total=job.meta.get("chunks_total", 0),
         counts=returned if isinstance(returned, dict) else {},
         rejections=job.meta.get("rejections", []),
+        rejections_total=job.meta.get("rejections_total", 0),
         extractor_adapter=job.meta.get("extractor_adapter", ""),
         embedder_adapter=job.meta.get("embedder_adapter", ""),
         error=error,

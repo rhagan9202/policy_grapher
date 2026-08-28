@@ -60,9 +60,14 @@ def _rejection_reporter():
 
     def report(chunk_id: str, reason: str) -> None:
         rejections = job.meta.setdefault("rejections", [])
+        # The true total, always, alongside the capped list. Twenty entries with
+        # nothing saying twenty is not all of them is the shape ADR-030 made a
+        # silent drop into a defect — DoDD 5143.01's rebuild showed 20 reasons
+        # against 213 refusals, and the list gave a reader no way to know.
+        job.meta["rejections_total"] = job.meta.get("rejections_total", 0) + 1
         if len(rejections) < REPORTED_REJECTIONS:
             rejections.append({"chunk_id": chunk_id, "reason": reason})
-            job.save_meta()
+        job.save_meta()
 
     return report
 
