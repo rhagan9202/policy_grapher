@@ -1,4 +1,10 @@
-from policy_grapher.chunking import _page_at, _split, chunk_pages, section_heading
+from policy_grapher.chunking import (
+    _page_at,
+    _split,
+    chunk_pages,
+    heading_title,
+    section_heading,
+)
 
 
 def test_a_numbered_heading_is_recognised():
@@ -515,3 +521,95 @@ def test_a_chunk_starting_on_a_section_join_reports_the_page_its_text_is_on():
     join_offset = len("first line")  # the index of the inserted newline
 
     assert _page_at(lines, join_offset) == 5
+
+
+def test_a_modern_heading_line_yields_its_title():
+    """`SECTION 2:  RESPONSIBILITIES` — the title follows the colon."""
+    assert heading_title("SECTION 2:  RESPONSIBILITIES") == "RESPONSIBILITIES"
+
+
+def test_a_running_header_does_not_smuggle_its_page_number_into_the_title():
+    """The modern format repeats the heading as a running header with the page
+    number appended. `RESPONSIBILITIES 11` is not a different section."""
+    assert heading_title("SECTION 2:  RESPONSIBILITIES 11") == "RESPONSIBILITIES"
+
+
+def test_a_bare_heading_line_has_no_title_of_its_own():
+    """The older format puts the title on the next line, so the heading line
+    alone yields nothing and the chunker reads on."""
+    assert heading_title("ENCLOSURE 2") is None
+
+
+def test_a_chunk_carries_the_title_of_the_section_it_is_in():
+    """Modern format: the title is on the heading line."""
+    pages = [
+        (
+            "SECTION 2:  RESPONSIBILITIES\n"
+            "2.2.  USD(R&E).  The USD(R&E):\n"
+            "a.  Executes the responsibilities in DoDD 5137.02."
+        )
+    ]
+    chunks = chunk_pages(pages, version_id="v1")
+
+    assert chunks, "expected at least one chunk"
+    assert all(chunk.section_title == "RESPONSIBILITIES" for chunk in chunks)
+
+
+def test_a_chunk_carries_a_title_written_on_the_line_after_its_heading():
+    """Older format: `ENCLOSURE 2` then `RESPONSIBILITIES` on the next line."""
+    pages = [
+        (
+            "ENCLOSURE 2\n"
+            "\n"
+            "RESPONSIBILITIES\n"
+            "\n"
+            "1.  DoD CIO.  The DoD CIO:\n"
+            "a.  Monitors and evaluates the program."
+        )
+    ]
+    chunks = chunk_pages(pages, version_id="v1")
+
+    assert chunks, "expected at least one chunk"
+    assert all(chunk.section_title == "RESPONSIBILITIES" for chunk in chunks)
+
+
+def test_the_section_title_is_not_part_of_a_chunk_id():
+    """The title is an attribute, never an identity.
+
+    `section_path` is hashed into both `_chunk_id` and `obligation_id`. Putting
+    the title in either would re-key every chunk and obligation in the graph and
+    orphan every human decision recorded against them — the failure ADR-012's
+    structural ids exist to prevent.
+    """
+    body = (
+        "2.2.  USD(R&E).  The USD(R&E):\n"
+        "a.  Executes the responsibilities in DoDD 5137.02."
+    )
+    titled = chunk_pages([f"SECTION 2:  RESPONSIBILITIES\n{body}"], version_id="v1")
+    plain = chunk_pages([f"SECTION 2\n{body}"], version_id="v1")
+
+    assert [c.chunk_id for c in titled] == [c.chunk_id for c in plain]
+    assert titled[0].section_title == "RESPONSIBILITIES"
+    assert plain[0].section_title is None
+
+
+def test_a_numbered_part_yields_the_title_written_after_its_number():
+    """A third format, found by running the parse over the real corpus.
+
+    DoDD 5143.01 numbers its top-level parts and writes the title inline —
+    "3.  RESPONSIBILITIES AND FUNCTIONS.  The USD(I&S) is..." — so neither the
+    named-heading form nor the title-on-the-next-line form finds it. Without
+    this the document resolves no titles at all and ADR-033's guard refuses
+    every positional duty in it.
+    """
+    assert (
+        heading_title("3.  RESPONSIBILITIES AND FUNCTIONS.  The USD(I&S) is the PSA.")
+        == "RESPONSIBILITIES AND FUNCTIONS"
+    )
+    assert heading_title("1.  PURPOSE.  This directive:") == "PURPOSE"
+
+
+def test_prose_after_a_number_is_not_mistaken_for_a_title():
+    """The numbered form is only a title when it is set in capitals. A numbered
+    sentence is a sentence."""
+    assert heading_title("3.  The Director shall notify the Comptroller.") is None
