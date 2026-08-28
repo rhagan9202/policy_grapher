@@ -57,7 +57,7 @@ class _RecordingExtractor:
         self.calls = 0
         self._result = result
 
-    def extract(self, chunk_text, *, section_path, on_drop=None):
+    def extract(self, chunk_text, *, section_path, section_title=None, on_drop=None):
         self.calls += 1
         return list(self._result)
 

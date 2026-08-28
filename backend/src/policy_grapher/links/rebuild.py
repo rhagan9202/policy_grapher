@@ -232,7 +232,10 @@ def rebuild_derived(
 
         try:
             found = extractor.extract(
-                chunk.text, section_path=chunk.section_path, on_drop=drop
+                chunk.text,
+                section_path=chunk.section_path,
+                section_title=chunk.section_title,
+                on_drop=drop,
             )
         except ValueError as exc:
             rejected += 1

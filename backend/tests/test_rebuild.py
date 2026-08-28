@@ -50,7 +50,12 @@ class ModalSentenceExtractor:
         self._skip = skip
 
     def extract(
-        self, chunk_text: str, *, section_path: list[str], on_drop=None
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        section_title: str | None = None,
+        on_drop=None,
     ) -> list[ExtractedObligation]:
         found = []
         for sentence in MODAL_SENTENCE.findall(chunk_text):
@@ -527,7 +532,14 @@ class OneBadChunkExtractor:
         self._inner = inner or ModalSentenceExtractor()
         self.seen = 0
 
-    def extract(self, chunk_text: str, *, section_path: list[str], on_drop=None):
+    def extract(
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        section_title: str | None = None,
+        on_drop=None,
+    ):
         self.seen += 1
         if self.seen == self._fail_on:
             raise ValueError(
@@ -539,7 +551,14 @@ class OneBadChunkExtractor:
 class AlwaysBadExtractor:
     adapter_id = "always-bad-stub"
 
-    def extract(self, chunk_text: str, *, section_path: list[str], on_drop=None):
+    def extract(
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        section_title: str | None = None,
+        on_drop=None,
+    ):
         raise ValueError("model output did not match the obligation schema")
 
 
@@ -640,7 +659,14 @@ class _DropsOneItem:
 
     adapter_id = "drops-one"
 
-    def extract(self, chunk_text: str, *, section_path: list[str], on_drop=None):
+    def extract(
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        section_title: str | None = None,
+        on_drop=None,
+    ):
         if on_drop is not None:
             on_drop("model output did not match the obligation schema: modality")
         return [

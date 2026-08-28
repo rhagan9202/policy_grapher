@@ -17,6 +17,7 @@ class NullExtractor:
         chunk_text: str,
         *,
         section_path: list[str],
+        section_title: str | None = None,
         on_drop: Callable[[str], None] | None = None,
     ) -> list[ExtractedObligation]:
         return []

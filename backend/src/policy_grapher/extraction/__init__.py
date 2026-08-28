@@ -23,9 +23,17 @@ class ObligationExtractor(Protocol):
         chunk_text: str,
         *,
         section_path: list[str],
+        section_title: str | None = None,
         on_drop: Callable[[str], None] | None = None,
     ) -> list[ExtractedObligation]:
         """Obligations the passage states.
+
+        `section_title` is the title of the part this chunk sits in, when the
+        document wrote one. ADR-033 permits `ASSIGNED` only inside a section
+        whose title names responsibilities, and the schema cannot check that —
+        it validates an item without knowing where the item came from. Optional,
+        and a `None` title simply never permits `ASSIGNED`, which is the correct
+        conservative failure for a format whose titles we cannot read.
 
         `on_drop`, when given, is called once per item the adapter discarded for
         failing validation, with the reason. ADR-030 makes reporting them part of

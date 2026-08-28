@@ -179,7 +179,7 @@ class _InventingExtractor:
 
     adapter_id = "inventing"
 
-    def extract(self, chunk_text, *, section_path, on_drop=None):
+    def extract(self, chunk_text, *, section_path, section_title=None, on_drop=None):
         return [
             ExtractedObligation(
                 statement="The Component shall comply with this issuance.",
