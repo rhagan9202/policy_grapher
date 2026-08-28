@@ -15,7 +15,7 @@ WHITESPACE = re.compile(r"\s+")
 
 
 class Modality(StrEnum):
-    """The word the document used to impose a duty.
+    """How a duty was imposed — by a word, or by position.
 
     Still closed, and for the original reason: SHALL misread as SHOULD downgrades
     a binding duty to advice, silently, so an adapter that invents a value must
@@ -29,7 +29,16 @@ class Modality(StrEnum):
     on five of the seven samples an extractor obeying the old set could only
     report a minority of the document's duties.
 
-    The member records the *word*, not its force. Ask `is_binding` for the force.
+    ASSIGNED is here because DoD writes its responsibilities sections as a role
+    heading followed by lettered third-person verbs — "The USD(R&E): a. Executes
+    ... b. Serves ..." — and grades their force nowhere. The duty is imposed by
+    *position*. ADR-033 widened what this enum records to admit that: it is no
+    longer "the word the document used" but how the duty arrived. Measured
+    across the seven samples: 91 such duties, and none at all in the 2003 edition
+    of DoDD 5000.01, which is what makes it a drafting convention rather than a
+    permanent gap.
+
+    The member records the mechanism, not the force. Ask `is_binding` for force.
     """
 
     SHALL = "SHALL"
@@ -37,12 +46,21 @@ class Modality(StrEnum):
     WILL = "WILL"
     SHOULD = "SHOULD"
     MAY = "MAY"
+    ASSIGNED = "ASSIGNED"
+
+
+# The members that quote a word from the passage. Derived by subtraction, never
+# listed: a sixth *word* added later joins this set automatically, whereas a
+# hand-kept list is how a word modality silently escapes the rule below.
+WORD_MODALITIES = frozenset(Modality) - {Modality.ASSIGNED}
 
 
 # Which modalities impose a duty. Stated once, here, because the alternative is
 # every consumer keeping its own list — and a consumer written before WILL existed
 # keeps a list that silently under-counts rather than one that fails.
-BINDING = frozenset({Modality.SHALL, Modality.MUST, Modality.WILL})
+BINDING = frozenset(
+    {Modality.SHALL, Modality.MUST, Modality.WILL, Modality.ASSIGNED}
+)
 
 
 class ExtractedObligation(BaseModel):
@@ -87,11 +105,36 @@ class ExtractedObligation(BaseModel):
 
         Word boundaries, not substrings — "General Marshall commanded the Army"
         contains "shall" and imposes nothing.
+
+        ADR-033 restated this rule rather than granting an exception to it: *if*
+        a modality names a word, the statement must contain that word. ASSIGNED
+        falls outside by naming none — by construction, not by appearing on a
+        list of exceptions, which is how such a check rots.
         """
+        if self.modality not in WORD_MODALITIES:
+            return self
         if not re.search(rf"\b{self.modality.value}\b", self.statement, re.IGNORECASE):
             raise ValueError(
                 f"statement does not contain its modality {self.modality.value!r}: "
                 f"{self.statement!r}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _an_assigned_duty_names_its_actor(self) -> ExtractedObligation:
+        """ADR-033's schema half of the structural guard.
+
+        A value naming no word cannot be checked against the passage the way the
+        other five are, so it is guarded by structure instead. A positional duty
+        is an assignment *to somebody*: without an actor there is no position,
+        and ASSIGNED becomes the escape hatch that puts section headings back in
+        the graph as duties. The other half — that the section is one that
+        assigns responsibilities — needs to know where the chunk came from, so it
+        lives in `validate_extracted` rather than here.
+        """
+        if self.modality is Modality.ASSIGNED and not (self.actor or "").strip():
+            raise ValueError(
+                "an ASSIGNED obligation must name the actor it is assigned to"
             )
         return self
 

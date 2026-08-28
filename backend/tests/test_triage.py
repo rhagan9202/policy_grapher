@@ -286,6 +286,12 @@ EXPECTED_MODALITY_WEIGHT = {
     "SHALL": 4.0,
     "MUST": 4.0,
     "WILL": 4.0,
+    # ADR-033. A duty assigned by position ranks with the words that bind, for
+    # the reason ADR-025 gave about WILL: ranking a drafting convention below the
+    # thing it replaced would make the same document look less urgent because it
+    # was rewritten. Updated deliberately, which is the whole point of this table
+    # existing — it is here so the number is a decision and not a default.
+    "ASSIGNED": 4.0,
     "SHOULD": 2.0,
     "MAY": 1.0,
 }

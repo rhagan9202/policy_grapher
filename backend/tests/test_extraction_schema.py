@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from policy_grapher.extraction.schema import (
+    WORD_MODALITIES,
     ExtractedObligation,
     Modality,
     obligation_id,
@@ -135,7 +136,11 @@ def test_bindingness_is_asked_of_the_obligation_not_pattern_matched():
         obligation = ExtractedObligation(
             statement=f"The Component {modality.value.lower()} do the thing.",
             modality=modality,
-            actor=None,
+            # Named rather than None because ADR-033 requires an ASSIGNED
+            # obligation to name the office it is assigned to. The claim here is
+            # unchanged — every member answers `is_binding` — only the fixture
+            # had to become valid for all six.
+            actor="Component",
             deadline=None,
             conditions=None,
             confidence=0.5,
@@ -206,3 +211,73 @@ def test_a_modality_word_inside_another_word_does_not_count():
                 "confidence": 0.9,
             }
         )
+
+
+def test_an_assigned_obligation_needs_no_modal_verb_in_its_statement():
+    """ADR-033. DoD assigns duties by position — a role heading followed by
+    lettered third-person verbs — and there is no word to quote."""
+    obligation = ExtractedObligation(
+        statement=(
+            "The USD(R&E) executes the research and engineering responsibilities "
+            "in DoDD 5137.02."
+        ),
+        modality=Modality.ASSIGNED,
+        actor="USD(R&E)",
+        deadline=None,
+        conditions=None,
+        confidence=0.9,
+    )
+
+    assert obligation.modality is Modality.ASSIGNED
+
+
+def test_every_word_modality_still_requires_its_word():
+    """The rule is restated, not exempted: if a modality names a word, the
+    statement must contain it.
+
+    Written as an exception list, this is where a word modality would quietly
+    slip out of the rule — so the set is derived from the enum and this iterates
+    it rather than naming the five.
+    """
+    for modality in WORD_MODALITIES:
+        with pytest.raises(ValidationError):
+            ExtractedObligation(
+                statement="The Component reports annually.",  # no modal verb
+                modality=modality,
+                actor="Component",
+                deadline=None,
+                conditions=None,
+                confidence=0.9,
+            )
+
+
+def test_an_assigned_obligation_must_name_the_office_it_is_assigned_to():
+    """ADR-033's schema half of the structural guard.
+
+    A positional duty is an assignment *to somebody*. Without an actor there is
+    no position, and ASSIGNED becomes the escape hatch that puts section
+    headings back in the graph as duties.
+    """
+    with pytest.raises(ValidationError):
+        ExtractedObligation(
+            statement="Executes the research and engineering responsibilities.",
+            modality=Modality.ASSIGNED,
+            actor=None,
+            deadline=None,
+            conditions=None,
+            confidence=0.9,
+        )
+
+
+def test_an_assigned_duty_binds():
+    """ADR-033: a responsibility assigned to a named office is not advice."""
+    obligation = ExtractedObligation(
+        statement="The DoD CIO monitors and evaluates the program.",
+        modality=Modality.ASSIGNED,
+        actor="DoD CIO",
+        deadline=None,
+        conditions=None,
+        confidence=0.9,
+    )
+
+    assert obligation.is_binding
