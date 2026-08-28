@@ -32,7 +32,7 @@ from urllib.parse import unquote, urlparse
 from neo4j import Driver, ManagedTransaction, RoutingControl
 
 from policy_grapher.changes.diff import drop_changes
-from policy_grapher.chunking import chunk_pages
+from policy_grapher.chunking import DOT_LEADER, Chunk, chunk_pages
 from policy_grapher.chunks import drop_chunks, write_chunks
 from policy_grapher.extraction.schema import normalize, obligation_id
 from policy_grapher.links.decisions import (
@@ -173,6 +173,37 @@ def _write_rebuild(
     }
 
 
+def states_no_duty(chunk: Chunk) -> str | None:
+    """Why this chunk should not be sent to a model, or None to send it.
+
+    STORY-098. Of the 21 chunks in DoDD 5000.01's 2020 edition that produced no
+    valid obligation, 18 contain no modal verb at all and four are contents
+    pages. Each costs a model call of roughly ninety seconds to be told nothing —
+    and the model does not answer nothing: it invents, labelling headings as
+    duties, which is what the modality rule then refuses one item at a time.
+
+    Structural, not a keyword list. A contents page is runs of dot leaders in any
+    issuance, and the references section is one `chunking.BACK_MATTER` already
+    opens and `sources/pdf.py` already parses for the reference graph. Nothing
+    here enumerates which sections of which documents count, which is what
+    STORY-098's second acceptance criterion forbids.
+
+    The chunk is still stored either way (ADR-012 keeps the document's text
+    verbatim and Ask retrieves over it). Only the model call is skipped.
+    """
+    # Two places the same section can announce itself, and both are the
+    # document's own structure. The modern format writes a title this can read;
+    # the older one opens REFERENCES as a bare heading, which `BACK_MATTER`
+    # turns into a path element and which leaves no title to parse. Checking
+    # only the title skipped zero references sections across the whole corpus.
+    if chunk.section_title == "REFERENCES" or "REFERENCES" in chunk.section_path:
+        return "references section"
+    lines = [line for line in chunk.text.splitlines() if line.strip()]
+    if lines and sum(1 for line in lines if DOT_LEADER.search(line)) * 2 > len(lines):
+        return "table of contents"
+    return None
+
+
 def rebuild_derived(
     driver: Driver,
     database: str,
@@ -213,7 +244,23 @@ def rebuild_derived(
     extracted: list[tuple[str, list[str], list]] = []
     rejected = 0
     dropped = 0
+    skipped = 0
     for done, chunk in enumerate(chunks, start=1):
+        # STORY-098. Front matter states no duty, and that is knowable without a
+        # model call. Reported rather than silent: a skip nobody counts is the
+        # same defect ADR-030 made a rejection announce, and it would otherwise
+        # look identical to a document that simply yields nothing.
+        # Counted, and deliberately NOT sent through `on_rejection`. A skip is
+        # not a rejection: nothing was refused, nothing is missing from the
+        # edition, and a caller reading the rejection channel is reading a list
+        # of what went wrong. Routing them together is the mistake ADR-030's
+        # first wiring made with dropped items, and the integration tests that
+        # assert a clean rebuild reports no rejections caught it again here.
+        if states_no_duty(chunk) is not None:
+            skipped += 1
+            if on_progress is not None:
+                on_progress(done, total)
+            continue
         # A chunk the extractor cannot parse costs that chunk, not the run. The
         # strictness is still the adapter's: `Modality` is closed on purpose, so a
         # model that invents a binding level must fail loudly, and it does. What
@@ -254,9 +301,14 @@ def rebuild_derived(
     # Tolerating a bad item must not turn a wholly broken model into a green run.
     # Nothing downstream can tell "this edition states no obligations" from "the
     # extractor answered garbage every time", and the second is not a result.
-    if chunks and rejected == total:
+    # Measured against what was *offered*, not against every chunk. Comparing to
+    # `total` would let skipping mask a wholly broken extractor: a document whose
+    # front matter was skipped could have every remaining chunk rejected and
+    # still slip under `rejected == total`.
+    offered = total - skipped
+    if offered and rejected == offered:
         raise ExtractionFailed(
-            f"every one of {total} chunks was rejected by {getattr(extractor, 'adapter_id', extractor)!r}. "
+            f"every one of {offered} chunks offered to {getattr(extractor, 'adapter_id', extractor)!r} was rejected. "
             "Nothing was extracted, so this is an extractor failure rather than an "
             "edition that states no obligations."
         )
@@ -274,4 +326,7 @@ def rebuild_derived(
     # build that never counted them.
     counts["chunks_rejected"] = rejected
     counts["items_dropped"] = dropped
+    # Always present, so a caller can tell "nothing to skip" from a run by an
+    # older build that never counted skips.
+    counts["chunks_skipped"] = skipped
     return counts
