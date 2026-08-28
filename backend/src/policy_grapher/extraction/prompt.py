@@ -5,6 +5,8 @@ changes — an in-place edit would leave the cache serving results produced by a
 prompt that no longer exists, which is invisible and very hard to debug.
 """
 
+from dataclasses import dataclass
+
 PROMPT_VERSION = 3
 
 EXTRACTION_PROMPT = """\
@@ -103,3 +105,145 @@ Respond with JSON only, matching this shape:
 {{"obligations": [{{"statement": "...", "modality": "SHALL|ASSIGNED", "actor": "...",
   "deadline": null, "conditions": null, "confidence": 0.0}}]}}
 """
+
+
+@dataclass(frozen=True)
+class PromptRule:
+    """One rule the prompt states, and what enforces it.
+
+    ADR-036. Four sprints running, the prompt stated a rule that nothing
+    enforced, each went unenforced for at least a sprint, and each was found by
+    looking at extracted data rather than by a test — then fixed deterministically
+    in under an hour, because each was checkable all along.
+
+    A prompt is a string: nothing executes it, and no test related its sentences
+    to the validators. A rule that is merely written reads exactly like a rule
+    that holds. This registry is what makes the difference visible, and
+    `test_prompt_rules.py` is what makes writing an unenforced rule fail.
+    """
+
+    id: str
+    # Verbatim from EXTRACTION_PROMPT, whitespace-normalised. The test asserts it
+    # is still there, so editing the prompt without revisiting this fails.
+    sentence: str
+    # Exactly one of these two. `enforced_by` names the validator; `unenforceable`
+    # says why no validator can exist. A shrug is not a reason.
+    enforced_by: str | None = None
+    unenforceable: str | None = None
+
+
+PROMPT_RULES: tuple[PromptRule, ...] = (
+    PromptRule(
+        id="modality-is-one-of-six",
+        sentence="modality must be exactly one of SHALL, MUST, WILL, SHOULD, MAY, ASSIGNED.",
+        enforced_by="Modality",
+    ),
+    PromptRule(
+        id="modality-word-is-in-the-statement",
+        sentence=(
+            "For the five word modalities, the word you report must appear in "
+            "the sentence you quote."
+        ),
+        enforced_by="ExtractedObligation._modality_word_is_in_the_statement",
+    ),
+    PromptRule(
+        id="statement-is-a-quotation",
+        sentence="statement must be copied from the passage word for word",
+        enforced_by="validate_extracted",
+    ),
+    PromptRule(
+        id="no-placeholder-actor",
+        sentence=(
+            'Never write a placeholder such as "no actor specified" — use'
+        ),
+        enforced_by="ExtractedObligation._placeholder_actor_is_no_actor",
+    ),
+    PromptRule(
+        id="assigned-requires-an-actor",
+        sentence="ASSIGNED requires an actor.",
+        enforced_by="ExtractedObligation._an_assigned_duty_names_its_actor",
+    ),
+    PromptRule(
+        id="modality-is-never-null",
+        sentence="actor, deadline and conditions may be null; modality never may.",
+        enforced_by="Modality",
+    ),
+    PromptRule(
+        id="confidence-is-a-probability",
+        sentence="Set confidence to how certain you are that this is a real, stated obligation.",
+        enforced_by="ExtractedObligation.confidence",
+    ),
+    PromptRule(
+        id="actor-is-copied-from-the-statement",
+        sentence="actor is the party the duty falls on, copied from the statement,",
+        # Enforced for the five word modalities by ADR-035. The sentence as
+        # written is *false* for ASSIGNED, whose actor ADR-033 takes from the role
+        # heading above the item and which is correctly absent from the statement
+        # in 31 of 31 cases. Registered against the validator that implements the
+        # true, modality-specific rule; correcting the sentence needs a prompt
+        # edit and therefore a re-extraction, filed as STORY-103.
+        enforced_by="validate_extracted",
+    ),
+    PromptRule(
+        id="statement-includes-the-subject",
+        sentence=(
+            "as a complete sentence including the subject that carries the duty"
+        ),
+        unenforceable=(
+            "Contradicted by ADR-033 and therefore not true as written: an "
+            "ASSIGNED statement is the lettered item, which begins at the verb "
+            "and carries no subject. Correcting the sentence needs a prompt edit "
+            "and a re-extraction (STORY-103). Even once corrected, 'is this a "
+            "complete sentence carrying its subject' needs a parser and a "
+            "judgement about sentence fragments this project has no basis to make."
+        ),
+    ),
+    PromptRule(
+        id="do-not-infer-an-unwritten-duty",
+        sentence="Do not infer a\nduty that is not written",
+        unenforceable=(
+            "Requires knowing what the passage means, not what it contains. The "
+            "quotation rule bounds it — an inferred duty is rarely a quotation — "
+            "but a model can quote a real sentence and still call it a duty when "
+            "it is not."
+        ),
+    ),
+    PromptRule(
+        id="do-not-extract-headings",
+        sentence="Do not extract headings, titles, or the labels of paragraphs.",
+        unenforceable=(
+            "'Is this line a heading' is a judgement. It is bounded in practice "
+            "by two other rules — a heading rarely contains a modal verb, and "
+            "ADR-033's guards refuse a heading as ASSIGNED — which is how "
+            '"Be Responsive." is now kept out, indirectly rather than by name.'
+        ),
+    ),
+    PromptRule(
+        id="omit-scope-sentences",
+        sentence=(
+            '"This issuance applies to the OSD, the Military Departments, and the'
+        ),
+        unenforceable=(
+            "Same class as headings: recognising a scope statement is semantic. "
+            "In practice these carry no modal verb and fail the modality rule, "
+            "which is why they arrive as dropped items rather than as obligations."
+        ),
+    ),
+    PromptRule(
+        id="an-empty-answer-is-correct",
+        sentence="Returning an empty list is a\ncorrect and common answer.",
+        unenforceable=(
+            "A permission, not a requirement — there is nothing for a validator "
+            "to refuse. Registered so that the count of rules is honest."
+        ),
+    ),
+    PromptRule(
+        id="will-is-not-reclassified-as-shall",
+        sentence="do not silently reclassify it as SHALL",
+        unenforceable=(
+            "Cannot be checked directly: nothing can know what the model would "
+            "otherwise have said. Bounded by the modality-word rule, which "
+            "refuses a SHALL whose statement says 'will'."
+        ),
+    ),
+)

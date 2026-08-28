@@ -517,3 +517,76 @@ def test_a_placeholder_actor_cannot_satisfy_an_assigned_duty():
             conditions=None,
             confidence=0.9,
         )
+
+
+# --- ADR-035: an actor is validated before it is canonicalised ----------------
+
+
+def test_a_word_modality_actor_must_occur_in_its_statement():
+    """ADR-035. The prompt says the actor is "copied from the statement", and
+    measured on the live graph 2026-08-28, 14 of 123 word-modality actors were
+    not there — including `"the passage"` against a statement lifted from the
+    extraction prompt itself."""
+    item = {
+        "statement": "The Director shall notify the Comptroller.",
+        "modality": "SHALL",
+        "actor": "The Director",
+        "deadline": None,
+        "conditions": None,
+        "confidence": 0.9,
+    }
+    assert validate_extracted(item, section_title=None)
+
+    with pytest.raises(ValueError):
+        validate_extracted({**item, "actor": "the passage"}, section_title=None)
+
+
+def test_an_actor_is_matched_on_whole_words_not_substrings():
+    """`gers` is a substring of "managers" and is not an actor. It was in the
+    live graph, alongside `e systems` — both truncation artefacts."""
+    item = {
+        "statement": "Acquisition managers shall balance cost against capability.",
+        "modality": "SHALL",
+        "actor": "gers",
+        "deadline": None,
+        "conditions": None,
+        "confidence": 0.9,
+    }
+    with pytest.raises(ValueError):
+        validate_extracted(item, section_title=None)
+
+
+def test_an_actor_ending_in_punctuation_is_still_found():
+    """A naive word-boundary regex fails on a trailing bracket, which is how the
+    first measurement of this rule overstated the violation rate by half:
+    `The USD(AT&L)` is present verbatim and `\\b` does not match after `)`."""
+    for actor in ("The USD(AT&L)", "The DoD Component(s)"):
+        assert validate_extracted(
+            {
+                "statement": f"{actor} shall establish training requirements.",
+                "modality": "SHALL",
+                "actor": actor,
+                "deadline": None,
+                "conditions": None,
+                "confidence": 0.9,
+            },
+            section_title=None,
+        )
+
+
+def test_an_assigned_actor_is_exempt_because_it_comes_from_the_heading():
+    """ADR-033 takes an ASSIGNED obligation's office from the role heading above
+    the item, so its absence from the statement is the correct state — 31 of 31
+    such obligations in the graph are correctly absent. Exempt by construction:
+    the rule is about actors copied from a statement, and this one is not."""
+    assert validate_extracted(
+        {
+            "statement": "Executes the acquisition responsibilities in DoDD 5135.02.",
+            "modality": "ASSIGNED",
+            "actor": "USD(A&S)",
+            "deadline": None,
+            "conditions": None,
+            "confidence": 0.9,
+        },
+        section_title="RESPONSIBILITIES",
+    )
