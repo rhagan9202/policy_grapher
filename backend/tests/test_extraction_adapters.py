@@ -40,7 +40,7 @@ def test_the_local_adapter_parses_a_well_formed_response():
         base_url="http://model", model="test-model", transport=transport
     )
 
-    result = extractor.extract("...", section_path=["3.2"])
+    result = extractor.extract(PASSAGE, section_path=["3.2"])
     assert len(result) == 1
     assert result[0].modality == "SHALL"
 
@@ -56,7 +56,7 @@ def test_a_response_failing_our_schema_is_rejected_not_coerced():
     )
 
     with pytest.raises(ValueError, match="did not match the obligation schema"):
-        extractor.extract("...", section_path=["3.2"])
+        extractor.extract(PASSAGE, section_path=["3.2"])
 
 
 def test_unparseable_output_is_rejected_loudly():
@@ -68,7 +68,7 @@ def test_unparseable_output_is_rejected_loudly():
     )
 
     with pytest.raises(ValueError):
-        extractor.extract("...", section_path=["3.2"])
+        extractor.extract(PASSAGE, section_path=["3.2"])
 
 
 def test_an_empty_obligation_list_is_a_valid_answer():
@@ -217,7 +217,7 @@ def test_a_transient_server_error_is_retried_rather_than_ending_the_run():
         transport=httpx.MockTransport(flaky), backoff_seconds=0,
     )
 
-    assert extractor.extract("...", section_path=["3.2"]) == []
+    assert extractor.extract(PASSAGE, section_path=["3.2"]) == []
     assert attempts["n"] == 2, "the call was not retried"
 
 
@@ -238,7 +238,7 @@ def test_a_server_that_stays_broken_still_fails():
     )
 
     with pytest.raises(httpx.HTTPStatusError):
-        extractor.extract("...", section_path=["3.2"])
+        extractor.extract(PASSAGE, section_path=["3.2"])
     assert attempts["n"] > 1, "it gave up without retrying"
 
 
@@ -262,7 +262,7 @@ def test_a_schema_rejection_is_not_retried():
     )
 
     with pytest.raises(ValueError):
-        extractor.extract("...", section_path=["3.2"])
+        extractor.extract(PASSAGE, section_path=["3.2"])
     assert attempts["n"] == 1
 
 
@@ -279,6 +279,11 @@ VALID = {
 # `modality: null` — the exact failure that cost 8 chunks in 37 on 2026-08-26,
 # on sentences that state scope and name no duty.
 INVALID = {**VALID, "statement": "This issuance applies to the OSD.", "modality": None}
+
+# The passage VALID and INVALID were both read from. A statement is a quotation
+# and that is now checked, so a stub adapter test has to hand the adapter a
+# passage its fixtures actually occur in — `"..."` no longer stands in for one.
+PASSAGE = "1.1.  SCOPE.\nThis issuance applies to the OSD.\nThe Director shall notify the Comptroller.\n"
 
 
 def _local(payload, **kwargs):
@@ -299,7 +304,7 @@ def test_one_unparseable_item_no_longer_costs_its_whole_chunk():
     out of proportion to the error."""
     extractor = _local({"obligations": [VALID, INVALID, {**VALID, "confidence": 0.5}]})
 
-    found = extractor.extract("...", section_path=["1.1"])
+    found = extractor.extract(PASSAGE, section_path=["1.1"])
 
     assert len(found) == 2
     assert all(o.modality == "SHALL" for o in found)
@@ -313,7 +318,7 @@ def test_a_dropped_item_is_reported_rather_than_vanishing():
     dropped = []
     extractor = _local({"obligations": [VALID, INVALID]})
 
-    extractor.extract("...", section_path=["1.1"], on_drop=dropped.append)
+    extractor.extract(PASSAGE, section_path=["1.1"], on_drop=dropped.append)
 
     assert len(dropped) == 1
     assert "modality" in dropped[0]
@@ -325,14 +330,14 @@ def test_a_chunk_where_nothing_validates_is_still_rejected():
     extractor = _local({"obligations": [INVALID, INVALID]})
 
     with pytest.raises(ValueError):
-        extractor.extract("...", section_path=["1.1"])
+        extractor.extract(PASSAGE, section_path=["1.1"])
 
 
 def test_an_empty_answer_is_still_not_a_rejection():
     """A passage stating no duty is the common case and always was."""
     extractor = _local({"obligations": []})
 
-    assert extractor.extract("...", section_path=["1.1"]) == []
+    assert extractor.extract(PASSAGE, section_path=["1.1"]) == []
 
 
 def test_every_adapter_accepts_the_drop_reporter():
@@ -380,7 +385,7 @@ def test_an_assigned_item_from_the_wrong_section_costs_itself_and_not_its_chunk(
 
     dropped = []
     result = extractor.extract(
-        "...",
+        "The Director shall notify the Comptroller.\nMonitors and evaluates the program.",
         section_path=["ENCLOSURE 3"],
         section_title="PROCEDURES",
         on_drop=dropped.append,
@@ -414,7 +419,7 @@ def test_the_same_assigned_item_survives_in_a_responsibilities_section():
 
     dropped = []
     result = extractor.extract(
-        "...",
+        "1.  DoD CIO.  The DoD CIO:\na.  Monitors and evaluates the program.",
         section_path=["ENCLOSURE 2"],
         section_title="RESPONSIBILITIES",
         on_drop=dropped.append,

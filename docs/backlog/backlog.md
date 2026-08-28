@@ -32,7 +32,7 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
-**Ready is empty again.** Sprint 9's four items are all in [Done](#done), and the MVP is met. All ten of sprint 8's items are in [Done](#done) — the
+**Ready holds STORY-103.** Sprint 9's four items are all in [Done](#done), and the MVP is met. All ten of sprint 8's items are in [Done](#done) — the
 largest commitment this project has made, delivered whole. Every bar in the
 [vision](../planning/vision.md#what-success-looks-like)'s definition of done is now closed or
 recorded as blocked, and [STORY-094](stories/STORY-094-the-definition-of-done-is-checked.md)
@@ -95,13 +95,16 @@ row** through product actions alone; the sequence is in the
 | ID | Item | Epic | Est. | Sprint | Notes |
 | --- | --- | --- | --- | --- | --- |
 
+| ID | Item | Epic | Notes |
+| --- | --- | --- | --- |
+| STORY-103 | The prompt stops contradicting itself about ASSIGNED | — | **Est. S.** Found by ADR-036 while enumerating the prompt's rules: two general sentences that ADR-033 falsified and nobody noticed, because reading the prompt top to bottom does not surface a contradiction between paragraph three and paragraph nine. A statement must include its subject (an `ASSIGNED` statement begins at the verb) and an actor is copied from the statement (an `ASSIGNED` actor comes from the heading above it). Not fixed when found: correcting the prompt bumps `PROMPT_VERSION` and discards the extraction cache, and three rebuilds were in flight. See [STORY-103](stories/STORY-103-the-prompt-stops-contradicting-itself.md) |
+
 ## Refining
 
 Understood well enough to discuss, not yet ready to start.
 
 | ID | Item | Epic | Notes |
 | --- | --- | --- | --- |
-| STORY-100 | An office is one actor, not several spellings | — | **Est. L.** Found by sprint 9's rebuild, the first run of ADR-033 against a real document: of 31 duties assigned by position, one office is recorded as both `USD(A&S)` (12) and `The USD(A&S)` (2), and one actor is the fragment `acquisition executive`. `actor` is free text on every modality and nothing claims it is canonical, so this is a limitation rather than a defect — but a positional duty is *defined* by the office it is assigned to, and **richer metadata and relationships** in the roadmap's Later section builds `:Entity` over exactly this field. L because the shape is undecided: normalise on the way in, resolve to an `:Entity`, or narrow the claim. See [STORY-100](stories/STORY-100-an-office-is-one-actor-not-several-spellings.md) |
 | ~~STORY-013~~ | ~~Referenced documents that aren't in the corpus are distinguishable~~ | — | **Superseded by STORY-026.** Resolved by [ADR-002](../specs/adr/ADR-002-external-references-and-corpus-first-graph.md); ID retained per [CONVENTIONS](../CONVENTIONS.md) |
 | STORY-035 | Ingestion accepts a DOCX issuance | — | Same `extract_document` protocol as STORY-016, own extraction rules. Blocked: no DOCX sample exists to design against. Likely easier than PDF — `python-docx` exposes heading styles, so locating the references section stops being the risky stage |
 
@@ -143,6 +146,9 @@ the implementation plans beside them.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-102 | A prompt rule nobody checks is not a rule | 10 |
+| STORY-101 | Every edition is rebuilt under the rules the extractor now has | 10 |
+| STORY-100 | An office is one actor, not several spellings | 10 |
 | STORY-099 | Every declared route is reached by a real request | 9 |
 | STORY-098 | Front matter is not offered to the extractor | 9 |
 | STORY-097 | The responsibilities section of an issuance is invisible | 9 |

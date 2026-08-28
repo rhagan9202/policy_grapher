@@ -139,7 +139,11 @@ class CachedExtractor:
             for item in json.loads(payload):
                 try:
                     replayed.append(
-                        validate_extracted(item, section_title=section_title)
+                        validate_extracted(
+                            item,
+                            section_title=section_title,
+                            chunk_text=chunk_text,
+                        )
                     )
                 except ValueError as exc:
                     stale += 1

@@ -119,7 +119,13 @@ class LocalExtractor:
         reasons: list[str] = []
         for item in items:
             try:
-                found.append(validate_extracted(item, section_title=section_title))
+                found.append(
+                    validate_extracted(
+                        item,
+                        section_title=section_title,
+                        chunk_text=chunk_text,
+                    )
+                )
             # `ValueError`, not `ValidationError`: ADR-033's section guard is not
             # a field rule and raises plainly, and `ValidationError` subclasses
             # `ValueError`, so this catches both without the loop needing to know

@@ -63,6 +63,11 @@ BINDING = frozenset(
 )
 
 
+PLACEHOLDER_ACTORS = frozenset(
+    {"null", "none", "n/a", "na", "no actor specified", "not specified", ""}
+)
+
+
 class ExtractedObligation(BaseModel):
     statement: str = Field(min_length=1)
     modality: Modality
@@ -158,6 +163,19 @@ class ExtractedObligation(BaseModel):
             )
         return self
 
+    # A model asked for a nullable field will sometimes write the word instead of
+    # the value. Measured on the live graph 2026-08-28: 20 obligations carry the
+    # string "null" as their actor, across four modalities. The prompt has
+    # forbidden it since PROMPT_VERSION 2, which is the third rule in three
+    # sprints that asking did not secure — so it is enforced here, where it is
+    # deterministic. `actor IS NOT NULL` in Cypher counts a placeholder as a name.
+    @field_validator("actor", mode="after")
+    @classmethod
+    def _placeholder_actor_is_no_actor(cls, value: str | None) -> str | None:
+        if value is None or value.strip().casefold() in PLACEHOLDER_ACTORS:
+            return None
+        return value
+
     @field_validator("statement")
     @classmethod
     def _not_blank(cls, value: str) -> str:
@@ -186,8 +204,32 @@ def is_responsibilities_section(section_title: str | None) -> bool:
     return bool(section_title and RESPONSIBILITIES.search(section_title))
 
 
+WORD_TOKEN = re.compile(r"[a-z0-9&]+")
+
+
+def _tokens(text: str) -> list[str]:
+    """The word tokens of a string, case-folded and stripped of punctuation."""
+    return WORD_TOKEN.findall(text.casefold())
+
+
+def _is_token_subsequence(needle: str, haystack: str) -> bool:
+    """Whether `needle`'s words appear consecutively in `haystack`.
+
+    Tokens rather than a substring, because `gers` is a substring of "managers"
+    and is not an actor — both it and `e systems` were in the live graph as
+    truncation artefacts. Tokens rather than a word-boundary regex, because
+    `\b` does not match after the `)` in `The USD(AT&L)`, which is present
+    verbatim: measuring this rule that way overstated its violation rate by half
+    before the mistake was caught.
+    """
+    n, h = _tokens(needle), _tokens(haystack)
+    if not n:
+        return True
+    return any(h[i : i + len(n)] == n for i in range(len(h) - len(n) + 1))
+
+
 def validate_extracted(
-    item: dict, *, section_title: str | None
+    item: dict, *, section_title: str | None, chunk_text: str | None = None
 ) -> ExtractedObligation:
     """Schema validation, plus the part of ADR-033 that needs to know the section.
 
@@ -202,6 +244,52 @@ def validate_extracted(
     without having to know which of the two rules refused it.
     """
     obligation = ExtractedObligation.model_validate(item)
+    # A statement is a quotation. The prompt has said so since PROMPT_VERSION 2 —
+    # "copied from the passage word for word" — and asking was not enough, which
+    # is the same lesson the modality-word rule taught one sprint earlier.
+    #
+    # Measured on the live graph 2026-08-28: 34 of 196 obligations, 17%, held a
+    # statement that does not occur in the chunk it was read from. ASSIGNED was
+    # worst at 46%, because PROMPT_VERSION 3's worked example names USD(A&S) and
+    # the model echoed it into the sections for the DoD CIO, DOT&E and the CJCS —
+    # recording that each of those offices "executes the acquisition
+    # responsibilities in DoDD 5135.02", which the document says of none of them.
+    # Attributing a duty to the wrong office is the precise failure this product
+    # exists to prevent.
+    #
+    # It matters beyond attribution: `obligation_id` hashes the normalised
+    # statement, so a misquotation yields an id derived from text the document
+    # does not contain, and a later extraction that quotes correctly produces a
+    # different id — orphaning every decision recorded against the first.
+    #
+    # Normalised on both sides, the same way `obligation_id` normalises: a chunk
+    # holds the document's line breaks and a statement is one line, so a raw
+    # comparison would refuse every real obligation.
+    if chunk_text is not None and normalize(obligation.statement) not in normalize(
+        chunk_text
+    ):
+        raise ValueError(
+            f"statement is not a quotation of the passage it was read from: "
+            f"{obligation.statement!r}"
+        )
+    # ADR-035. The prompt says the actor is "copied from the statement", and
+    # measured on the live graph 2026-08-28, 14 of 123 word-modality actors were
+    # not in it — a pronoun, a truncated fragment, and one statement lifted out
+    # of the extraction prompt itself with the actor "the passage".
+    #
+    # ASSIGNED is exempt by construction rather than by exception: ADR-033 takes
+    # its office from the role heading *above* the item, so an actor absent from
+    # the statement is the correct state there. The prompt states the rule
+    # generally and is wrong to; the rule is modality-specific.
+    if (
+        obligation.modality is not Modality.ASSIGNED
+        and obligation.actor is not None
+        and not _is_token_subsequence(obligation.actor, obligation.statement)
+    ):
+        raise ValueError(
+            f"actor is not named in the statement it was copied from: "
+            f"{obligation.actor!r} not in {obligation.statement!r}"
+        )
     if obligation.modality is Modality.ASSIGNED and not is_responsibilities_section(
         section_title
     ):

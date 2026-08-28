@@ -92,3 +92,33 @@ def test_the_job_records_progress_in_its_metadata(
     stored = Job.fetch(job.id, connection=redis_connection)
     assert stored.meta["chunks_total"] > 0
     assert stored.meta["chunks_done"] == stored.meta["chunks_total"]
+
+
+def test_a_truncated_rejection_list_says_how_many_it_left_out(monkeypatch):
+    """The list is capped so a pathological run cannot write an unbounded blob
+    into Redis, and the cap is right. What was missing is that a reader could
+    not tell it had been applied.
+
+    DoDD 5143.01's rebuild reported 20 reasons against 213 refusals — 23 chunks
+    rejected and 190 items dropped. Twenty entries with no indication is the
+    shape ADR-030 made a silent drop into a defect: the counts are honest and
+    the list silently is not.
+    """
+    from policy_grapher.jobs import rebuild as job_module
+
+    class Job:
+        def __init__(self):
+            self.meta = {}
+
+        def save_meta(self):
+            pass
+
+    job = Job()
+    monkeypatch.setattr(job_module, "get_current_job", lambda: job)
+
+    report = job_module._rejection_reporter()
+    for i in range(job_module.REPORTED_REJECTIONS + 5):
+        report(f"chunk-{i}", "some reason")
+
+    assert len(job.meta["rejections"]) == job_module.REPORTED_REJECTIONS
+    assert job.meta["rejections_total"] == job_module.REPORTED_REJECTIONS + 5

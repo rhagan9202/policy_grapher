@@ -370,6 +370,9 @@ class RebuildStatus(BaseModel):
     # a count alone reports that an edition is incomplete without saying what is
     # missing from it, and reading container logs is not an answer for an operator.
     rejections: list[dict[str, str]] = Field(default_factory=list)
+    # How many refusals happened, against however many `rejections` holds. The
+    # list is capped; this is not, so a reader can tell the difference.
+    rejections_total: int = 0
     # Which adapters the *worker* used, reported by the worker rather than read
     # off the API's own settings — the two processes are configured separately
     # and need not agree. Empty until a worker picks the run up. With the
