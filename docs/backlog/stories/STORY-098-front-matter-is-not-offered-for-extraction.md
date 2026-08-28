@@ -1,6 +1,6 @@
 # STORY-098: Front matter is not offered to the extractor
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 

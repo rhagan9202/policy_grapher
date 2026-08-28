@@ -1,6 +1,6 @@
 # STORY-099: Every declared route is reached by a real request
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

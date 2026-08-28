@@ -1,6 +1,6 @@
 # STORY-075: A chunk starting on a section join is attributed to the right page
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 
