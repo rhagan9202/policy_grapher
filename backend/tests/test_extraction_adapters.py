@@ -8,6 +8,7 @@ from policy_grapher.config import Settings
 from policy_grapher.extraction import build_extractor
 from policy_grapher.extraction.local import LocalExtractor
 from policy_grapher.extraction.null import NullExtractor
+from policy_grapher.extraction.prompt import EXTRACTION_PROMPT, PROMPT_VERSION
 
 
 def test_the_null_adapter_extracts_nothing():
@@ -421,3 +422,32 @@ def test_the_same_assigned_item_survives_in_a_responsibilities_section():
 
     assert [o.modality for o in result] == ["ASSIGNED"]
     assert dropped == []
+
+
+def test_the_prompt_version_moved_with_the_prompt():
+    """PROMPT_VERSION participates in the cache key. An in-place prompt edit
+    leaves the cache serving answers produced by a prompt that no longer exists,
+    which is invisible and very hard to debug."""
+    assert PROMPT_VERSION == 3
+
+
+def test_the_prompt_still_refuses_headings_and_scope():
+    """The two omissions that must survive this change.
+
+    Removing the bare-task-list rule is the point of PROMPT_VERSION 3. Removing
+    either of these is how "Be Responsive." comes back.
+    """
+    assert "Manage Efficiently" in EXTRACTION_PROMPT
+    assert "This issuance applies to" in EXTRACTION_PROMPT
+
+
+def test_the_prompt_teaches_the_positional_form_and_keeps_the_statement_verbatim():
+    """ADR-033, and the identity constraint that shapes how it is taught.
+
+    obligation_id hashes the normalised statement, so a statement the model
+    *composes* — splicing the office from the heading into the sentence — varies
+    with whatever wording it chooses and silently detaches the reviews recorded
+    against that clause. The office belongs in `actor`.
+    """
+    assert "ASSIGNED" in EXTRACTION_PROMPT
+    assert "word for word" in EXTRACTION_PROMPT
