@@ -5,7 +5,9 @@ from policy_grapher.extraction.schema import (
     WORD_MODALITIES,
     ExtractedObligation,
     Modality,
+    is_responsibilities_section,
     obligation_id,
+    validate_extracted,
 )
 
 
@@ -281,3 +283,84 @@ def test_an_assigned_duty_binds():
     )
 
     assert obligation.is_binding
+
+
+# --- ADR-033: the section half of the guard -----------------------------------
+
+
+def test_a_responsibilities_section_is_recognised_by_its_own_title():
+    """Read out of the document's own heading, not from a list of sections we
+    expect to exist — which is what keeps this from being a keyword list."""
+    assert is_responsibilities_section("RESPONSIBILITIES")
+    assert is_responsibilities_section("Responsibilities")
+    assert is_responsibilities_section("RESPONSIBILITIES AND FUNCTIONS")
+    assert not is_responsibilities_section("PROCEDURES")
+    assert not is_responsibilities_section("GENERAL ISSUANCE INFORMATION")
+    assert not is_responsibilities_section(None)
+
+
+def test_an_assigned_item_outside_a_responsibilities_section_is_refused():
+    """ADR-033's adapter half. The model validates an item without knowing where
+    it came from, so this is the half that needs the section."""
+    item = {
+        "statement": "Monitors and evaluates the program.",
+        "modality": "ASSIGNED",
+        "actor": "DoD CIO",
+        "deadline": None,
+        "conditions": None,
+        "confidence": 0.9,
+    }
+
+    assert validate_extracted(item, section_title="RESPONSIBILITIES")
+    with pytest.raises(ValueError):
+        validate_extracted(item, section_title="PROCEDURES")
+    with pytest.raises(ValueError):
+        validate_extracted(item, section_title=None)
+
+
+def test_a_word_modality_is_unaffected_by_the_section_it_was_read_from():
+    """The section guard exists only because ASSIGNED names no word. A SHALL
+    quotes its word wherever it is written, so nothing about it depends on the
+    section — and a guard that refused one would silently lose real duties."""
+    item = {
+        "statement": "The Director shall notify the Comptroller.",
+        "modality": "SHALL",
+        "actor": "The Director",
+        "deadline": None,
+        "conditions": None,
+        "confidence": 0.9,
+    }
+
+    assert validate_extracted(item, section_title="PROCEDURES")
+    assert validate_extracted(item, section_title=None)
+
+
+def test_be_responsive_is_refused_by_both_guards_independently():
+    """The regression test of this sprint.
+
+    "Be Responsive." is a section heading that a model labelled SHALL for a whole
+    sprint, and 18 of 215 obligations in the live graph were shapes like it. The
+    danger ADR-033 accepts is that it returns as ASSIGNED instead, since ASSIGNED
+    names no word to check against the passage.
+
+    It fails both guards, and each half is asserted on its own so that losing one
+    guard cannot be masked by the other still holding.
+    """
+    heading = {
+        "statement": "Be Responsive.",
+        "modality": "ASSIGNED",
+        "actor": None,
+        "deadline": None,
+        "conditions": None,
+        "confidence": 0.9,
+    }
+
+    # Guard one, on its own: no actor, even in the right section.
+    with pytest.raises(ValueError):
+        validate_extracted(heading, section_title="RESPONSIBILITIES")
+
+    # Guard two, on its own: wrong section, even once an actor is supplied.
+    with pytest.raises(ValueError):
+        validate_extracted(
+            {**heading, "actor": "DoD"}, section_title="GENERAL ISSUANCE INFORMATION"
+        )

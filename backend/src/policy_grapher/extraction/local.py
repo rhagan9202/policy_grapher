@@ -10,10 +10,9 @@ import time
 from collections.abc import Callable
 
 import httpx
-from pydantic import ValidationError
 
 from policy_grapher.extraction.prompt import EXTRACTION_PROMPT
-from policy_grapher.extraction.schema import ExtractedObligation
+from policy_grapher.extraction.schema import ExtractedObligation, validate_extracted
 
 # Only the fallback for a caller that does not pass one; `build_extractor` always
 # passes `Settings.extractor_timeout_seconds`. Kept generous for the same reason that
@@ -120,8 +119,12 @@ class LocalExtractor:
         reasons: list[str] = []
         for item in items:
             try:
-                found.append(ExtractedObligation.model_validate(item))
-            except ValidationError as exc:
+                found.append(validate_extracted(item, section_title=section_title))
+            # `ValueError`, not `ValidationError`: ADR-033's section guard is not
+            # a field rule and raises plainly, and `ValidationError` subclasses
+            # `ValueError`, so this catches both without the loop needing to know
+            # which rule refused the item.
+            except ValueError as exc:
                 reason = f"model output did not match the obligation schema: {exc}"
                 reasons.append(reason)
                 if on_drop is not None:

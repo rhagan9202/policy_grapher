@@ -482,3 +482,64 @@ def test_the_cache_forwards_the_section_title_to_the_adapter_behind_it():
     )
 
     assert seen["section_title"] == "RESPONSIBILITIES"
+
+
+def test_a_cache_hit_does_not_walk_around_the_section_guard():
+    """ADR-033's guard lives in one helper precisely so a replay cannot bypass it.
+
+    The cache outlives the rules it was filled under — sprint 8 found three
+    entries holding statements written before the schema required a statement to
+    contain its modality — so a rule applied only where items are extracted is a
+    rule a cache hit steps around.
+    """
+    import json as _json
+
+    from policy_grapher.extraction.cache import CachedExtractor
+
+    cached = _json.dumps(
+        [
+            {
+                "statement": "Monitors and evaluates the program.",
+                "modality": "ASSIGNED",
+                "actor": "DoD CIO",
+                "deadline": None,
+                "conditions": None,
+                "confidence": 0.9,
+            }
+        ]
+    )
+
+    class Never:
+        adapter_id = "never"
+
+        def extract(self, chunk_text, *, section_path, section_title=None, on_drop=None):
+            raise AssertionError("a hit must not reach the adapter")
+
+    class Store:
+        def get(self, key):
+            return cached
+
+        def put(self, key, value):
+            pass
+
+    extractor = CachedExtractor(Never(), Store(), prompt_version=3)
+
+    dropped = []
+    with pytest.raises(ValueError):
+        extractor.extract(
+            "...",
+            section_path=["ENCLOSURE 3"],
+            section_title="PROCEDURES",
+            on_drop=dropped.append,
+        )
+    assert dropped and "responsibilities" in dropped[0]
+
+    dropped.clear()
+    survived = extractor.extract(
+        "...",
+        section_path=["ENCLOSURE 2"],
+        section_title="RESPONSIBILITIES",
+        on_drop=dropped.append,
+    )
+    assert [o.modality for o in survived] == ["ASSIGNED"]
+    assert dropped == []

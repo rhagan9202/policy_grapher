@@ -22,10 +22,9 @@ from collections.abc import Callable
 from typing import Protocol
 
 from neo4j import Driver, RoutingControl
-from pydantic import ValidationError
 
 from policy_grapher.extraction.prompt import PROMPT_VERSION
-from policy_grapher.extraction.schema import ExtractedObligation
+from policy_grapher.extraction.schema import ExtractedObligation, validate_extracted
 
 READ_CACHE = "MATCH (e:ExtractionCache {key: $key}) RETURN e.payload_json AS payload"
 
@@ -139,8 +138,10 @@ class CachedExtractor:
             stale = 0
             for item in json.loads(payload):
                 try:
-                    replayed.append(ExtractedObligation.model_validate(item))
-                except ValidationError as exc:
+                    replayed.append(
+                        validate_extracted(item, section_title=section_title)
+                    )
+                except ValueError as exc:
                     stale += 1
                     if on_drop is not None:
                         on_drop(f"cached item no longer validates: {exc}")

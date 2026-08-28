@@ -146,6 +146,53 @@ class ExtractedObligation(BaseModel):
         return value
 
 
+# The word a section's own title uses when it assigns duties to offices. Matched
+# against the title the *document* wrote, not against a list of sections we
+# expect to exist — that distinction is what keeps this from being a keyword
+# list, and it is why the chunker recovers titles rather than the schema
+# enumerating section numbers.
+RESPONSIBILITIES = re.compile(r"\bRESPONSIBILIT(?:Y|IES)\b", re.IGNORECASE)
+
+
+def is_responsibilities_section(section_title: str | None) -> bool:
+    """Whether a section's own title says it assigns responsibilities.
+
+    ADR-033 guards ASSIGNED structurally because it cannot be guarded lexically:
+    a value naming no word cannot be checked against the passage the way the
+    other five are. A document whose format hides its section titles yields None
+    here and so never produces an ASSIGNED obligation, which is the correct
+    conservative failure — a missing title must not mean "anything goes".
+    """
+    return bool(section_title and RESPONSIBILITIES.search(section_title))
+
+
+def validate_extracted(
+    item: dict, *, section_title: str | None
+) -> ExtractedObligation:
+    """Schema validation, plus the part of ADR-033 that needs to know the section.
+
+    One function because there are two callers — the local adapter when the model
+    answers, and the cache when it replays a hit — and a rule living in only one
+    of them is a rule a cache hit walks around. The cache key already includes
+    the section path, so a replayed item always replays into the section it was
+    extracted from; applying the guard there costs nothing and closes the bypass.
+
+    Raises `ValueError`, which `pydantic.ValidationError` also subclasses, so a
+    caller catching `ValueError` drops one item and keeps the rest (ADR-030)
+    without having to know which of the two rules refused it.
+    """
+    obligation = ExtractedObligation.model_validate(item)
+    if obligation.modality is Modality.ASSIGNED and not is_responsibilities_section(
+        section_title
+    ):
+        raise ValueError(
+            f"ASSIGNED is only valid in a section whose title names "
+            f"responsibilities; this chunk's section is "
+            f"{section_title or 'untitled'!r}: {obligation.statement!r}"
+        )
+    return obligation
+
+
 def normalize(statement: str) -> str:
     """The form identity is computed over.
 
