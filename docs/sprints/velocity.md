@@ -1,7 +1,7 @@
 # Velocity
 
 *Living document — one row per completed sprint, plus any interval that delivered work
-without being one. Last reviewed: 2026-08-28 (sprint 10 closed)*
+without being one. Last reviewed: 2026-08-28 (sprint 11 planning)*
 
 | Sprint | Committed | Delivered | Notes |
 | --- | --- | --- | --- |
@@ -22,6 +22,8 @@ without being one. Last reviewed: 2026-08-28 (sprint 10 closed)*
 | 9 | 4 stories | 4 stories | 2M + 2S, and the smallest commitment since sprint 4 — deliberately, because both M items end in a measurement and a measurement that comes back wrong becomes the sprint. **The four rows are not the sprint.** What it delivered is that `Modality` can express a duty DoD imposes by position, which it never could: one edition went from 56 obligations to 76, and the 31 recovered are the section a compliance reader asks for first. Five defects were found and fixed while executing, and **the extraction gate itself was one of them** — it failed at recall 0.61 because it never passed the section title ADR-033's guard now depends on, so it was measuring the guard rejecting its own gold set. A sixth defect was found only by rebuilding a real document: two obligations came back with the whole statement copied into `actor`, which no fixture could have caught, because the gold set is what a correct answer looks like. Floors rose on both legs measured and neither ever moved down — precision to 0.842 and recall to 0.888, against observations of 0.905 and 0.889. Setting them took two attempts and both failures are now recorded beside the numbers: a floor rounded up sits above the measurement it came from and fails on itself, and "identical on three consecutive runs" is determinism within one process, not across two. |
 
 | 10 | 3 stories | 3 stories | 1M + 2L, and both L items produced an ADR rather than code, which is the shape they were committed for. **The sprint removed 32 of 184 obligations, 17%, and that is the deliverable** — the graph had been asserting that the DoD CIO, DOT&E and the CJCS each execute USD(A&S)'s acquisition responsibilities, in eight obligations, and one obligation had been extracted from the extraction prompt itself. Every acceptance criterion was checked against the graph rather than the extractor, which is the distinction that made the sprint worth running: sprint 9 proved the rules were enforced, this one proved the data obeyed them. Also the sprint in which three separate "anomalies" turned out to be my own measurement errors, announced before being checked — see the retrospective, where it is the first action. |
+
+**The "hand count of 21" in the sprint 9 and 10 rows is wrong.** DoDD 5000.01 (2020) contains 40 lettered items under role headings; the 21 came from a coarse regex that misses gerunds and cannot see which role heading an item sits under. Coverage at sprint 10's close was 19 of 40, not 19 of 21. Corrected at sprint 11 planning; the rows are dated records and are left as written.
 
 **Rolling average (last 3):** 7.3 stories (6, 6, 10) — and read it loosely. Sprint 1's row still
 says 11 against a true 13, sprints 1 and 2 counted unestimated items, and sprint 3 is the first

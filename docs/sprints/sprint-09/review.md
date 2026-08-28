@@ -4,6 +4,8 @@
 
 *Dated record — written at sprint close, not edited afterward.*
 
+> **Correction, 2026-08-28 (sprint 11 planning): the hand count of 21 in this document is wrong.** DoDD 5000.01 (2020) contains **40** lettered items under role headings in its responsibilities section. The 21 came from the coarse regular expression this project used throughout sprints 9 and 10, which misses gerund items and cannot tell which role heading an item sits under. Actual coverage was 19 of 40. See the [sprint 11 plan](../sprint-11/plan.md).
+
 ## The goal, measured
 
 **Met.** DoDD 5000.01's 2020 edition now yields **31 obligations assigned by position**, where
