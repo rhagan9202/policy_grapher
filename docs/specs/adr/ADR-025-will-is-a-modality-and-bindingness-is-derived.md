@@ -1,6 +1,6 @@
 # ADR-025: WILL is a modality, and bindingness is derived
 
-**Status:** Accepted · **Date:** 2026-08-23 · **Deciders:** —
+**Status:** Accepted, amended by [ADR-033](ADR-033-a-duty-can-be-assigned-by-position.md) · **Date:** 2026-08-23 · **Deciders:** —
 **Amends:** [ADR-013](ADR-013-extraction-is-a-port-with-a-ratchet.md)
 
 *Dated record — written once, not edited afterward. Supersede rather than revise.*
