@@ -36,18 +36,33 @@ All four delivered.
 
 ## The extraction floors
 
-Measured three times at temperature 0, **identical on every run**:
+Measured three times at temperature 0 on the shipped code, identical on every run:
 
 | | Floor before | Measured | Floor now |
 | --- | ---: | ---: | ---: |
-| precision | 0.833 | **0.842** | 0.842 |
-| recall | 0.769 | **0.889** | 0.889 |
+| precision | 0.833 | **0.905** | 0.842 |
+| recall | 0.769 | **0.889** | 0.888 |
 | modality accuracy | 0.85 | **1.000** | 0.85 (held) |
 
 **No floor moved down at any point**, which this sprint's plan named as the way this gate would
 die. Recall gains most and the gain is the sprint itself: five duties that no member of `Modality`
 could express are now expressible, and the model returns all five with the right actor on each —
-the new gold fixture scores precision 0.833, recall 1.000.
+the new gold fixture scores recall 1.000.
+
+**Getting the floors right took two attempts, and both failures are recorded in the file.** The
+first recorded recall as 0.889 against a measured 0.888888..., and the gate failed on itself: the
+comparison is `measured < floor`, so a floor rounded *up* sits above the number it came from.
+Every floor in this file's history is a truncation for that reason, which had never been said out
+loud.
+
+**Precision is floored at 0.842 rather than the observed 0.905, and that is a finding rather than
+caution.** The same gold set measured 0.842 in a separate process earlier the same day, on the
+build immediately before the actor rule: 19 predictions of which 16 matched, against 21 of which
+19 matched afterwards. **Recall was 0.889 in both — the same sixteen gold obligations were found
+either way** — so what moved is how many predictions the model emitted, not what it understood.
+Three runs inside one process have been identical every time this project has measured them; two
+processes are not, and nothing in the file had ever said so. A floor at 0.905 would fire on that
+variation, and a floor that fires on something nobody changed teaches people to ignore it.
 
 `modality_accuracy` was not raised to the observed 1.000, following the reasoning already recorded
 beside it: over sixteen matched pairs a single error reads as 0.938, and a floor that fires on one

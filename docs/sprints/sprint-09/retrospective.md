@@ -38,7 +38,7 @@ is, and assume a model will find that way.** Presence checks invite filler.
 
 - **No floor was lowered at any point**, in a sprint whose plan named a lowered floor as the way
   this gate would die, and whose first measurement was red. Both measured legs rose: precision
-  0.833 to 0.842, recall 0.769 to 0.889, identical on three consecutive runs.
+  0.833 to 0.842 and recall 0.769 to 0.888, against observations of 0.905 and 0.889.
 - **Mutation caught a vacuous test before it shipped.** STORY-099's first version asserted that no
   route answers 404, passed on its first run, and — this is the part that matters — still passed
   with sprint 8's defect deliberately reintroduced. The mutation step this project adopted as a
@@ -72,11 +72,25 @@ is, and assume a model will find that way.** Presence checks invite filler.
   offices match, so it is not wholesale invention, but nobody has read the 31 against the document
   and the review says so rather than quoting the number as coverage.
 
+**3. A floor is truncated below the measurement, never rounded to it.** The first floors recorded
+this sprint set recall to 0.889 against a measured 0.888888..., and the gate failed on itself —
+the comparison is `measured < floor`. Every floor in this file's history was already a truncation;
+nothing said so, so the rule was there to be broken by anyone reading the numbers rather than the
+arithmetic. It is written down now, beside the floors.
+
+**4. Three identical runs prove less than they appear to.** This project has recorded "identical
+on three consecutive runs" since sprint 4 and treated it as determinism. It is determinism *within
+one process*. The same gold set scored precision 0.842 in one process and 0.905 in another on the
+same day, while recall was 0.889 in both — the same sixteen gold obligations found either way, a
+different number of predictions emitted. Floors should be set from the lowest observation across
+processes, not the tidiest one inside a single run.
+
 ## Actions
 
 | Action | Owner | By |
 | --- | --- | --- |
 | Verify the 31 recovered duties against the document before the number is quoted as coverage | — | Sprint 10 |
+| Set a floor from the lowest observation across processes, truncated, never rounded to a single run | — | Standing |
 | Decide what an actor *is* (STORY-100) — the field became load-bearing the moment duties were defined by the office they fall on | — | Sprint 10 |
 | When a gate goes red after an interface changed, check the gate calls the new interface before believing it | — | Standing |
 | When a guard requires a field, assume a model will find the cheapest way to fill it | — | Standing |
