@@ -1,4 +1,4 @@
-from policy_grapher.chunking import _split, chunk_pages, section_heading
+from policy_grapher.chunking import _page_at, _split, chunk_pages, section_heading
 
 
 def test_a_numbered_heading_is_recognised():
@@ -502,3 +502,16 @@ def test_ordinal_stays_document_wide_reading_order():
     """
     chunks = chunk_pages(_three_sections("Alpha body."), version_id="v")
     assert [c.ordinal for c in chunks] == list(range(len(chunks)))
+
+
+def test_a_chunk_starting_on_a_section_join_reports_the_page_its_text_is_on():
+    """STORY-075. `_page_at` claimed the join's newline for the line before it.
+
+    The offset handed to `_page_at` is the index of the newline that `"\n".join`
+    inserted between two lines. The text at that offset belongs to the line
+    *after* it, so the page reported must be that line's page.
+    """
+    lines = [(4, "first line"), (5, "second line")]
+    join_offset = len("first line")  # the index of the inserted newline
+
+    assert _page_at(lines, join_offset) == 5

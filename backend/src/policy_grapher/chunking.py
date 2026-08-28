@@ -199,7 +199,13 @@ def _page_at(lines: list[tuple[int, str]], offset: int) -> int:
     """
     cursor = 0
     for page_number, line in lines:
-        if offset <= cursor + len(line):
+        # `<`, not `<=`: `cursor + len(line)` is the index of the newline that
+        # `"\n".join` inserted, and the character at that offset opens the *next*
+        # line. STORY-075 decided this is the boundary bug rather than a
+        # leading-newline bug, because `_split` slices `text[start:end]` at an
+        # arbitrary index and never strips — so a part genuinely can begin on a
+        # join, and when it does its visible text is the following line's.
+        if offset < cursor + len(line):
             return page_number
         cursor += len(line) + 1
     return lines[-1][0] if lines else 1
