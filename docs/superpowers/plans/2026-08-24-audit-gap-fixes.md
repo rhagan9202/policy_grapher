@@ -1486,7 +1486,7 @@ git commit -m "fix: no service listens beyond loopback, and no hostname is a com
 
 - [ ] **Step 1: Add eleven rows to Ready**
 
-Ready is currently empty and says so. Replace that paragraph with the eleven rows, each carrying a size from the [t-shirt scale](../backlog/README.md#estimation), in the order the plan sequences them. Use the ID, title and size from the spec's table. Note in the Notes column which task in this plan implements each.
+Ready is currently empty and says so. Replace that paragraph with the eleven rows, each carrying a size from the [t-shirt scale](../../backlog/README.md#estimation), in the order the plan sequences them. Use the ID, title and size from the spec's table. Note in the Notes column which task in this plan implements each.
 
 - [ ] **Step 2: Write the two story files**
 

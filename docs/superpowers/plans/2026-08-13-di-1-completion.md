@@ -319,7 +319,7 @@ Under Consequences, note that a name duplicating an existing document verbatim i
 Add one line directly beneath ADR-003's status line, changing nothing else in that file — it is a frozen dated record:
 
 ```markdown
-> **Amended by [ADR-005](ADR-005-slug-assignment-over-the-name-set.md)** (2026-08-13): slug
+> **Amended by [ADR-005](../../specs/adr/ADR-005-slug-assignment-over-the-name-set.md)** (2026-08-13): slug
 > assignment is a function of the whole name set, and incremental creation resolves
 > contested slugs in favour of the incumbent.
 ```
