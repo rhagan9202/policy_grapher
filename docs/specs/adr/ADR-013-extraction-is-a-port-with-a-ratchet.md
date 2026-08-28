@@ -1,6 +1,6 @@
 # ADR-013: Extraction is a port, and the swap is a gate
 
-**Status:** Accepted · **Date:** 2026-08-20 · **Deciders:** Project owner
+**Status:** Accepted, amended by [ADR-034](ADR-034-a-statement-is-a-quotation.md) · **Date:** 2026-08-20 · **Deciders:** Project owner
 
 *Frozen once accepted. To change this decision, write a new ADR and mark this one superseded.*
 

@@ -527,7 +527,7 @@ def test_a_cache_hit_does_not_walk_around_the_section_guard():
     dropped = []
     with pytest.raises(ValueError):
         extractor.extract(
-            "...",
+            "1.  DoD CIO.  The DoD CIO:\na.  Monitors and evaluates the program.",
             section_path=["ENCLOSURE 3"],
             section_title="PROCEDURES",
             on_drop=dropped.append,
@@ -536,7 +536,7 @@ def test_a_cache_hit_does_not_walk_around_the_section_guard():
 
     dropped.clear()
     survived = extractor.extract(
-        "...",
+        "1.  DoD CIO.  The DoD CIO:\na.  Monitors and evaluates the program.",
         section_path=["ENCLOSURE 2"],
         section_title="RESPONSIBILITIES",
         on_drop=dropped.append,

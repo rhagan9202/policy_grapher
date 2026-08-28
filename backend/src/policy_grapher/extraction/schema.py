@@ -63,6 +63,11 @@ BINDING = frozenset(
 )
 
 
+PLACEHOLDER_ACTORS = frozenset(
+    {"null", "none", "n/a", "na", "no actor specified", "not specified", ""}
+)
+
+
 class ExtractedObligation(BaseModel):
     statement: str = Field(min_length=1)
     modality: Modality
@@ -158,6 +163,19 @@ class ExtractedObligation(BaseModel):
             )
         return self
 
+    # A model asked for a nullable field will sometimes write the word instead of
+    # the value. Measured on the live graph 2026-08-28: 20 obligations carry the
+    # string "null" as their actor, across four modalities. The prompt has
+    # forbidden it since PROMPT_VERSION 2, which is the third rule in three
+    # sprints that asking did not secure — so it is enforced here, where it is
+    # deterministic. `actor IS NOT NULL` in Cypher counts a placeholder as a name.
+    @field_validator("actor", mode="after")
+    @classmethod
+    def _placeholder_actor_is_no_actor(cls, value: str | None) -> str | None:
+        if value is None or value.strip().casefold() in PLACEHOLDER_ACTORS:
+            return None
+        return value
+
     @field_validator("statement")
     @classmethod
     def _not_blank(cls, value: str) -> str:
@@ -187,7 +205,7 @@ def is_responsibilities_section(section_title: str | None) -> bool:
 
 
 def validate_extracted(
-    item: dict, *, section_title: str | None
+    item: dict, *, section_title: str | None, chunk_text: str | None = None
 ) -> ExtractedObligation:
     """Schema validation, plus the part of ADR-033 that needs to know the section.
 
@@ -202,6 +220,34 @@ def validate_extracted(
     without having to know which of the two rules refused it.
     """
     obligation = ExtractedObligation.model_validate(item)
+    # A statement is a quotation. The prompt has said so since PROMPT_VERSION 2 —
+    # "copied from the passage word for word" — and asking was not enough, which
+    # is the same lesson the modality-word rule taught one sprint earlier.
+    #
+    # Measured on the live graph 2026-08-28: 34 of 196 obligations, 17%, held a
+    # statement that does not occur in the chunk it was read from. ASSIGNED was
+    # worst at 46%, because PROMPT_VERSION 3's worked example names USD(A&S) and
+    # the model echoed it into the sections for the DoD CIO, DOT&E and the CJCS —
+    # recording that each of those offices "executes the acquisition
+    # responsibilities in DoDD 5135.02", which the document says of none of them.
+    # Attributing a duty to the wrong office is the precise failure this product
+    # exists to prevent.
+    #
+    # It matters beyond attribution: `obligation_id` hashes the normalised
+    # statement, so a misquotation yields an id derived from text the document
+    # does not contain, and a later extraction that quotes correctly produces a
+    # different id — orphaning every decision recorded against the first.
+    #
+    # Normalised on both sides, the same way `obligation_id` normalises: a chunk
+    # holds the document's line breaks and a statement is one line, so a raw
+    # comparison would refuse every real obligation.
+    if chunk_text is not None and normalize(obligation.statement) not in normalize(
+        chunk_text
+    ):
+        raise ValueError(
+            f"statement is not a quotation of the passage it was read from: "
+            f"{obligation.statement!r}"
+        )
     if obligation.modality is Modality.ASSIGNED and not is_responsibilities_section(
         section_title
     ):

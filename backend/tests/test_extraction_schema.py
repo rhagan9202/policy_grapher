@@ -408,3 +408,112 @@ def test_a_long_but_real_actor_is_still_accepted():
     )
 
     assert obligation.is_binding
+
+
+# --- a statement is a quotation, and that is now checked ----------------------
+
+
+def test_a_statement_absent_from_its_own_chunk_is_refused():
+    """The prompt has required word-for-word quoting since PROMPT_VERSION 2, and
+    asking was not enough — the same lesson the modality-word rule taught.
+
+    Measured on the live graph 2026-08-28: 34 of 196 obligations, 17%, had a
+    statement that does not occur in the chunk it was read from. `obligation_id`
+    hashes the normalised statement, so a misquotation is an id derived from text
+    the document does not contain — and a later extraction that quotes correctly
+    produces a different id, orphaning every decision recorded against the first.
+    """
+    item = {
+        "statement": "The Director shall notify the Comptroller.",
+        "modality": "SHALL",
+        "actor": "The Director",
+        "deadline": None,
+        "conditions": None,
+        "confidence": 0.9,
+    }
+
+    assert validate_extracted(
+        item, section_title=None,
+        chunk_text="Preamble.\nThe Director shall notify the\nComptroller.\nMore text.",
+    )
+    with pytest.raises(ValueError):
+        validate_extracted(
+            item, section_title=None,
+            chunk_text="This passage says something else entirely.",
+        )
+
+
+def test_the_quotation_check_survives_the_line_breaks_a_pdf_puts_in():
+    """A chunk holds the document's text verbatim, newlines and all, while a
+    statement is a single line. Comparing them raw would refuse every real
+    obligation, so both sides are normalised the way `obligation_id` normalises."""
+    assert validate_extracted(
+        {
+            "statement": "The USD(A&S) shall issue and maintain requirements for acquisition strategies.",
+            "modality": "SHALL",
+            "actor": "USD(A&S)",
+            "deadline": None,
+            "conditions": None,
+            "confidence": 0.9,
+        },
+        section_title=None,
+        chunk_text=(
+            "2.1.  USD(A&S).\nThe USD(A&S) shall issue and maintain\n"
+            "requirements   for acquisition strategies.\n"
+        ),
+    )
+
+
+def test_without_the_passage_the_quotation_check_does_not_run():
+    """Callers that hold no chunk text — replaying a fixture, validating a gold
+    item — must keep working. The guard is evidence-based: absent the passage
+    there is no evidence to check against, and inventing a verdict would be
+    worse than declining to reach one."""
+    assert validate_extracted(
+        {
+            "statement": "The Director shall notify the Comptroller.",
+            "modality": "SHALL",
+            "actor": "The Director",
+            "deadline": None,
+            "conditions": None,
+            "confidence": 0.9,
+        },
+        section_title=None,
+    )
+
+
+def test_a_placeholder_actor_is_recorded_as_no_actor():
+    """The prompt has said "never write a placeholder such as 'no actor
+    specified' — use null" since PROMPT_VERSION 2, and asking was not enough for
+    the third time in three sprints.
+
+    Measured on the live graph 2026-08-28: 20 obligations carry the *string*
+    "null" as their actor. A consumer reading that field gets four characters
+    that look like a name, and `actor IS NOT NULL` in Cypher counts them as
+    having one.
+    """
+    for placeholder in ("null", "None", "  N/A ", "no actor specified", "   "):
+        obligation = ExtractedObligation(
+            statement="The Component shall report annually.",
+            modality=Modality.SHALL,
+            actor=placeholder,
+            deadline=None,
+            conditions=None,
+            confidence=0.9,
+        )
+        assert obligation.actor is None, placeholder
+
+
+def test_a_placeholder_actor_cannot_satisfy_an_assigned_duty():
+    """The two rules compose, and the order matters: the placeholder becomes None
+    first, so ADR-033's requirement that an ASSIGNED obligation name its office
+    sees no actor and refuses. Without the coercion, "null" would pass as a name."""
+    with pytest.raises(ValidationError):
+        ExtractedObligation(
+            statement="Monitors and evaluates the program.",
+            modality=Modality.ASSIGNED,
+            actor="null",
+            deadline=None,
+            conditions=None,
+            confidence=0.9,
+        )
