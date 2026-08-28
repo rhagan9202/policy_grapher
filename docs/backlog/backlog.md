@@ -32,18 +32,26 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
-**Ready is empty, and the MVP is met.** All ten of sprint 8's items are in [Done](#done) — the
+**Ready holds sprint 9's slate, and the MVP is met.** All ten of sprint 8's items are in [Done](#done) — the
 largest commitment this project has made, delivered whole. Every bar in the
 [vision](../planning/vision.md#what-success-looks-like)'s definition of done is now closed or
 recorded as blocked, and [STORY-094](stories/STORY-094-the-definition-of-done-is-checked.md)
 fails a build when one stops being true. The corpus bar had silently fallen to 2 documents
 against a bar of 20; it is back to 23.
 
-[Sprint 9's planning session](../sprints/sprint-09/plan.md) starts from [Refining](#refining),
-which holds the finding sprint 8 could not have predicted: **the product cannot see the
-responsibilities section of a DoD issuance**, because DoD writes the part that assigns duties to
-organisations without modal verbs (STORY-097). That is now the largest open question about
-whether this product does what it says.
+| ID | Item | Epic | Notes |
+| --- | --- | --- | --- |
+| STORY-097 | The responsibilities section of an issuance is invisible | — | **Est. M**, down from L. The L was an unmade decision and [ADR-033](../specs/adr/ADR-033-a-duty-can-be-assigned-by-position.md) made it on 2026-08-27: `Modality` gains `ASSIGNED`, meaning a duty imposed by position rather than graded by a word. It is binding, it weighs the same as `SHALL`, and it is guarded structurally — a named actor in the schema, a responsibilities section in the adapter — so it cannot become the escape hatch that puts `"Be Responsive."` back in the graph. Measured while deciding: **91 positional duties** across `data/samples` against 164 obligations in the graph, and **none in the 2003 edition**, which is what makes this a drafting convention rather than a permanent gap. Needs a rebuild to demonstrate, so size the sprint for hours, not minutes. See [STORY-097](stories/STORY-097-the-responsibilities-section-is-invisible.md) |
+| STORY-098 | Front matter is not offered to the extractor | — | **Est. M.** The cheap half of STORY-095's finding: of 21 chunks yielding nothing, 4 are contents pages of dotted leaders and the rest are covers and reference lists. Each costs a ~90-second model call to be told nothing, and the model does not return nothing — it invents headings as `SHALL`. **Its one open question was resolved at sprint 9 planning**: the references section may be skipped too, because `locate_references()` and the cover-matter bound already exist in `sources/pdf.py` and have been trusted by the reference graph since STORY-016 — reusing them is the document's own structure, not the keyword list the story's second criterion forbids. See [STORY-098](stories/STORY-098-front-matter-is-not-offered-for-extraction.md) |
+| STORY-099 | Every declared route is reached by a real request | — | **Est. S.** Sprint 8's retrospective action, by name. `GET /documents/duplicates` 404'd for a whole sprint with the suite green, because nothing ever sent the request; STORY-086's check compares declarations and calls neither. Measured at planning: 25 routes over 22 paths, **2 with no request literal anywhere in the tests** — both added last sprint, both siblings of the one that broke. All 22 resolve today, so this is a gap, not a live defect. See [STORY-099](stories/STORY-099-every-route-is-reached-by-a-real-request.md) |
+| STORY-075 | A chunk starting on a section join is attributed to the right page | — | **Est. S.** `_page_at` uses `offset <= cursor + len(line)`, claiming the join's newline for the line before it, so such a chunk reports the page before the one its text is on. **Confirmed reachable at planning** — `lead` is a single whole-section correction, not a per-chunk strip, so nothing upstream makes it unreachable. Filed in Ideas since sprint 7 rather than fixed, which the standing rule prohibits. Needs a test that distinguishes the boundary bug from the leading-newline bug before either is fixed. See [STORY-075](stories/STORY-075-a-chunk-on-a-section-join-is-attributed-to-the-right-page.md) |
+
+[Sprint 9's planning session](../sprints/sprint-09/plan.md) starts from the finding sprint 8
+could not have predicted: **the product cannot see the responsibilities section of a DoD
+issuance**, because DoD writes the part that assigns duties to organisations without modal verbs.
+That was the largest open question about whether this product does what it says, and it is a
+decided one as of 2026-08-27 — ADR-033 answered it, and STORY-097 moved from Refining to Ready
+with the decision discharged and its estimate down from L to M.
 
 **STORY-035 remains the one item that cannot be started.** No `.docx` exists in this repository
 to design extraction against, and rules fitted to a document we invented would be measured by a
@@ -99,8 +107,6 @@ Understood well enough to discuss, not yet ready to start.
 
 | ID | Item | Epic | Notes |
 | --- | --- | --- | --- |
-| STORY-097 | The responsibilities section of an issuance is invisible | — | **Est. L.** Found by STORY-095. DoD writes its Responsibilities section as a role heading followed by lettered third-person verbs — "The USD(R&E): a. Executes… b. Serves… c. Confirms…" — six duties with a named actor and **no modal verb**. `Modality` is closed and a statement must contain the one it is labelled with, so the product refuses them correctly and cannot see the part of an issuance most directly about who must do what. 6 such chunks in DoDD 5000.01's 2020 edition, 13 in DoDI 8500.01. The decision is the work: a sixth modality, a separate node type, or narrowing the product's claim. See [STORY-097](stories/STORY-097-the-responsibilities-section-is-invisible.md) |
-| STORY-098 | Front matter is not offered to the extractor | — | **Est. M.** The cheap half of the same finding: of 21 chunks yielding nothing, 4 are contents pages of dotted leaders and the rest are covers and reference lists. Each costs a ~90-second model call to be told nothing, and the model does not return nothing — it invents headings as SHALL. Structural detection, and the count of what was skipped has to be reported. See [STORY-098](stories/STORY-098-front-matter-is-not-offered-for-extraction.md) |
 | ~~STORY-013~~ | ~~Referenced documents that aren't in the corpus are distinguishable~~ | — | **Superseded by STORY-026.** Resolved by [ADR-002](../specs/adr/ADR-002-external-references-and-corpus-first-graph.md); ID retained per [CONVENTIONS](../CONVENTIONS.md) |
 | STORY-035 | Ingestion accepts a DOCX issuance | — | Same `extract_document` protocol as STORY-016, own extraction rules. Blocked: no DOCX sample exists to design against. Likely easier than PDF — `python-docx` exposes heading styles, so locating the references section stops being the risky stage |
 
@@ -114,7 +120,6 @@ Unrefined. No commitment implied.
 | STORY-021 | Capture applicable entities and enforcement ownership as graph relationships | Same — new labels and relationship types |
 | STORY-023 | A user can ask a question in natural language and get graph results | LLM constructs the Cypher and calls `POST /query`. The two gates it carried are now half-cleared: STORY-019 (auth) and STORY-024 (query constraints) have landed, so only the schema settling remains — see [ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md), superseding [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md) |
 | STORY-045 | A user can run a bounded Cypher query from the UI | `POST /query` and `runQuery()` are built and unreachable. Deliberately parked in Ideas rather than Refining: [ADR-008](../specs/adr/ADR-008-authenticated-non-cypher-audience.md) superseded [ADR-001](../specs/adr/ADR-001-demo-assumes-cypher-fluent-users.md) precisely to stop assuming the audience writes Cypher, so putting a query box in front of them argues against a decision this project has already taken once. If it is built, it belongs behind an operator-facing route, not in the main navigation — and [STORY-023](#ideas) is the answer for the audience ADR-008 actually describes |
-| STORY-075 | A chunk whose start lands exactly on a section join's newline is attributed to the right page | `_page_at` in `backend/src/policy_grapher/chunking.py` uses `offset <= cursor + len(line)`, so an offset equal to `cursor + len(line)` — the join's single newline — resolves to the earlier line's page rather than the one after it. Reachable only if a chunk's start offset lands on that one character, and the resulting chunk would begin with a stray newline either way. Real, but marginal enough that it isn't yet clear whether the fix is the boundary check or the leading newline |
 
 ## Done
 

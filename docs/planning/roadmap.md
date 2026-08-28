@@ -1,6 +1,6 @@
 # Roadmap
 
-*Living document — edit in place. Last reviewed: 2026-08-27*
+*Living document — edit in place. Last reviewed: 2026-08-28 (sprint 9 planning)*
 
 Sequencing and intent, not commitments with dates. Individual work items live in the
 [backlog](../backlog/backlog.md); this is the altitude above that.
@@ -167,6 +167,15 @@ Closing the gap between DI-1 and the MVP definition of done in the [vision](visi
   cap (300 nodes by default, configurable). The stored graph will be several times that.
 - **Search by document name or ID** as a first-class capability rather than client-side
   table filtering.
+
+**Sprint 9 is the first sprint after the MVP, and it is extraction coverage.** Planned
+2026-08-28 against a goal of *the product can see the duties DoD actually writes* — see the
+[sprint 9 plan](../sprints/sprint-09/plan.md). It matters to this document for a reason larger
+than its four items: [ADR-033](../specs/adr/ADR-033-a-duty-can-be-assigned-by-position.md)
+requires an `ASSIGNED` obligation to name the office it is assigned to, so implementing it
+produces, as a side effect, the *who is responsible* data that **Richer metadata and
+relationships** below has always needed and never had. The Policy Concierge direction stops being
+blocked on data nobody has gathered. It is not thereby committed to.
 
 ## Later
 

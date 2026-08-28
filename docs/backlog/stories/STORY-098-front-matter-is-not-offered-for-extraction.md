@@ -1,6 +1,6 @@
 # STORY-098: Front matter is not offered to the extractor
 
-**Epic:** — · **Status:** Refining · **Estimate:** M
+**Epic:** — · **Status:** Ready · **Estimate:** M
 
 ## User story
 
@@ -39,9 +39,24 @@ here, more in longer documents.
 
 - None. It sits upstream of extraction and touches no decision ADR-030 or ADR-025 took.
 
+## Resolved at sprint 9 planning
+
+**Should the `REFERENCES` section be skipped too? Yes, and doing so does not violate the second
+criterion.** The tension was apparent rather than real. `sources/pdf.py` already exposes
+`locate_references(full)`, which finds the section across the three heading spellings the sample
+corpus uses — including the legacy inline `References: (a) …` form — and already carries a bound
+for cover matter. Both have been trusted by the reference graph since STORY-016.
+
+Reusing those locators is not a keyword list; it is the document's own structure, found by code
+this project already relies on to decide what a reference *is*. What the second criterion forbids
+is inventing a new list of section names for this story's purposes, and that is still forbidden:
+if a document's references section cannot be located by the existing function, nothing is skipped
+and the counts say so.
+
+This makes the story smaller than its M suggests — cover and references detection already exist,
+so only contents-page detection is new. The size is left at M because the counting, the ratchet
+re-measurement, and the fifth criterion's finding-if-recall-moves are where the work actually is.
+
 ## Open questions
 
-- Should the `REFERENCES` section be skipped too? It is already parsed by
-  `sources/pdf.py` for the reference graph, so extracting obligations from it is pure waste — but
-  it is a named section rather than a structural shape, and skipping by section name is the
-  keyword list this story's second criterion rejects.
+- None. The one above was resolved at planning.
