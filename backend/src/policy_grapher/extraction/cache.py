@@ -22,10 +22,9 @@ from collections.abc import Callable
 from typing import Protocol
 
 from neo4j import Driver, RoutingControl
-from pydantic import ValidationError
 
 from policy_grapher.extraction.prompt import PROMPT_VERSION
-from policy_grapher.extraction.schema import ExtractedObligation
+from policy_grapher.extraction.schema import ExtractedObligation, validate_extracted
 
 READ_CACHE = "MATCH (e:ExtractionCache {key: $key}) RETURN e.payload_json AS payload"
 
@@ -110,8 +109,12 @@ class CachedExtractor:
         chunk_text: str,
         *,
         section_path: list[str],
+        section_title: str | None = None,
         on_drop: Callable[[str], None] | None = None,
     ) -> list[ExtractedObligation]:
+        # `section_title` is deliberately absent from the key. A chunk's title is
+        # a function of its path, which the key already holds, so including it
+        # would invalidate every cached extraction to distinguish nothing.
         key = cache_key(
             chunk_text,
             section_path=section_path,
@@ -135,8 +138,10 @@ class CachedExtractor:
             stale = 0
             for item in json.loads(payload):
                 try:
-                    replayed.append(ExtractedObligation.model_validate(item))
-                except ValidationError as exc:
+                    replayed.append(
+                        validate_extracted(item, section_title=section_title)
+                    )
+                except ValueError as exc:
                     stale += 1
                     if on_drop is not None:
                         on_drop(f"cached item no longer validates: {exc}")
@@ -151,7 +156,10 @@ class CachedExtractor:
         # so there is nothing left to drop — and re-reporting the drops from the
         # run that populated the cache would double-count them.
         result = self._inner.extract(
-            chunk_text, section_path=section_path, on_drop=on_drop
+            chunk_text,
+            section_path=section_path,
+            section_title=section_title,
+            on_drop=on_drop,
         )
         self._store.put(
             key, json.dumps([o.model_dump(mode="json") for o in result])

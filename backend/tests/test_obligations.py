@@ -57,7 +57,7 @@ class _RecordingExtractor:
         self.calls = 0
         self._result = result
 
-    def extract(self, chunk_text, *, section_path, on_drop=None):
+    def extract(self, chunk_text, *, section_path, section_title=None, on_drop=None):
         self.calls += 1
         return list(self._result)
 
@@ -436,3 +436,110 @@ def test_a_cache_entry_where_nothing_validates_is_still_a_rejection():
 
     with pytest.raises(ValueError):
         cached.extract(KEY["chunk_text"], section_path=["3.2"])
+
+
+def test_the_cache_key_ignores_the_section_title():
+    """A chunk's title is a function of its path, which the key already holds.
+
+    Including it would change every existing key and discard the cached
+    extractions the graph is holding — 145 of them on 2026-08-27 — to
+    distinguish nothing.
+    """
+    from policy_grapher.extraction.cache import cache_key
+
+    common = {
+        "section_path": ["SECTION 2", "2.2"],
+        "adapter_id": "local",
+        "prompt_version": 3,
+    }
+    assert cache_key("a passage", **common) == cache_key("a passage", **common)
+    assert cache_key("a passage", **common) != cache_key("another", **common)
+
+
+def test_the_cache_forwards_the_section_title_to_the_adapter_behind_it():
+    """ADR-033's guard runs inside the adapter, so a cache miss must carry the
+    title through or the guard sees None and refuses every positional duty."""
+    from policy_grapher.extraction.cache import CachedExtractor
+
+    seen = {}
+
+    class Recording:
+        adapter_id = "recording"
+
+        def extract(self, chunk_text, *, section_path, section_title=None, on_drop=None):
+            seen["section_title"] = section_title
+            return []
+
+    class Store:
+        def get(self, key):
+            return None
+
+        def put(self, key, value):
+            pass
+
+    CachedExtractor(Recording(), Store(), prompt_version=3).extract(
+        "a passage", section_path=["SECTION 2"], section_title="RESPONSIBILITIES"
+    )
+
+    assert seen["section_title"] == "RESPONSIBILITIES"
+
+
+def test_a_cache_hit_does_not_walk_around_the_section_guard():
+    """ADR-033's guard lives in one helper precisely so a replay cannot bypass it.
+
+    The cache outlives the rules it was filled under — sprint 8 found three
+    entries holding statements written before the schema required a statement to
+    contain its modality — so a rule applied only where items are extracted is a
+    rule a cache hit steps around.
+    """
+    import json as _json
+
+    from policy_grapher.extraction.cache import CachedExtractor
+
+    cached = _json.dumps(
+        [
+            {
+                "statement": "Monitors and evaluates the program.",
+                "modality": "ASSIGNED",
+                "actor": "DoD CIO",
+                "deadline": None,
+                "conditions": None,
+                "confidence": 0.9,
+            }
+        ]
+    )
+
+    class Never:
+        adapter_id = "never"
+
+        def extract(self, chunk_text, *, section_path, section_title=None, on_drop=None):
+            raise AssertionError("a hit must not reach the adapter")
+
+    class Store:
+        def get(self, key):
+            return cached
+
+        def put(self, key, value):
+            pass
+
+    extractor = CachedExtractor(Never(), Store(), prompt_version=3)
+
+    dropped = []
+    with pytest.raises(ValueError):
+        extractor.extract(
+            "...",
+            section_path=["ENCLOSURE 3"],
+            section_title="PROCEDURES",
+            on_drop=dropped.append,
+        )
+    assert dropped and "responsibilities" in dropped[0]
+
+    dropped.clear()
+    survived = extractor.extract(
+        "...",
+        section_path=["ENCLOSURE 2"],
+        section_title="RESPONSIBILITIES",
+        on_drop=dropped.append,
+    )
+    assert [o.modality for o in survived] == ["ASSIGNED"]
+    assert dropped == []

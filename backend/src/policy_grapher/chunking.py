@@ -54,6 +54,60 @@ class Chunk:
     page: int
     section_path: list[str]
     ordinal: int
+    # ADR-033's guard needs to know what the enclosing section *is*, and
+    # `section_path` records only where it sits. Deliberately not part of
+    # `_chunk_id`: `section_path` is hashed into both chunk and obligation
+    # identity, so a title in the key would re-key the whole graph.
+    section_title: str | None = None
+
+
+# The title on a heading line, in the format that writes one there:
+# "SECTION 2:  RESPONSIBILITIES". A trailing page number belongs to the running
+# header the modern format repeats on every page, not to the section's name.
+TITLED = re.compile(
+    r"^(?:CHAPTER|SECTION|APPENDIX|ENCLOSURE)\s+[\dIVXA-Z]+\s*[:.]\s*(?P<title>.+?)\s*\d*$"
+)
+
+# A third form, found by running the parse over `data/samples` rather than over
+# the two formats this started from: DoDD 5143.01 numbers its top-level parts and
+# writes the title inline — "3.  RESPONSIBILITIES AND FUNCTIONS.  The USD(I&S)
+# is...". Capitals are what separate a title from the sentence that follows it,
+# so the pattern requires them; "3.  The Director shall..." is prose.
+NUMBERED_TITLE = re.compile(
+    r"^\d+(?:\.\d+)*\.\s+(?P<title>[A-Z][A-Z0-9 &(),/-]{2,58}?)\.(?:\s|$)"
+)
+
+# Which headings can have their title written on the *next* line. Only the named
+# parts do — the older format writes "ENCLOSURE 2" then "RESPONSIBILITIES" — and
+# restricting it matters: a numbered subsection's next line is its body, and
+# without this a paragraph of prose would be recorded as a section's title.
+TITLE_ON_NEXT_LINE = re.compile(r"^(?:CHAPTER|SECTION|APPENDIX|ENCLOSURE)\s")
+
+# How long a next-line title may be. These documents set their part titles in
+# capitals on a line of their own; body prose is neither.
+MAX_TITLE_CHARS = 60
+
+
+def heading_title(line: str) -> str | None:
+    """The title this heading line names, or None if it names none.
+
+    ADR-033 guards ASSIGNED by the section it was read from, and a section's own
+    words are the only honest way to know what a section is. `NAMED` captures the
+    heading's *id* and discards the rest, so `SECTION 2:  RESPONSIBILITIES`
+    reaches `section_path` as `"SECTION 2"` — a position, saying nothing about
+    what sits there. This recovers the rest of the line.
+
+    The older format writes the title on the next line instead, so a bare
+    `ENCLOSURE 2` correctly yields None and `chunk_pages` reads on.
+    """
+    stripped = line.strip()
+    if DOT_LEADER.search(stripped):
+        return None
+    match = TITLED.match(stripped) or NUMBERED_TITLE.match(stripped)
+    if not match:
+        return None
+    title = match["title"].strip()
+    return title.upper() if title else None
 
 
 def section_heading(line: str) -> str | None:
@@ -199,7 +253,13 @@ def _page_at(lines: list[tuple[int, str]], offset: int) -> int:
     """
     cursor = 0
     for page_number, line in lines:
-        if offset <= cursor + len(line):
+        # `<`, not `<=`: `cursor + len(line)` is the index of the newline that
+        # `"\n".join` inserted, and the character at that offset opens the *next*
+        # line. STORY-075 decided this is the boundary bug rather than a
+        # leading-newline bug, because `_split` slices `text[start:end]` at an
+        # arbitrary index and never strips — so a part genuinely can begin on a
+        # join, and when it does its visible text is the following line's.
+        if offset < cursor + len(line):
             return page_number
         cursor += len(line) + 1
     return lines[-1][0] if lines else 1
@@ -230,6 +290,9 @@ def chunk_pages(
             sections.append((list(path), list(body), occurrence))
         body.clear()
 
+    titles: dict[str, str] = {}
+    awaiting_title: str | None = None
+
     furniture = _page_furniture(pages)
     for page_number, page_text in enumerate(pages, start=1):
         for line in page_text.splitlines():
@@ -237,8 +300,36 @@ def chunk_pages(
             if heading:
                 close()
                 path = _push(path, heading)
+                title = heading_title(line)
+                if title:
+                    titles.setdefault(heading, title)
+                    awaiting_title = None
+                else:
+                    # The older format writes the title on the next non-blank
+                    # line. Remember which heading is still waiting for one, and
+                    # forget any earlier heading that never got its title — the
+                    # line after a subsection heading is body text, not a name.
+                    awaiting_title = (
+                        heading if TITLE_ON_NEXT_LINE.match(heading) else None
+                    )
+            elif awaiting_title and line.strip():
+                candidate = line.strip()
+                if candidate.isupper() and len(candidate) <= MAX_TITLE_CHARS:
+                    titles.setdefault(awaiting_title, candidate)
+                awaiting_title = None
             body.append((page_number, line))
     close()
+
+    def _title_of(section_path: list[str]) -> str | None:
+        """The title of the outermost element of this path that has one.
+
+        A chunk at ["SECTION 2", "2.2"] sits *inside* SECTION 2 and inherits its
+        title, because the enclosing part is what ADR-033's guard asks about.
+        """
+        for element in section_path:
+            if element in titles:
+                return titles[element]
+        return None
 
     chunks: list[Chunk] = []
     ordinal = 0
@@ -258,6 +349,7 @@ def chunk_pages(
                     page=_page_at(lines, offset + lead),
                     section_path=section_path,
                     ordinal=ordinal,
+                    section_title=_title_of(section_path),
                 )
             )
             ordinal += 1

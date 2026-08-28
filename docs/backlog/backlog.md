@@ -32,19 +32,13 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
-**Ready holds sprint 9's slate, and the MVP is met.** All ten of sprint 8's items are in [Done](#done) — the
+**Ready is empty again.** Sprint 9's four items are all in [Done](#done), and the MVP is met. All ten of sprint 8's items are in [Done](#done) — the
 largest commitment this project has made, delivered whole. Every bar in the
 [vision](../planning/vision.md#what-success-looks-like)'s definition of done is now closed or
 recorded as blocked, and [STORY-094](stories/STORY-094-the-definition-of-done-is-checked.md)
 fails a build when one stops being true. The corpus bar had silently fallen to 2 documents
 against a bar of 20; it is back to 23.
 
-| ID | Item | Epic | Notes |
-| --- | --- | --- | --- |
-| STORY-097 | The responsibilities section of an issuance is invisible | — | **Est. M**, down from L. The L was an unmade decision and [ADR-033](../specs/adr/ADR-033-a-duty-can-be-assigned-by-position.md) made it on 2026-08-27: `Modality` gains `ASSIGNED`, meaning a duty imposed by position rather than graded by a word. It is binding, it weighs the same as `SHALL`, and it is guarded structurally — a named actor in the schema, a responsibilities section in the adapter — so it cannot become the escape hatch that puts `"Be Responsive."` back in the graph. Measured while deciding: **91 positional duties** across `data/samples` against 164 obligations in the graph, and **none in the 2003 edition**, which is what makes this a drafting convention rather than a permanent gap. Needs a rebuild to demonstrate, so size the sprint for hours, not minutes. See [STORY-097](stories/STORY-097-the-responsibilities-section-is-invisible.md) |
-| STORY-098 | Front matter is not offered to the extractor | — | **Est. M.** The cheap half of STORY-095's finding: of 21 chunks yielding nothing, 4 are contents pages of dotted leaders and the rest are covers and reference lists. Each costs a ~90-second model call to be told nothing, and the model does not return nothing — it invents headings as `SHALL`. **Its one open question was resolved at sprint 9 planning**: the references section may be skipped too, because `locate_references()` and the cover-matter bound already exist in `sources/pdf.py` and have been trusted by the reference graph since STORY-016 — reusing them is the document's own structure, not the keyword list the story's second criterion forbids. See [STORY-098](stories/STORY-098-front-matter-is-not-offered-for-extraction.md) |
-| STORY-099 | Every declared route is reached by a real request | — | **Est. S.** Sprint 8's retrospective action, by name. `GET /documents/duplicates` 404'd for a whole sprint with the suite green, because nothing ever sent the request; STORY-086's check compares declarations and calls neither. Measured at planning: 25 routes over 22 paths, **2 with no request literal anywhere in the tests** — both added last sprint, both siblings of the one that broke. All 22 resolve today, so this is a gap, not a live defect. See [STORY-099](stories/STORY-099-every-route-is-reached-by-a-real-request.md) |
-| STORY-075 | A chunk starting on a section join is attributed to the right page | — | **Est. S.** `_page_at` uses `offset <= cursor + len(line)`, claiming the join's newline for the line before it, so such a chunk reports the page before the one its text is on. **Confirmed reachable at planning** — `lead` is a single whole-section correction, not a per-chunk strip, so nothing upstream makes it unreachable. Filed in Ideas since sprint 7 rather than fixed, which the standing rule prohibits. Needs a test that distinguishes the boundary bug from the leading-newline bug before either is fixed. See [STORY-075](stories/STORY-075-a-chunk-on-a-section-join-is-attributed-to-the-right-page.md) |
 
 [Sprint 9's planning session](../sprints/sprint-09/plan.md) starts from the finding sprint 8
 could not have predicted: **the product cannot see the responsibilities section of a DoD
@@ -107,6 +101,7 @@ Understood well enough to discuss, not yet ready to start.
 
 | ID | Item | Epic | Notes |
 | --- | --- | --- | --- |
+| STORY-100 | An office is one actor, not several spellings | — | **Est. L.** Found by sprint 9's rebuild, the first run of ADR-033 against a real document: of 31 duties assigned by position, one office is recorded as both `USD(A&S)` (12) and `The USD(A&S)` (2), and one actor is the fragment `acquisition executive`. `actor` is free text on every modality and nothing claims it is canonical, so this is a limitation rather than a defect — but a positional duty is *defined* by the office it is assigned to, and **richer metadata and relationships** in the roadmap's Later section builds `:Entity` over exactly this field. L because the shape is undecided: normalise on the way in, resolve to an `:Entity`, or narrow the claim. See [STORY-100](stories/STORY-100-an-office-is-one-actor-not-several-spellings.md) |
 | ~~STORY-013~~ | ~~Referenced documents that aren't in the corpus are distinguishable~~ | — | **Superseded by STORY-026.** Resolved by [ADR-002](../specs/adr/ADR-002-external-references-and-corpus-first-graph.md); ID retained per [CONVENTIONS](../CONVENTIONS.md) |
 | STORY-035 | Ingestion accepts a DOCX issuance | — | Same `extract_document` protocol as STORY-016, own extraction rules. Blocked: no DOCX sample exists to design against. Likely easier than PDF — `python-docx` exposes heading styles, so locating the references section stops being the risky stage |
 
@@ -148,6 +143,10 @@ the implementation plans beside them.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-099 | Every declared route is reached by a real request | 9 |
+| STORY-098 | Front matter is not offered to the extractor | 9 |
+| STORY-097 | The responsibilities section of an issuance is invisible | 9 |
+| STORY-075 | A chunk starting on a section join is attributed to the right page | 9 |
 | STORY-096 | How a reissue's edits are recognised is decided | 8 |
 | STORY-095 | The rejection rate is diagnosed | 8 |
 | STORY-094 | The MVP's definition of done is checked, not attested | 8 |

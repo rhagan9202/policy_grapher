@@ -14,6 +14,7 @@ import pytest
 
 from policy_grapher import chunking
 from policy_grapher.changes.diff import diff_versions
+from policy_grapher.chunking import Chunk, chunk_pages
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.ingest import ingest_file
 from policy_grapher.links.decisions import record_decision
@@ -21,6 +22,7 @@ from policy_grapher.links.rebuild import (
     ExtractionFailed,
     MissingSourceError,
     rebuild_derived,
+    states_no_duty,
 )
 
 SAMPLES = Path(__file__).resolve().parents[2] / "data" / "samples"
@@ -50,7 +52,12 @@ class ModalSentenceExtractor:
         self._skip = skip
 
     def extract(
-        self, chunk_text: str, *, section_path: list[str], on_drop=None
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        section_title: str | None = None,
+        on_drop=None,
     ) -> list[ExtractedObligation]:
         found = []
         for sentence in MODAL_SENTENCE.findall(chunk_text):
@@ -527,7 +534,14 @@ class OneBadChunkExtractor:
         self._inner = inner or ModalSentenceExtractor()
         self.seen = 0
 
-    def extract(self, chunk_text: str, *, section_path: list[str], on_drop=None):
+    def extract(
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        section_title: str | None = None,
+        on_drop=None,
+    ):
         self.seen += 1
         if self.seen == self._fail_on:
             raise ValueError(
@@ -539,7 +553,14 @@ class OneBadChunkExtractor:
 class AlwaysBadExtractor:
     adapter_id = "always-bad-stub"
 
-    def extract(self, chunk_text: str, *, section_path: list[str], on_drop=None):
+    def extract(
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        section_title: str | None = None,
+        on_drop=None,
+    ):
         raise ValueError("model output did not match the obligation schema")
 
 
@@ -640,7 +661,14 @@ class _DropsOneItem:
 
     adapter_id = "drops-one"
 
-    def extract(self, chunk_text: str, *, section_path: list[str], on_drop=None):
+    def extract(
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        section_title: str | None = None,
+        on_drop=None,
+    ):
         if on_drop is not None:
             on_drop("model output did not match the obligation schema: modality")
         return [
@@ -678,3 +706,107 @@ def test_a_rebuild_counts_the_items_it_dropped(clean_graph, database):
     # point of moving the boundary.
     assert counts["obligations_written"] > 0
     assert counts["chunks_rejected"] == 0
+
+
+# --- STORY-098: front matter is not offered to the extractor -------------------
+
+
+def test_a_contents_page_is_not_offered_to_the_extractor():
+    """A page of dot leaders states no duty, and that is knowable without a
+    ninety-second model call."""
+    chunk = Chunk(
+        chunk_id="c1",
+        text=(
+            "1.1.  APPLICABILITY. ...................................... 4\n"
+            "1.2.  POLICY. ............................................. 5\n"
+            "1.3.  RESPONSIBILITIES. ................................... 6\n"
+        ),
+        page=2,
+        section_path=["(preamble)"],
+        ordinal=0,
+    )
+
+    assert states_no_duty(chunk) == "table of contents"
+
+
+def test_the_references_section_is_not_offered_to_the_extractor():
+    """`sources/pdf.py` already parses it for the reference graph, so asking a
+    model for duties in it is pure waste. Found by the title the document wrote,
+    which `chunking.BACK_MATTER` already opens as its own section."""
+    chunk = Chunk(
+        chunk_id="c2",
+        text='(a) DoD Directive 5144.02, "DoD Chief Information Officer," 2014.',
+        page=3,
+        section_path=["ENCLOSURE 1"],
+        ordinal=0,
+        section_title="REFERENCES",
+    )
+
+    assert states_no_duty(chunk) == "references section"
+
+
+def test_ordinary_policy_text_is_offered_to_the_extractor():
+    """The predicate must say no far more often than yes, or it becomes the
+    silent cause of a document that yields nothing."""
+    chunk = Chunk(
+        chunk_id="c3",
+        text="The Director shall notify the Comptroller within 30 days.",
+        page=4,
+        section_path=["SECTION 2", "2.1"],
+        ordinal=0,
+        section_title="RESPONSIBILITIES",
+    )
+
+    assert states_no_duty(chunk) is None
+
+
+def test_an_empty_chunk_is_not_reported_as_a_contents_page():
+    """A chunk with no non-blank lines has no dot leaders to be a majority of."""
+    chunk = Chunk(chunk_id="c4", text="\n\n", page=1, section_path=["1"], ordinal=0)
+
+    assert states_no_duty(chunk) is None
+
+
+def test_over_the_real_corpus_the_skip_never_touches_a_responsibilities_chunk():
+    """The property that matters, asserted over the documents rather than over a
+    fixture: whatever this skips, it must never skip the section ADR-033 exists
+    to read.
+
+    Not asserted per document, deliberately. DoDD 5000.01's 2003 edition skips
+    nothing and that is correct — it has zero dot-leader lines and no standalone
+    REFERENCES heading, because it uses the legacy inline "References: (a) ..."
+    form on its cover. STORY-098 says in as many words that a document with no
+    contents page skips nothing, so a per-document floor would be asserting the
+    opposite of the requirement.
+    """
+    from policy_grapher.sources.pdf import pages_of
+
+    total_skipped = 0
+    for path in sorted(Path("../data/samples").glob("*.pdf")):
+        chunks = chunk_pages(pages_of(path), version_id="v")
+        skipped = [c for c in chunks if states_no_duty(c) is not None]
+        total_skipped += len(skipped)
+        for chunk in skipped:
+            assert not (
+                chunk.section_title and "RESPONSIBILIT" in chunk.section_title
+            ), f"{path.name}: skipped a responsibilities chunk: {chunk.text[:80]!r}"
+
+    assert total_skipped, "the predicate skipped nothing anywhere in the corpus"
+
+
+def test_a_references_section_opened_as_its_own_heading_is_skipped():
+    """`chunking.BACK_MATTER` opens REFERENCES as a section in its own right, so
+    it arrives in `section_path` and never as a title — a bare heading line has
+    no title after it to parse. Measured across the corpus, checking only the
+    title skipped zero references sections, which is how this was found.
+    """
+    chunk = Chunk(
+        chunk_id="c5",
+        text='(a) DoD Directive 5144.02, "DoD Chief Information Officer," 2014.',
+        page=3,
+        section_path=["REFERENCES"],
+        ordinal=0,
+        section_title=None,
+    )
+
+    assert states_no_duty(chunk) == "references section"

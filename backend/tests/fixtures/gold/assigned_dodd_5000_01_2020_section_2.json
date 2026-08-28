@@ -1,0 +1,56 @@
+{
+  "note": "Five duties assigned by position, from SECTION 2: RESPONSIBILITIES of the 2020 re-issue of DoDD 5000.01. The passage contains no modal verb at all: DoD writes a role heading — \"The USD(A&S):\" — and then lettered third-person verbs, grading their force nowhere. Before ADR-033 the correct answer here was structurally unreachable, exactly as the WILL fixture was before ADR-025, because Modality had no member that could express what the document does.\n\nThe statements are the lettered items verbatim, without their enumerators, and the office is recorded as the actor rather than spliced into the statement. That is deliberate: obligation_id hashes the normalised statement, so a composed subject would vary with whatever the model chose to write and silently detach the reviews recorded against the clause. The subject is not lost — it is in `actor`, which is what `actor` is for.\n\nLabelled by reading the passage, not by correcting an extractor.",
+  "source": {
+    "file": "500001p_2020.pdf",
+    "page": 10,
+    "document": "DoDD 5000.01 (2020)"
+  },
+  "section_path": [
+    "SECTION 2",
+    "2.1"
+  ],
+  "section_title": "RESPONSIBILITIES",
+  "chunk_text": "2.1.  UNDER SECRETARY OF DEFENSE FOR ACQUISITION AND SUSTAINMENT \n(USD(A&S)).   \nThe USD(A&S): \na.  Executes the acquisition responsibilities in DoDD 5135.02. \nb.  Serves as an advisor in the preparation of major defense acquisition program (MDAP) \nanalysis of alternatives (AoA) study guidance. \nc.  Serves as the MDA for the Materiel Development Decision, Milestone A, the Request for \nProposal Release Decision Point for the Engineering and Manufacturing Development Phase, \nMilestone B, and Milestone C for acquisition category (ACAT) ID programs. \nd.  Issues and maintains requirements for the content, review, and approval process for \nACAT ID acquisition strategies. \ne.  Publishes all middle tier of acquisition (MTA) policy, to include MTA rapid prototyping \npolicy and MTA rapid fielding policy.  USD(A&S) written approval is required before using the \nMTA pathway for a program that exceeds the MDAP dollar threshold.",
+  "obligations": [
+    {
+      "statement": "Executes the acquisition responsibilities in DoDD 5135.02.",
+      "modality": "ASSIGNED",
+      "actor": "USD(A&S)",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Serves as an advisor in the preparation of major defense acquisition program (MDAP) analysis of alternatives (AoA) study guidance.",
+      "modality": "ASSIGNED",
+      "actor": "USD(A&S)",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Serves as the MDA for the Materiel Development Decision, Milestone A, the Request for Proposal Release Decision Point for the Engineering and Manufacturing Development Phase, Milestone B, and Milestone C for acquisition category (ACAT) ID programs.",
+      "modality": "ASSIGNED",
+      "actor": "USD(A&S)",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Issues and maintains requirements for the content, review, and approval process for ACAT ID acquisition strategies.",
+      "modality": "ASSIGNED",
+      "actor": "USD(A&S)",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Publishes all middle tier of acquisition (MTA) policy, to include MTA rapid prototyping policy and MTA rapid fielding policy.",
+      "modality": "ASSIGNED",
+      "actor": "USD(A&S)",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    }
+  ]
+}

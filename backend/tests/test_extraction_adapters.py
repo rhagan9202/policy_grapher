@@ -8,6 +8,7 @@ from policy_grapher.config import Settings
 from policy_grapher.extraction import build_extractor
 from policy_grapher.extraction.local import LocalExtractor
 from policy_grapher.extraction.null import NullExtractor
+from policy_grapher.extraction.prompt import EXTRACTION_PROMPT, PROMPT_VERSION
 
 
 def test_the_null_adapter_extracts_nothing():
@@ -340,3 +341,113 @@ def test_every_adapter_accepts_the_drop_reporter():
     from policy_grapher.extraction.null import NullExtractor
 
     assert NullExtractor().extract("...", section_path=["1"], on_drop=print) == []
+
+
+def test_an_assigned_item_from_the_wrong_section_costs_itself_and_not_its_chunk():
+    """ADR-030 governs ADR-033's refusals.
+
+    A model that returns one positional duty from a section that does not assign
+    responsibilities has not returned a broken answer — it has returned one item
+    this project refuses. The others survive, and the refusal is reported through
+    `on_drop`, because a silent drop is the shape ADR-030 exists to prevent.
+    """
+    payload = {
+        "obligations": [
+            {
+                "statement": "The Director shall notify the Comptroller.",
+                "modality": "SHALL",
+                "actor": "The Director",
+                "deadline": None,
+                "conditions": None,
+                "confidence": 0.9,
+            },
+            {
+                "statement": "Monitors and evaluates the program.",
+                "modality": "ASSIGNED",
+                "actor": "DoD CIO",
+                "deadline": None,
+                "conditions": None,
+                "confidence": 0.9,
+            },
+        ]
+    }
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"response": json.dumps(payload)})
+    )
+    extractor = LocalExtractor(
+        base_url="http://model", model="test-model", transport=transport
+    )
+
+    dropped = []
+    result = extractor.extract(
+        "...",
+        section_path=["ENCLOSURE 3"],
+        section_title="PROCEDURES",
+        on_drop=dropped.append,
+    )
+
+    assert [o.modality for o in result] == ["SHALL"]
+    assert len(dropped) == 1
+    assert "responsibilities" in dropped[0]
+
+
+def test_the_same_assigned_item_survives_in_a_responsibilities_section():
+    """The other side of the guard: it refuses by section, not by modality."""
+    payload = {
+        "obligations": [
+            {
+                "statement": "Monitors and evaluates the program.",
+                "modality": "ASSIGNED",
+                "actor": "DoD CIO",
+                "deadline": None,
+                "conditions": None,
+                "confidence": 0.9,
+            }
+        ]
+    }
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"response": json.dumps(payload)})
+    )
+    extractor = LocalExtractor(
+        base_url="http://model", model="test-model", transport=transport
+    )
+
+    dropped = []
+    result = extractor.extract(
+        "...",
+        section_path=["ENCLOSURE 2"],
+        section_title="RESPONSIBILITIES",
+        on_drop=dropped.append,
+    )
+
+    assert [o.modality for o in result] == ["ASSIGNED"]
+    assert dropped == []
+
+
+def test_the_prompt_version_moved_with_the_prompt():
+    """PROMPT_VERSION participates in the cache key. An in-place prompt edit
+    leaves the cache serving answers produced by a prompt that no longer exists,
+    which is invisible and very hard to debug."""
+    assert PROMPT_VERSION == 3
+
+
+def test_the_prompt_still_refuses_headings_and_scope():
+    """The two omissions that must survive this change.
+
+    Removing the bare-task-list rule is the point of PROMPT_VERSION 3. Removing
+    either of these is how "Be Responsive." comes back.
+    """
+    assert "Manage Efficiently" in EXTRACTION_PROMPT
+    assert "This issuance applies to" in EXTRACTION_PROMPT
+
+
+def test_the_prompt_teaches_the_positional_form_and_keeps_the_statement_verbatim():
+    """ADR-033, and the identity constraint that shapes how it is taught.
+
+    obligation_id hashes the normalised statement, so a statement the model
+    *composes* — splicing the office from the heading into the sentence — varies
+    with whatever wording it chooses and silently detaches the reviews recorded
+    against that clause. The office belongs in `actor`.
+    """
+    assert "ASSIGNED" in EXTRACTION_PROMPT
+    assert "word for word" in EXTRACTION_PROMPT

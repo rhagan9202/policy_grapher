@@ -15,7 +15,7 @@ WHITESPACE = re.compile(r"\s+")
 
 
 class Modality(StrEnum):
-    """The word the document used to impose a duty.
+    """How a duty was imposed — by a word, or by position.
 
     Still closed, and for the original reason: SHALL misread as SHOULD downgrades
     a binding duty to advice, silently, so an adapter that invents a value must
@@ -29,7 +29,16 @@ class Modality(StrEnum):
     on five of the seven samples an extractor obeying the old set could only
     report a minority of the document's duties.
 
-    The member records the *word*, not its force. Ask `is_binding` for the force.
+    ASSIGNED is here because DoD writes its responsibilities sections as a role
+    heading followed by lettered third-person verbs — "The USD(R&E): a. Executes
+    ... b. Serves ..." — and grades their force nowhere. The duty is imposed by
+    *position*. ADR-033 widened what this enum records to admit that: it is no
+    longer "the word the document used" but how the duty arrived. Measured
+    across the seven samples: 91 such duties, and none at all in the 2003 edition
+    of DoDD 5000.01, which is what makes it a drafting convention rather than a
+    permanent gap.
+
+    The member records the mechanism, not the force. Ask `is_binding` for force.
     """
 
     SHALL = "SHALL"
@@ -37,12 +46,21 @@ class Modality(StrEnum):
     WILL = "WILL"
     SHOULD = "SHOULD"
     MAY = "MAY"
+    ASSIGNED = "ASSIGNED"
+
+
+# The members that quote a word from the passage. Derived by subtraction, never
+# listed: a sixth *word* added later joins this set automatically, whereas a
+# hand-kept list is how a word modality silently escapes the rule below.
+WORD_MODALITIES = frozenset(Modality) - {Modality.ASSIGNED}
 
 
 # Which modalities impose a duty. Stated once, here, because the alternative is
 # every consumer keeping its own list — and a consumer written before WILL existed
 # keeps a list that silently under-counts rather than one that fails.
-BINDING = frozenset({Modality.SHALL, Modality.MUST, Modality.WILL})
+BINDING = frozenset(
+    {Modality.SHALL, Modality.MUST, Modality.WILL, Modality.ASSIGNED}
+)
 
 
 class ExtractedObligation(BaseModel):
@@ -87,11 +105,56 @@ class ExtractedObligation(BaseModel):
 
         Word boundaries, not substrings — "General Marshall commanded the Army"
         contains "shall" and imposes nothing.
+
+        ADR-033 restated this rule rather than granting an exception to it: *if*
+        a modality names a word, the statement must contain that word. ASSIGNED
+        falls outside by naming none — by construction, not by appearing on a
+        list of exceptions, which is how such a check rots.
         """
+        if self.modality not in WORD_MODALITIES:
+            return self
         if not re.search(rf"\b{self.modality.value}\b", self.statement, re.IGNORECASE):
             raise ValueError(
                 f"statement does not contain its modality {self.modality.value!r}: "
                 f"{self.statement!r}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _an_assigned_duty_names_its_actor(self) -> ExtractedObligation:
+        """ADR-033's schema half of the structural guard.
+
+        A value naming no word cannot be checked against the passage the way the
+        other five are, so it is guarded by structure instead. A positional duty
+        is an assignment *to somebody*: without an actor there is no position,
+        and ASSIGNED becomes the escape hatch that puts section headings back in
+        the graph as duties. The other half — that the section is one that
+        assigns responsibilities — needs to know where the chunk came from, so it
+        lives in `validate_extracted` rather than here.
+        """
+        if self.modality is not Modality.ASSIGNED:
+            return self
+        actor = (self.actor or "").strip()
+        if not actor:
+            raise ValueError(
+                "an ASSIGNED obligation must name the actor it is assigned to"
+            )
+        # Measured on the first real rebuild under ADR-033: two of 33 ASSIGNED
+        # obligations came back with the whole statement copied into `actor`. The
+        # model could not find a role heading and satisfied the rule above by
+        # repeating the sentence, which passes a non-null check while naming
+        # nobody — obeying the guard's letter to defeat its purpose.
+        #
+        # Exact rather than a length heuristic, deliberately. A real actor can be
+        # long — "DoD Component heads, including the Directors of the Defense
+        # Agencies with acquisition authority ..." is one of them — so any rule
+        # shaped like "the actor must be shorter than the statement" would refuse
+        # real duties to catch this one. A model that copied a *prefix* would
+        # still get through; that is a known limit, not an oversight.
+        if normalize(actor) == normalize(self.statement):
+            raise ValueError(
+                f"an ASSIGNED obligation's actor must name who the duty falls on, "
+                f"not repeat the statement: {actor!r}"
             )
         return self
 
@@ -101,6 +164,53 @@ class ExtractedObligation(BaseModel):
         if not value.strip():
             raise ValueError("statement must not be blank")
         return value
+
+
+# The word a section's own title uses when it assigns duties to offices. Matched
+# against the title the *document* wrote, not against a list of sections we
+# expect to exist — that distinction is what keeps this from being a keyword
+# list, and it is why the chunker recovers titles rather than the schema
+# enumerating section numbers.
+RESPONSIBILITIES = re.compile(r"\bRESPONSIBILIT(?:Y|IES)\b", re.IGNORECASE)
+
+
+def is_responsibilities_section(section_title: str | None) -> bool:
+    """Whether a section's own title says it assigns responsibilities.
+
+    ADR-033 guards ASSIGNED structurally because it cannot be guarded lexically:
+    a value naming no word cannot be checked against the passage the way the
+    other five are. A document whose format hides its section titles yields None
+    here and so never produces an ASSIGNED obligation, which is the correct
+    conservative failure — a missing title must not mean "anything goes".
+    """
+    return bool(section_title and RESPONSIBILITIES.search(section_title))
+
+
+def validate_extracted(
+    item: dict, *, section_title: str | None
+) -> ExtractedObligation:
+    """Schema validation, plus the part of ADR-033 that needs to know the section.
+
+    One function because there are two callers — the local adapter when the model
+    answers, and the cache when it replays a hit — and a rule living in only one
+    of them is a rule a cache hit walks around. The cache key already includes
+    the section path, so a replayed item always replays into the section it was
+    extracted from; applying the guard there costs nothing and closes the bypass.
+
+    Raises `ValueError`, which `pydantic.ValidationError` also subclasses, so a
+    caller catching `ValueError` drops one item and keeps the rest (ADR-030)
+    without having to know which of the two rules refused it.
+    """
+    obligation = ExtractedObligation.model_validate(item)
+    if obligation.modality is Modality.ASSIGNED and not is_responsibilities_section(
+        section_title
+    ):
+        raise ValueError(
+            f"ASSIGNED is only valid in a section whose title names "
+            f"responsibilities; this chunk's section is "
+            f"{section_title or 'untitled'!r}: {obligation.statement!r}"
+        )
+    return obligation
 
 
 def normalize(statement: str) -> str:

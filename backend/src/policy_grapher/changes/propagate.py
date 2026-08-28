@@ -29,6 +29,13 @@ MODALITY_WEIGHT: dict[str, float] = {
     # issuance as less urgent than its 2003 edition purely because the drafting
     # convention changed underneath it.
     "WILL": 4.0,
+    # Equal to SHALL, by ADR-033. A responsibility assigned to a named office is
+    # a standing binding duty, and ADR-025 already refused to rank a drafting
+    # convention below the word it replaced. Recorded as a judgement rather than
+    # a measurement: no reviewer has yet worked through positional changes in
+    # Triage, and if this ranking proves wrong the remedy is a new decision, not
+    # a quiet edit to this number.
+    "ASSIGNED": 4.0,
     "SHOULD": 2.0,
     "MAY": 1.0,
 }

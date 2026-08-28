@@ -2,9 +2,12 @@ import pytest
 from pydantic import ValidationError
 
 from policy_grapher.extraction.schema import (
+    WORD_MODALITIES,
     ExtractedObligation,
     Modality,
+    is_responsibilities_section,
     obligation_id,
+    validate_extracted,
 )
 
 
@@ -135,7 +138,11 @@ def test_bindingness_is_asked_of_the_obligation_not_pattern_matched():
         obligation = ExtractedObligation(
             statement=f"The Component {modality.value.lower()} do the thing.",
             modality=modality,
-            actor=None,
+            # Named rather than None because ADR-033 requires an ASSIGNED
+            # obligation to name the office it is assigned to. The claim here is
+            # unchanged — every member answers `is_binding` — only the fixture
+            # had to become valid for all six.
+            actor="Component",
             deadline=None,
             conditions=None,
             confidence=0.5,
@@ -206,3 +213,198 @@ def test_a_modality_word_inside_another_word_does_not_count():
                 "confidence": 0.9,
             }
         )
+
+
+def test_an_assigned_obligation_needs_no_modal_verb_in_its_statement():
+    """ADR-033. DoD assigns duties by position — a role heading followed by
+    lettered third-person verbs — and there is no word to quote."""
+    obligation = ExtractedObligation(
+        statement=(
+            "The USD(R&E) executes the research and engineering responsibilities "
+            "in DoDD 5137.02."
+        ),
+        modality=Modality.ASSIGNED,
+        actor="USD(R&E)",
+        deadline=None,
+        conditions=None,
+        confidence=0.9,
+    )
+
+    assert obligation.modality is Modality.ASSIGNED
+
+
+def test_every_word_modality_still_requires_its_word():
+    """The rule is restated, not exempted: if a modality names a word, the
+    statement must contain it.
+
+    Written as an exception list, this is where a word modality would quietly
+    slip out of the rule — so the set is derived from the enum and this iterates
+    it rather than naming the five.
+    """
+    for modality in WORD_MODALITIES:
+        with pytest.raises(ValidationError):
+            ExtractedObligation(
+                statement="The Component reports annually.",  # no modal verb
+                modality=modality,
+                actor="Component",
+                deadline=None,
+                conditions=None,
+                confidence=0.9,
+            )
+
+
+def test_an_assigned_obligation_must_name_the_office_it_is_assigned_to():
+    """ADR-033's schema half of the structural guard.
+
+    A positional duty is an assignment *to somebody*. Without an actor there is
+    no position, and ASSIGNED becomes the escape hatch that puts section
+    headings back in the graph as duties.
+    """
+    with pytest.raises(ValidationError):
+        ExtractedObligation(
+            statement="Executes the research and engineering responsibilities.",
+            modality=Modality.ASSIGNED,
+            actor=None,
+            deadline=None,
+            conditions=None,
+            confidence=0.9,
+        )
+
+
+def test_an_assigned_duty_binds():
+    """ADR-033: a responsibility assigned to a named office is not advice."""
+    obligation = ExtractedObligation(
+        statement="The DoD CIO monitors and evaluates the program.",
+        modality=Modality.ASSIGNED,
+        actor="DoD CIO",
+        deadline=None,
+        conditions=None,
+        confidence=0.9,
+    )
+
+    assert obligation.is_binding
+
+
+# --- ADR-033: the section half of the guard -----------------------------------
+
+
+def test_a_responsibilities_section_is_recognised_by_its_own_title():
+    """Read out of the document's own heading, not from a list of sections we
+    expect to exist — which is what keeps this from being a keyword list."""
+    assert is_responsibilities_section("RESPONSIBILITIES")
+    assert is_responsibilities_section("Responsibilities")
+    assert is_responsibilities_section("RESPONSIBILITIES AND FUNCTIONS")
+    assert not is_responsibilities_section("PROCEDURES")
+    assert not is_responsibilities_section("GENERAL ISSUANCE INFORMATION")
+    assert not is_responsibilities_section(None)
+
+
+def test_an_assigned_item_outside_a_responsibilities_section_is_refused():
+    """ADR-033's adapter half. The model validates an item without knowing where
+    it came from, so this is the half that needs the section."""
+    item = {
+        "statement": "Monitors and evaluates the program.",
+        "modality": "ASSIGNED",
+        "actor": "DoD CIO",
+        "deadline": None,
+        "conditions": None,
+        "confidence": 0.9,
+    }
+
+    assert validate_extracted(item, section_title="RESPONSIBILITIES")
+    with pytest.raises(ValueError):
+        validate_extracted(item, section_title="PROCEDURES")
+    with pytest.raises(ValueError):
+        validate_extracted(item, section_title=None)
+
+
+def test_a_word_modality_is_unaffected_by_the_section_it_was_read_from():
+    """The section guard exists only because ASSIGNED names no word. A SHALL
+    quotes its word wherever it is written, so nothing about it depends on the
+    section — and a guard that refused one would silently lose real duties."""
+    item = {
+        "statement": "The Director shall notify the Comptroller.",
+        "modality": "SHALL",
+        "actor": "The Director",
+        "deadline": None,
+        "conditions": None,
+        "confidence": 0.9,
+    }
+
+    assert validate_extracted(item, section_title="PROCEDURES")
+    assert validate_extracted(item, section_title=None)
+
+
+def test_be_responsive_is_refused_by_both_guards_independently():
+    """The regression test of this sprint.
+
+    "Be Responsive." is a section heading that a model labelled SHALL for a whole
+    sprint, and 18 of 215 obligations in the live graph were shapes like it. The
+    danger ADR-033 accepts is that it returns as ASSIGNED instead, since ASSIGNED
+    names no word to check against the passage.
+
+    It fails both guards, and each half is asserted on its own so that losing one
+    guard cannot be masked by the other still holding.
+    """
+    heading = {
+        "statement": "Be Responsive.",
+        "modality": "ASSIGNED",
+        "actor": None,
+        "deadline": None,
+        "conditions": None,
+        "confidence": 0.9,
+    }
+
+    # Guard one, on its own: no actor, even in the right section.
+    with pytest.raises(ValueError):
+        validate_extracted(heading, section_title="RESPONSIBILITIES")
+
+    # Guard two, on its own: wrong section, even once an actor is supplied.
+    with pytest.raises(ValueError):
+        validate_extracted(
+            {**heading, "actor": "DoD"}, section_title="GENERAL ISSUANCE INFORMATION"
+        )
+
+
+def test_an_assigned_actor_may_not_be_the_statement_itself():
+    """Found by rebuilding DoDD 5000.01 (2020) after ADR-033 landed.
+
+    Two of 33 ASSIGNED obligations came back with `actor` set to the whole
+    statement, character for character. The model could not find a role heading
+    and satisfied the "ASSIGNED requires an actor" rule by copying the sentence
+    into the field — which passes a non-null check while naming nobody, and so
+    defeats the guard by obeying its letter.
+
+    The rule is exact rather than a length heuristic on purpose: a real actor can
+    be long ("DoD Component heads, including the Directors of the Defense
+    Agencies with acquisition authority ..." is one), so anything shaped like
+    "the actor must be shorter than the statement" would refuse real duties to
+    catch this one.
+    """
+    with pytest.raises(ValidationError):
+        ExtractedObligation(
+            statement="Reviews and advises the MDA on the DT&E plan in the TEMP.",
+            modality=Modality.ASSIGNED,
+            actor="Reviews and advises the MDA on the DT&E plan in the TEMP.",
+            deadline=None,
+            conditions=None,
+            confidence=0.9,
+        )
+
+
+def test_a_long_but_real_actor_is_still_accepted():
+    """The other side of the rule above: this actor is 150 characters and names
+    real offices, and refusing it would lose the duty."""
+    obligation = ExtractedObligation(
+        statement="Implement the policy in this issuance for programs they oversee.",
+        modality=Modality.ASSIGNED,
+        actor=(
+            "DoD Component heads, including the Directors of the Defense Agencies "
+            "with acquisition authority but not the CJCS"
+        ),
+        deadline=None,
+        conditions=None,
+        confidence=0.9,
+    )
+
+    assert obligation.is_binding

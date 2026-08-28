@@ -1,6 +1,6 @@
 # STORY-097: The responsibilities section of an issuance is invisible
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 

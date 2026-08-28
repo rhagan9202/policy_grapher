@@ -195,3 +195,76 @@ def test_the_parked_route_is_still_parked_on_purpose():
     """
     assert DELIBERATELY_UNREACHABLE == {"/query"}
     assert "/query" in {_normalise(p) for p, _ in registered_routes()}
+
+
+def test_every_registered_route_answers_a_real_request():
+    """STORY-099, and sprint 8's retrospective action.
+
+    STORY-086 compares the routers' declared paths against `client.ts` and calls
+    neither, which is correct for its purpose and blind to a route that does not
+    resolve. `GET /documents/duplicates` answered 404 for an entire sprint
+    underneath a green suite for exactly that reason: FastAPI matches in
+    declaration order, `/{slug}` was declared first, and no test ever sent the
+    request.
+
+    Two assertions, because the first one alone is vacuous and was caught being
+    vacuous by mutating this test before believing it:
+
+    1. The request resolves at all — no 404 from routing.
+    2. **The route that matched is the route that was declared.** This is the one
+       that catches shadowing. When `/{slug}` is declared first, a request to
+       `/documents/duplicates` still gets a response — from the *wrong handler*,
+       which answers 404 only because no such document exists. Status code alone
+       cannot tell that apart from a working route, so the declared path is
+       compared against the path that actually matched.
+
+    Reachability, not correctness. What each route *does* stays the route tests'
+    job.
+    """
+    from fastapi.testclient import TestClient
+    from starlette.routing import Match
+
+    from policy_grapher.dependencies import get_driver
+
+    def matched_path(method: str, concrete: str) -> str | None:
+        """The path of the first route Starlette fully matches, in declaration
+        order — the real matcher, not a re-implementation of it."""
+        scope = {
+            "type": "http",
+            "method": method,
+            "path": concrete,
+            "root_path": "",
+            "headers": [],
+            "query_string": b"",
+        }
+        for route in _flatten_routes(app.routes):
+            match, _ = route.matches(scope)
+            if match == Match.FULL:
+                return route.path
+        return None
+
+    app.dependency_overrides[get_driver] = lambda: None
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        unreachable = []
+        shadowed = []
+        for path, method in sorted(registered_routes()):
+            concrete = re.sub(r"\{[^}]+\}", "placeholder", path)
+            if client.request(method, concrete, json={}).status_code == 404:
+                unreachable.append(f"{method} {path}")
+            actual = matched_path(method, concrete)
+            if actual != path:
+                shadowed.append(f"{method} {path} -> {actual}")
+    finally:
+        app.dependency_overrides.pop(get_driver, None)
+
+    assert not unreachable, (
+        f"{len(unreachable)} declared route(s) answered 404 to a real request: "
+        f"{unreachable}."
+    )
+    assert not shadowed, (
+        f"{len(shadowed)} declared route(s) were matched by a different route: "
+        f"{shadowed}. FastAPI matches in declaration order, so a route declared "
+        f"after a path parameter that also matches it is unreachable — declare "
+        f"the literal path before the parameterised one."
+    )
