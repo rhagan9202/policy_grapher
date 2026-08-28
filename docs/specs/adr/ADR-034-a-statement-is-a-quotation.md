@@ -36,7 +36,7 @@ responsibilities in DoDD 5135.02", which the document says of none of them.
 **Attributing a duty to the wrong office is the precise failure this product exists to prevent.**
 
 It also breaks identity. `obligation_id` hashes the normalised statement
-([ADR-027](ADR-027-a-decision-is-re-pointed-not-orphaned.md)), so a misquotation produces an id
+([ADR-027](ADR-027-a-rebuild-repoints-decisions.md)), so a misquotation produces an id
 derived from text the document does not contain — and a later extraction that quotes correctly
 produces a *different* id, orphaning every human decision recorded against the first. A
 misquotation is not a cosmetic error; it is an obligation that cannot be re-found.
