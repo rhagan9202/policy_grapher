@@ -1,0 +1,48 @@
+{
+  "note": "Duties assigned by position under a responsibility sentence ending “by:” whose items are gerunds, from SECTION 2: RESPONSIBILITIES of DoDD 5000.01 (2020), paragraph 2.7.\n\nThis form defeated PROMPT_VERSION 3 completely: the model quoted these items correctly and labelled every one SHALL, so the modality-word rule refused each and ADR-030 made the whole chunk a rejection. The section yielded nothing, which is also why it was where the prompt's worked example got echoed in sprint 9 — a section that yields nothing is where a model reaches for something plausible.\n\nStatements are the lettered items with their letters removed and their wrapped lines rejoined, which is what the passage says; the office is the actor, per ADR-033. Each was checked verbatim against the chunk before this file was written, and each was read to confirm it states a duty rather than describing one.",
+  "source": {
+    "file": "500001p_2020.pdf",
+    "page": 12,
+    "document": "DoDD 5000.01 (2020)"
+  },
+  "section_path": [
+    "SECTION 2",
+    "2.7"
+  ],
+  "section_title": "RESPONSIBILITIES",
+  "chunk_text": "2.7.  DIRECTOR OF OPERATIONAL TEST AND EVALUATION (DOT&E).   \nIn addition to the acquisition responsibilities in DoDD 5141.02, the DOT&E has overarching \nresponsibility for operational and live fire test and evaluation in accordance with Section 139 of \nTitle 10, U.S.C, by: \na.  Prescribing policies and procedures for the conduct of operational and live fire test and \nevaluation in the DoD. \nb.  Reviewing and approving operational and live fire test plans for MDAPs and programs \ndesignated for DOT&E oversight. \nc.  Providing an independent evaluation of system operational effectiveness, suitability, and \nsurvivability, including cybersecurity, in reports to DoD acquisition leadership, the Secretary of \nDefense, and the congressional defense committees, based on the operational and live fire testing \nthat was conducted. \nd.  Advising programs on the testability of system requirements. \nDoDD 5000.01, September 9, 2020",
+  "obligations": [
+    {
+      "statement": "Prescribing policies and procedures for the conduct of operational and live fire test and evaluation in the DoD.",
+      "modality": "ASSIGNED",
+      "actor": "DOT&E",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Reviewing and approving operational and live fire test plans for MDAPs and programs designated for DOT&E oversight.",
+      "modality": "ASSIGNED",
+      "actor": "DOT&E",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Providing an independent evaluation of system operational effectiveness, suitability, and survivability, including cybersecurity, in reports to DoD acquisition leadership, the Secretary of Defense, and the congressional defense committees, based on the operational and live fire testing that was conducted.",
+      "modality": "ASSIGNED",
+      "actor": "DOT&E",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Advising programs on the testability of system requirements.",
+      "modality": "ASSIGNED",
+      "actor": "DOT&E",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    }
+  ]
+}

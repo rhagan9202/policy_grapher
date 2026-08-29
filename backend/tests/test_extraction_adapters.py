@@ -433,7 +433,7 @@ def test_the_prompt_version_moved_with_the_prompt():
     """PROMPT_VERSION participates in the cache key. An in-place prompt edit
     leaves the cache serving answers produced by a prompt that no longer exists,
     which is invisible and very hard to debug."""
-    assert PROMPT_VERSION == 3
+    assert PROMPT_VERSION == 4
 
 
 def test_the_prompt_still_refuses_headings_and_scope():

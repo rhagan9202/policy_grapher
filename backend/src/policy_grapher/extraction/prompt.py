@@ -7,7 +7,7 @@ prompt that no longer exists, which is invisible and very hard to debug.
 
 from dataclasses import dataclass
 
-PROMPT_VERSION = 3
+PROMPT_VERSION = 4
 
 EXTRACTION_PROMPT = """\
 You are extracting obligations from a passage of policy text.
@@ -28,10 +28,12 @@ directive "shall" with "will", so "the DoD Components will report annually" stat
 an obligation exactly as "shall report annually" would. Report it as WILL — the
 word the passage used — and do not silently reclassify it as SHALL.
 
-statement must be copied from the passage word for word, as a complete sentence
-including the subject that carries the duty. Write "PMs shall manage programs
-consistent with statute", not "manage programs consistent with statute" — the
-subject stays in the statement even though you also report it as the actor. Quote
+statement must be copied from the passage word for word. For the five word
+modalities it is a complete sentence including the subject that carries the duty:
+write "PMs shall manage programs consistent with statute", not "manage programs
+consistent with statute" — the subject stays in the statement even though you also
+report it as the actor. For ASSIGNED it is the lettered item as written, which
+begins at the verb and has no subject; that case is explained below. Quote
 the whole sentence, from its first word to its closing full stop — including any
 leading clause such as "As the retention planning process works though approvals,"
 and including the final "." itself. Do not paraphrase, do not shorten, and do not
@@ -45,8 +47,10 @@ and Effectively" and "Focus on Affordability" are the names of sections; they
 impose no duty on anyone, and reporting them as obligations is a common and
 costly mistake.
 
-actor is the party the duty falls on, copied from the statement, or null if the
-passage names none. Never write a placeholder such as "no actor specified" — use
+actor is the party the duty falls on. For the five word modalities it is copied
+from the statement, and must appear there; if the sentence names no party, use
+null. For ASSIGNED it is the office named in the role heading above the item, and
+it is not in the statement — that case is explained below. Never write a placeholder such as "no actor specified" — use
 null. actor, deadline and conditions may be null; modality never may.
 
 modality is never null, and it is the test of whether something belongs in your
@@ -68,6 +72,33 @@ third-person verbs:
 
 Those are duties assigned to a named office, and the passage grades their force
 nowhere. Report each lettered item as ASSIGNED.
+
+**The role heading is not always that short, and the items are not always
+third-person verbs.** These are the same thing and are all ASSIGNED:
+
+  2.6.  DOD CHIEF INFORMATION OFFICER.
+  In accordance with applicable federal law and regulations and in accordance
+  with DoDD 5144.02 and DoD Instruction 8500.01, and policies cited therein,
+  the DoD Chief Information Officer:
+  a.  Establishes cybersecurity policy and standards.
+
+  2.7.  DIRECTOR OF OPERATIONAL TEST AND EVALUATION (DOT&E).
+  In addition to the acquisition responsibilities in DoDD 5141.02, the DOT&E has
+  overarching responsibility for operational and live fire test and evaluation
+  in accordance with Section 139 of Title 10, U.S.C, by:
+  a.  Prescribing policies and procedures for the conduct of operational test.
+
+The first has a long lead-in clause before the office; the office is still the
+last thing named before the colon, and the actor is "DoD Chief Information
+Officer". The second ends "by:" and its items are gerunds — "Prescribing",
+"Reviewing", "Providing" — which are duties exactly as "Prescribes" would be; the
+actor is "DOT&E".
+
+**What makes an item ASSIGNED is the colon above it and the office before that
+colon, not the shape of the verb.** If a lettered list follows a line ending in a
+colon whose last named party is an office, every item in that list is ASSIGNED and
+its actor is that office. Do not label such items SHALL — there is no "shall" in
+them, and reporting one means the item is thrown away.
 
 For an ASSIGNED item, statement is the item itself, copied word for word without
 its letter — "Executes the acquisition responsibilities in DoDD 5135.02." — and
@@ -175,27 +206,27 @@ PROMPT_RULES: tuple[PromptRule, ...] = (
     ),
     PromptRule(
         id="actor-is-copied-from-the-statement",
-        sentence="actor is the party the duty falls on, copied from the statement,",
-        # Enforced for the five word modalities by ADR-035. The sentence as
-        # written is *false* for ASSIGNED, whose actor ADR-033 takes from the role
-        # heading above the item and which is correctly absent from the statement
-        # in 31 of 31 cases. Registered against the validator that implements the
-        # true, modality-specific rule; correcting the sentence needs a prompt
-        # edit and therefore a re-extraction, filed as STORY-103.
+        sentence=(
+            "For the five word modalities it is copied from the statement, and "
+            "must appear there"
+        ),
+        # Enforced for the five word modalities by ADR-035, and the sentence now
+        # says so: STORY-103 corrected it from a general claim that was false for
+        # ASSIGNED, whose actor ADR-033 takes from the role heading above the item
+        # and which is correctly absent from the statement.
         enforced_by="validate_extracted",
     ),
     PromptRule(
         id="statement-includes-the-subject",
         sentence=(
-            "as a complete sentence including the subject that carries the duty"
+            "it is a complete sentence including the subject that carries the duty"
         ),
         unenforceable=(
-            "Contradicted by ADR-033 and therefore not true as written: an "
-            "ASSIGNED statement is the lettered item, which begins at the verb "
-            "and carries no subject. Correcting the sentence needs a prompt edit "
-            "and a re-extraction (STORY-103). Even once corrected, 'is this a "
-            "complete sentence carrying its subject' needs a parser and a "
-            "judgement about sentence fragments this project has no basis to make."
+            "'Is this a complete sentence carrying its subject' needs a parser and "
+            "a judgement about sentence fragments this project has no basis to "
+            "make. The clause that used to stand here — that the sentence was also "
+            "false for ASSIGNED — was true until STORY-103 corrected it, and is "
+            "removed rather than left to rot."
         ),
     ),
     PromptRule(

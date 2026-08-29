@@ -1,0 +1,64 @@
+{
+  "note": "Duties assigned by position under a role heading preceded by a lead-in clause, from SECTION 2: RESPONSIBILITIES of DoDD 5000.01 (2020), paragraph 2.6.\n\nThis form defeated PROMPT_VERSION 3 completely: the model quoted these items correctly and labelled every one SHALL, so the modality-word rule refused each and ADR-030 made the whole chunk a rejection. The section yielded nothing, which is also why it was where the prompt's worked example got echoed in sprint 9 — a section that yields nothing is where a model reaches for something plausible.\n\nStatements are the lettered items with their letters removed and their wrapped lines rejoined, which is what the passage says; the office is the actor, per ADR-033. Each was checked verbatim against the chunk before this file was written, and each was read to confirm it states a duty rather than describing one.",
+  "source": {
+    "file": "500001p_2020.pdf",
+    "page": 12,
+    "document": "DoDD 5000.01 (2020)"
+  },
+  "section_path": [
+    "SECTION 2",
+    "2.6"
+  ],
+  "section_title": "RESPONSIBILITIES",
+  "chunk_text": "2.6.  DOD CHIEF INFORMATION OFFICER. \nIn accordance with applicable federal law and regulations and in accordance with DoDD 5144.02 \nand DoD Instruction 8500.01, and policies cited therein, the DoD Chief Information Officer: \na.  Establishes cybersecurity policy and standards, and provides guidance for incorporating \ncybersecurity and cyber risk management in the DoD. \nb.  Coordinates with the USD(R&E) and the USD(A&S) to ensure that cybersecurity policies \nand standards are integrated into the DAS. \nc.  Develops, maintains, and manages the implementation of a sound, secure, and integrated \nDoD information technology (IT) and cybersecurity architecture; ensures the interoperability of \nIT throughout the DoD; and prescribes IT standards, including network and cybersecurity \nstandards that apply throughout the DoD. \nd.  Supports and informs the USD(A&S) on all IT and cyber infrastructure acquisition \nmatters and investment decisions, including IT-intensive software systems, such as business \nsystems, to ensure that cybersecurity policies and standards are integrated into the DAS. \ne.  Coordinates with the USD(A&S) to develop and maintain a process for maximizing the \nvalue of, and assessing and managing the risks related to, DoD IT acquisitions. \nf.  Coordinates with the USD(A&S) to develop, provide oversight, and support integration of \nthe statutory cybersecurity strategy for programs acquiring or employing mission critical or \nmission essential IT.",
+  "obligations": [
+    {
+      "statement": "Establishes cybersecurity policy and standards, and provides guidance for incorporating cybersecurity and cyber risk management in the DoD.",
+      "modality": "ASSIGNED",
+      "actor": "DoD Chief Information Officer",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Coordinates with the USD(R&E) and the USD(A&S) to ensure that cybersecurity policies and standards are integrated into the DAS.",
+      "modality": "ASSIGNED",
+      "actor": "DoD Chief Information Officer",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Develops, maintains, and manages the implementation of a sound, secure, and integrated DoD information technology (IT) and cybersecurity architecture; ensures the interoperability of IT throughout the DoD; and prescribes IT standards, including network and cybersecurity standards that apply throughout the DoD.",
+      "modality": "ASSIGNED",
+      "actor": "DoD Chief Information Officer",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Supports and informs the USD(A&S) on all IT and cyber infrastructure acquisition matters and investment decisions, including IT-intensive software systems, such as business systems, to ensure that cybersecurity policies and standards are integrated into the DAS.",
+      "modality": "ASSIGNED",
+      "actor": "DoD Chief Information Officer",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Coordinates with the USD(A&S) to develop and maintain a process for maximizing the value of, and assessing and managing the risks related to, DoD IT acquisitions.",
+      "modality": "ASSIGNED",
+      "actor": "DoD Chief Information Officer",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    },
+    {
+      "statement": "Coordinates with the USD(A&S) to develop, provide oversight, and support integration of the statutory cybersecurity strategy for programs acquiring or employing mission critical or mission essential IT.",
+      "modality": "ASSIGNED",
+      "actor": "DoD Chief Information Officer",
+      "deadline": null,
+      "conditions": null,
+      "confidence": 1.0
+    }
+  ]
+}
