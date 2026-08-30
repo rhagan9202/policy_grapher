@@ -32,7 +32,7 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
-**Ready holds STORY-106.** Sprint 9's four items are all in [Done](#done), and the MVP is met. All ten of sprint 8's items are in [Done](#done) — the
+**Ready holds sprint 12's slate.** Sprint 9's four items are all in [Done](#done), and the MVP is met. All ten of sprint 8's items are in [Done](#done) — the
 largest commitment this project has made, delivered whole. Every bar in the
 [vision](../planning/vision.md#what-success-looks-like)'s definition of done is now closed or
 recorded as blocked, and [STORY-094](stories/STORY-094-the-definition-of-done-is-checked.md)
@@ -98,6 +98,8 @@ row** through product actions alone; the sequence is in the
 | ID | Item | Epic | Notes |
 | --- | --- | --- | --- |
 | STORY-106 | A positional duty is not labelled SHALL | — | **Est. M.** Sprint 11 took DoDD 5000.01 (2020) from 19 of 40 lettered items to 34. Paragraphs 2.5 (CMO) and 2.10 (CJCS) still read zero and are 5 of the 6 missing: the model quotes their items correctly and labels them `SHALL`, so every item fails the modality-word rule and ADR-030 makes the chunk a rejection. Not an oversight but a trade — the longer prompt block that would emphasise the rule drove the model into a repetition loop on an unrelated passage, measured at 25 statements / 6 distinct. See [STORY-106](stories/STORY-106-a-positional-duty-is-not-labelled-shall.md) |
+| STORY-107 | A prompt change shows its blast radius before it ships | — | **Est. L.** Three sprints, three prompt edits, three unrelated passages degraded — a fixture from 5 of 5 to 0, precision to 0.800, and a repetition loop — each caught only because the broken passage happened to be one of eight gold fixtures. A differential check over real chunks, needing no labels: record what the prompt produces, report what moved. The decision is the work — which chunks, what to record, test or tool. See [STORY-107](stories/STORY-107-a-prompt-change-shows-its-blast-radius.md) |
+| STORY-108 | Actor accuracy is measured | — | **Est. M.** ADR-035 named this as the prerequisite for revisiting actors and nothing has closed it. Measured at sprint 12 planning over 25 matched pairs: **0.600 exact, 0.840 case-folded**, and every remaining disagreement is `DIRECTOR OF OPERATIONAL TEST AND EVALUATION` against the gold set's `DOT&E` — both defensible, which makes it a question about the gold set first. See [STORY-108](stories/STORY-108-actor-accuracy-is-measured.md) |
 
 ## Refining
 
