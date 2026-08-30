@@ -1,6 +1,6 @@
 # STORY-105: Responsibilities coverage has a floor
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

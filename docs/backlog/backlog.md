@@ -32,7 +32,7 @@ STORY-051 landed too: `.github/workflows/ci.yml` runs both suites on every push 
 request, with the integration half as its own marker-selected step so it cannot go quiet
 ([ADR-022](../specs/adr/ADR-022-both-suites-run-on-every-push.md)).
 
-**Ready holds STORY-103.** Sprint 9's four items are all in [Done](#done), and the MVP is met. All ten of sprint 8's items are in [Done](#done) — the
+**Ready holds STORY-106.** Sprint 9's four items are all in [Done](#done), and the MVP is met. All ten of sprint 8's items are in [Done](#done) — the
 largest commitment this project has made, delivered whole. Every bar in the
 [vision](../planning/vision.md#what-success-looks-like)'s definition of done is now closed or
 recorded as blocked, and [STORY-094](stories/STORY-094-the-definition-of-done-is-checked.md)
@@ -97,9 +97,6 @@ row** through product actions alone; the sequence is in the
 
 | ID | Item | Epic | Notes |
 | --- | --- | --- | --- |
-| STORY-103 | The prompt stops contradicting itself about ASSIGNED | — | **Est. S.** Found by ADR-036 while enumerating the prompt's rules: two general sentences that ADR-033 falsified and nobody noticed, because reading the prompt top to bottom does not surface a contradiction between paragraph three and paragraph nine. A statement must include its subject (an `ASSIGNED` statement begins at the verb) and an actor is copied from the statement (an `ASSIGNED` actor comes from the heading above it). Not fixed when found: correcting the prompt bumps `PROMPT_VERSION` and discards the extraction cache, and three rebuilds were in flight. See [STORY-103](stories/STORY-103-the-prompt-stops-contradicting-itself.md) |
-| STORY-104 | ASSIGNED recognises the role headings DoD actually writes | — | **Est. M.** The responsibilities section of DoDD 5000.01 (2020) holds **40** lettered items under role headings and the product reads **19**. Four role sections — CMO, DoD CIO, DOT&E, CJCS — yield nothing at all. Diagnosed: the model quotes their items correctly and labels them `SHALL`, so the modality-word rule refuses every one and ADR-030 makes the chunk a rejection. `PROMPT_VERSION` 3 teaches one form of role heading and DoD writes three — a lead-in clause before the role, and a sentence ending `by:` whose items are gerunds. Must land with STORY-103 in one prompt bump. See [STORY-104](stories/STORY-104-assigned-recognises-the-role-headings-dod-writes.md) |
-| STORY-105 | Responsibilities coverage has a floor | — | **Est. S.** The ratchet floors precision, recall and modality accuracy against six gold passages and **cannot see coverage** — a change that stops reading four role sections entirely leaves every fixture passing, which is the state sprint 10 shipped in with the gate green. Same shape as STORY-073's reference floor: a per-passage score says nothing about how much of the document was reached. See [STORY-105](stories/STORY-105-responsibilities-coverage-has-a-floor.md) |
 | STORY-106 | A positional duty is not labelled SHALL | — | **Est. M.** Sprint 11 took DoDD 5000.01 (2020) from 19 of 40 lettered items to 34. Paragraphs 2.5 (CMO) and 2.10 (CJCS) still read zero and are 5 of the 6 missing: the model quotes their items correctly and labels them `SHALL`, so every item fails the modality-word rule and ADR-030 makes the chunk a rejection. Not an oversight but a trade — the longer prompt block that would emphasise the rule drove the model into a repetition loop on an unrelated passage, measured at 25 statements / 6 distinct. See [STORY-106](stories/STORY-106-a-positional-duty-is-not-labelled-shall.md) |
 
 ## Refining
@@ -149,6 +146,9 @@ the implementation plans beside them.
 
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-105 | Responsibilities coverage has a floor | 11 |
+| STORY-104 | ASSIGNED recognises the role headings DoD actually writes | 11 |
+| STORY-103 | The prompt stops contradicting itself about ASSIGNED | 11 |
 | STORY-102 | A prompt rule nobody checks is not a rule | 10 |
 | STORY-101 | Every edition is rebuilt under the rules the extractor now has | 10 |
 | STORY-100 | An office is one actor, not several spellings | 10 |
