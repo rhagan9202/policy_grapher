@@ -1,6 +1,6 @@
 # STORY-103: The prompt stops contradicting itself about ASSIGNED
 
-**Epic:** — · **Status:** Ready · **Estimate:** S
+**Epic:** — · **Status:** Done · **Estimate:** S
 
 ## User story
 

@@ -24,6 +24,8 @@ DEFAULT_TIMEOUT_SECONDS = 600.0
 # `timeout_seconds` is already the bound on a model that has stopped responding
 # rather than fallen over.
 DEFAULT_BACKOFF_SECONDS = 2.0
+# See `Settings.extractor_max_output_tokens` for how this number was measured.
+DEFAULT_MAX_OUTPUT_TOKENS = 2048
 
 
 class LocalExtractor:
@@ -35,11 +37,13 @@ class LocalExtractor:
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         transport: httpx.BaseTransport | None = None,
         backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+        max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._client = httpx.Client(transport=transport, timeout=timeout_seconds)
         self._backoff_seconds = backoff_seconds
+        self._max_output_tokens = max_output_tokens
 
     @property
     def adapter_id(self) -> str:
@@ -69,7 +73,13 @@ class LocalExtractor:
             ),
             "format": "json",
             "stream": False,
-            "options": {"temperature": 0},
+            # num_predict bounds generation itself. The timeout above bounds only
+            # waiting, and a model that never stops will exhaust it three times
+            # over — measured at 3000 seconds on one chunk before this existed.
+            "options": {
+                "temperature": 0,
+                "num_predict": self._max_output_tokens,
+            },
         }
         url = f"{self._base_url}/api/generate"
 
@@ -100,7 +110,21 @@ class LocalExtractor:
     ) -> list[ExtractedObligation]:
         response = self._post_with_retries(chunk_text, section_path)
         response.raise_for_status()
-        raw = response.json()["response"]
+        body = response.json()
+        raw = body["response"]
+
+        # Truncation makes the JSON invalid, so this chunk would be rejected
+        # either way. The reason is what changes: "model output was not JSON"
+        # sends a reader looking for a broken model, when the model was working
+        # and was cut off.
+        if body.get("done_reason") == "length":
+            raise ValueError(
+                f"the model hit its output cap (num_predict="
+                f"{self._max_output_tokens}) and its answer was truncated. This "
+                f"chunk is rejected rather than partly read; a passage whose real "
+                f"answer needs more than the cap needs the cap raised, and one "
+                f"that never stops needs the cap."
+            )
 
         try:
             payload = json.loads(raw)

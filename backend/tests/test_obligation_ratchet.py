@@ -138,8 +138,30 @@ US_ORIGIN_EMBEDDING_MODELS = frozenset(
 # above and now with more room: over sixteen matched pairs a single error reads as
 # 0.938, and a floor that fires on one different answer teaches people to ignore
 # it. 0.85 still tolerates one and catches two.
+# Re-measured 2026-08-30 (sprint 11), after PROMPT_VERSION 4 taught the two role
+# heading forms DoD writes that the prompt had never described, and after the gold
+# set grew from six fixtures and eighteen obligations to eight and twenty-eight.
+# Observed, identical across **six runs in two separate processes**:
+#
+#     precision 0.862   recall 0.893   modality 1.000   25 of 28 gold found
+#
+# **Recall rose while the gold set grew by ten harder obligations**, which is the
+# sprint's claim in one number: two role sections that returned nothing for two
+# sprints now return six of six and four of four.
+#
+# **A correction to what sprint 10 recorded here.** That sprint concluded that
+# "identical on three consecutive runs" is determinism within one process and not
+# across two, and made it a standing action. The evidence was precision measured
+# at 0.842 and then 0.905 — but those two measurements ran against *different
+# builds*, before and after ADR-035's actor rule, not two processes of the same
+# build. A build change was misread as process nondeterminism. Measured properly
+# here, two processes of one build agree exactly, so the floors are set from the
+# observation rather than discounted below it.
+#
+# Truncated below the observation, never rounded to it — sprint 9 recorded a floor
+# above its own measurement and the gate failed on itself.
 FLOORS = {
-    "local:llama3.1:8b": {"precision": 0.842, "recall": 0.888, "modality_accuracy": 0.85},
+    "local:llama3.1:8b": {"precision": 0.862, "recall": 0.892, "modality_accuracy": 0.85},
 }
 
 

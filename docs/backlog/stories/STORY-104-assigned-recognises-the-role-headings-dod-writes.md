@@ -1,6 +1,6 @@
 # STORY-104: ASSIGNED recognises the role headings DoD actually writes
 
-**Epic:** — · **Status:** Ready · **Estimate:** M
+**Epic:** — · **Status:** Done · **Estimate:** M
 
 ## User story
 

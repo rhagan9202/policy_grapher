@@ -433,7 +433,7 @@ def test_the_prompt_version_moved_with_the_prompt():
     """PROMPT_VERSION participates in the cache key. An in-place prompt edit
     leaves the cache serving answers produced by a prompt that no longer exists,
     which is invisible and very hard to debug."""
-    assert PROMPT_VERSION == 3
+    assert PROMPT_VERSION == 4
 
 
 def test_the_prompt_still_refuses_headings_and_scope():
@@ -456,3 +456,67 @@ def test_the_prompt_teaches_the_positional_form_and_keeps_the_statement_verbatim
     """
     assert "ASSIGNED" in EXTRACTION_PROMPT
     assert "word for word" in EXTRACTION_PROMPT
+
+
+# --- bounding how much a model may generate ------------------------------------
+
+
+def test_the_adapter_bounds_how_much_the_model_may_generate():
+    """A timeout bounds waiting; it does not bound generating.
+
+    Measured 2026-08-29: one gold fixture drove llama3.1:8b into a generation
+    that produced no response for 3000 seconds — at 5.4 tokens/sec, roughly
+    16,000 tokens and still going. `LocalExtractor` had a 600s timeout and three
+    retries, so a single runaway chunk cost half an hour inside a rebuild that
+    already runs for hours, and neither instrument could stop it.
+    """
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"response": json.dumps({"obligations": []})})
+
+    extractor = LocalExtractor(
+        base_url="http://model",
+        model="test-model",
+        transport=httpx.MockTransport(handler),
+        max_output_tokens=1234,
+    )
+    extractor.extract(PASSAGE, section_path=["1.1"])
+
+    assert seen["options"]["num_predict"] == 1234
+
+
+def test_a_truncated_answer_is_rejected_and_says_the_cap_was_hit():
+    """Truncation makes the JSON invalid, so the chunk is rejected either way.
+    What matters is the reason: "model output was not JSON" sends a reader
+    looking for a broken model, when the model was working and was cut off.
+    """
+    truncated = '{"obligations": [{"statement": "The Director shall act.", "moda'
+    extractor = LocalExtractor(
+        base_url="http://model",
+        model="test-model",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200, json={"response": truncated, "done_reason": "length"}
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        extractor.extract(PASSAGE, section_path=["1.1"])
+
+    assert "num_predict" in str(excinfo.value)
+
+
+def test_the_output_cap_leaves_room_for_the_longest_real_answer():
+    """The default is set from measurement, not from a round number.
+
+    Every gold fixture's legitimate answer was measured on 2026-08-29: the
+    largest is 554 output tokens, paragraph 2.6's six obligations — one of the
+    two sections sprint 11 exists to recover. A cap of 1024 would have truncated
+    it, which is why the number was measured rather than picked.
+    """
+    from policy_grapher.config import Settings
+
+    assert Settings(_env_file=None).extractor_max_output_tokens >= 554 * 2
