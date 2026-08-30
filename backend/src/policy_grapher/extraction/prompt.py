@@ -73,32 +73,13 @@ third-person verbs:
 Those are duties assigned to a named office, and the passage grades their force
 nowhere. Report each lettered item as ASSIGNED.
 
-**The role heading is not always that short, and the items are not always
-third-person verbs.** These are the same thing and are all ASSIGNED:
-
-  2.6.  DOD CHIEF INFORMATION OFFICER.
-  In accordance with applicable federal law and regulations and in accordance
-  with DoDD 5144.02 and DoD Instruction 8500.01, and policies cited therein,
-  the DoD Chief Information Officer:
-  a.  Establishes cybersecurity policy and standards.
-
-  2.7.  DIRECTOR OF OPERATIONAL TEST AND EVALUATION (DOT&E).
-  In addition to the acquisition responsibilities in DoDD 5141.02, the DOT&E has
-  overarching responsibility for operational and live fire test and evaluation
-  in accordance with Section 139 of Title 10, U.S.C, by:
-  a.  Prescribing policies and procedures for the conduct of operational test.
-
-The first has a long lead-in clause before the office; the office is still the
-last thing named before the colon, and the actor is "DoD Chief Information
-Officer". The second ends "by:" and its items are gerunds — "Prescribing",
-"Reviewing", "Providing" — which are duties exactly as "Prescribes" would be; the
-actor is "DOT&E".
-
-**What makes an item ASSIGNED is the colon above it and the office before that
-colon, not the shape of the verb.** If a lettered list follows a line ending in a
-colon whose last named party is an office, every item in that list is ASSIGNED and
-its actor is that office. Do not label such items SHALL — there is no "shall" in
-them, and reporting one means the item is thrown away.
+The role heading may be longer than that and the items need not be third-person
+verbs. A lead-in clause may come before the office — "In accordance with DoDD
+5144.02 ... the DoD Chief Information Officer:" — and the heading may end "by:"
+with gerund items — "a. Prescribing policies and procedures ...". Both are
+ASSIGNED. What makes an item ASSIGNED is the colon above it and the office named
+before that colon, not the shape of the verb. Do not label such items SHALL:
+there is no "shall" in them.
 
 For an ASSIGNED item, statement is the item itself, copied word for word without
 its letter — "Executes the acquisition responsibilities in DoDD 5135.02." — and

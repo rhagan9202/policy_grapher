@@ -62,6 +62,18 @@ class Settings(BaseSettings):
     # with a real model there is no short timeout that is not a false alarm — and it
     # had been applied to the job but not to the HTTP call inside it (STORY-058).
     extractor_timeout_seconds: float = 600.0
+    # How many tokens the model may generate for one chunk. A timeout bounds
+    # waiting and does not bound generating: measured 2026-08-29, one gold
+    # fixture drove llama3.1:8b past 3000 seconds on a single call — roughly
+    # 16,000 tokens at the observed 5.4 tokens/sec — while the adapter's timeout
+    # and its three retries turned that into half an hour for one chunk.
+    #
+    # 2048 is set from the measurement rather than chosen round: every gold
+    # fixture's legitimate answer was counted the same day and the largest is 554
+    # output tokens, so this is roughly four times the longest real answer, and it
+    # bounds a runaway to about 380 seconds — inside the timeout above rather than
+    # three times past it. A cap of 1024 would have truncated a real answer.
+    extractor_max_output_tokens: int = 2048
 
     # Embedding (DI-2 phase 6). "null" produces no vectors and needs no model —
     # the default, so a fresh clone and CI pass without a download. "local" runs

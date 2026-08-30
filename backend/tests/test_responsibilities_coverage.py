@@ -52,10 +52,27 @@ EXPECTED_ROLE_ITEMS = {
 
 LETTERED_ITEM = re.compile(r"^[a-z]\.\s+[A-Z]")
 
-# Set from measurement, truncated below the lowest observation and never rounded
-# to it — sprint 9 recorded a floor above its own measurement and the gate failed
-# on itself. Recorded in the sprint 11 review with the runs it came from.
-COVERAGE_FLOOR = 0.0
+# Measured 2026-08-30 (sprint 11), after PROMPT_VERSION 4 taught the two role
+# heading forms the prompt had never described: **34 of 40, 0.850**, against 19 of
+# 40 before it. Paragraphs 2.3, 2.6 and 2.7 went from 1, 0 and 0 to complete.
+#
+# Deliberately NOT set to the observed 0.850, for the reason recorded beside
+# `modality_accuracy` in the extraction ratchet: over 40 items one item is 0.025,
+# so a floor at the observation fires the moment a single item moves, and a floor
+# that fires on one differing answer teaches people to ignore it. 0.80 tolerates
+# two and catches three.
+#
+# Honest about its own precision: this counts ASSIGNED obligations per paragraph
+# against lettered items per paragraph, and the extractor over-reads some
+# paragraphs while under-reading others — 2.1 returned 6 against 5 expected while
+# 2.5 returned 0 against 2. The ratio is a coverage signal, not a per-item match,
+# and a paragraph reading zero is the failure it exists to catch.
+#
+# One measurement, not three. The extraction gate was shown deterministic across
+# six runs in two processes on this build, so a second coverage run was judged
+# redundant rather than skipped — if that proves wrong this floor is where it
+# shows up first.
+COVERAGE_FLOOR = 0.80
 
 
 def _paragraph(chunk) -> str:
