@@ -251,7 +251,12 @@ services:
   # A stack without the model server is `docker compose -f docker-compose.yml
   # -f docker-compose.lean.yml up`, not a profile to remember to unset.
   ollama:
-    image: ollama/ollama:latest
+    # Pinned for the same reason neo4j is (STORY-018), and with more force: this
+    # runtime's version determines sampling and decoding, which is what produces
+    # the numbers in tests/test_obligation_ratchet.py. On `latest` those floors
+    # would be measured against whatever was pulled that morning. Upgrading is a
+    # deliberate commit that re-measures the floors, not a side effect of time.
+    image: ollama/ollama:0.32.15
     # Published on loopback, unlike redis, because the extraction ratchet
     # (tests/test_obligation_ratchet.py) runs on the host and reaches the model
     # at Settings.extractor_base_url — the default of which is localhost:11434.
@@ -271,7 +276,7 @@ services:
   # every extraction fails against a server that has no weights loaded. The
   # named volume above makes a second run a no-op, so this is slow exactly once.
   ollama-pull:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.32.15
     restart: "no"
     depends_on:
       ollama:
