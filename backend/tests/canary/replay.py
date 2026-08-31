@@ -19,6 +19,23 @@ from policy_grapher.sources import pdf
 SAMPLES = Path(__file__).resolve().parents[3] / "data" / "samples"
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "canary"
 
+# How many chunks the recorded baseline covers. A canary replay exists to be run
+# after every PROMPT_VERSION bump, when the extraction cache misses by design —
+# so every future replay costs the same again. A size nobody will wait for is
+# not a blast-radius check, so this is measured, not guessed: on 2026-08-31,
+# llama3.1:8b (this project's shipped model, "schema" decoding) was timed over
+# 13 real chunks pulled from `select_canary_chunks` — 8 from the round-robin's
+# first pass (each document's opening chunk; 530.1s, avg 66.3s/chunk) and 5 from
+# mid-corpus content sections (134.1s, avg 26.8s/chunk) — for a combined 664.2s
+# over 13 chunks, 51.1s/chunk, with per-chunk cost ranging 14.4s-123.7s. A
+# 45-minute (2700s) budget divided by that rate extrapolates to ~53 chunks;
+# 40 was chosen instead of that ceiling to leave headroom against the observed
+# variance (40 chunks lands at ~34 min at the combined average, ~44 min even at
+# the slower first-pass average). Tunable: raise it if a future measurement on
+# faster hardware shows more room, lower it if the corpus or model changes the
+# per-chunk cost.
+CANARY_BASELINE_SIZE = 40
+
 
 def select_canary_chunks(limit: int = 120) -> list[dict]:
     """A deterministic slice of the corpus: every sample PDF, chunks in order,
