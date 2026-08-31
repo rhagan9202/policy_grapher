@@ -209,10 +209,20 @@ FLOORS = {
     # matched pairs correct on modality — precision 0.875, recall 0.250, modality
     # 1.000 in both. Materially lower than 8b's floors, as expected of a smaller
     # model: recall in particular is far lower (0.250 vs 0.892), because 3b finds
-    # only 7 of the 28 gold obligations rather than 25. All three fractions are
-    # exact (7/8, 7/28, 7/7), so there is nothing to truncate beyond writing the
-    # observed values.
-    "local:llama3.2:3b": {"precision": 0.875, "recall": 0.250, "modality_accuracy": 1.000},
+    # only 7 of the 28 gold obligations rather than 25. Precision and recall are
+    # exact fractions (7/8, 7/28), so there is nothing to truncate beyond writing
+    # the observed values.
+    #
+    # modality_accuracy is NOT set to the observed 1.000, for the same reason
+    # already given above for 8b: a floor at the ceiling fires on the first single
+    # wrong answer, and that argument gets *stronger*, not weaker, as the
+    # denominator shrinks. 8b's ceiling case was one wrong answer in sixteen
+    # matched pairs (0.938, still above a 0.85 floor). 3b's denominator here is
+    # seven matched pairs — a single different modality answer scores 0.857,
+    # which a 1.000 floor would fail on a result that changed nothing else.
+    # 0.85 tolerates that one answer and still catches two, the same tolerance
+    # 8b's floor gives, applied to a thinner sample where it matters more.
+    "local:llama3.2:3b": {"precision": 0.875, "recall": 0.250, "modality_accuracy": 0.85},
 }
 
 
