@@ -12,7 +12,11 @@ from collections.abc import Callable
 import httpx
 
 from policy_grapher.extraction.prompt import EXTRACTION_PROMPT
-from policy_grapher.extraction.schema import ExtractedObligation, validate_extracted
+from policy_grapher.extraction.schema import (
+    ExtractedObligation,
+    ExtractionPayload,
+    validate_extracted,
+)
 
 # Only the fallback for a caller that does not pass one; `build_extractor` always
 # passes `Settings.extractor_timeout_seconds`. Kept generous for the same reason that
@@ -27,6 +31,10 @@ DEFAULT_BACKOFF_SECONDS = 2.0
 # See `Settings.extractor_max_output_tokens` for how this number was measured.
 DEFAULT_MAX_OUTPUT_TOKENS = 2048
 
+# Generated once at import: it is a pure function of the models, and rebuilding
+# it per call would put a schema walk inside a loop over every chunk.
+_RESPONSE_SCHEMA = ExtractionPayload.model_json_schema()
+
 
 class LocalExtractor:
     def __init__(
@@ -38,6 +46,7 @@ class LocalExtractor:
         transport: httpx.BaseTransport | None = None,
         backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
         max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+        decoding: str = "schema",
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
@@ -45,9 +54,9 @@ class LocalExtractor:
         self._backoff_seconds = backoff_seconds
         self._max_output_tokens = max_output_tokens
         self._runtime_version: str | None = None
-        # Task 3 makes this configurable; a placeholder here lets the property
-        # resolve until it does.
-        self._decoding = "json"
+        if decoding not in ("schema", "json"):
+            raise ValueError(f"unknown decoding mode: {decoding!r}")
+        self._decoding = decoding
 
     @property
     def adapter_id(self) -> str:
@@ -96,7 +105,13 @@ class LocalExtractor:
             "prompt": EXTRACTION_PROMPT.format(
                 section_path="/".join(section_path), chunk_text=chunk_text
             ),
-            "format": "json",
+            # A schema here is constrained decoding: the server masks any token
+            # that would violate it, so an invalid modality or a missing field
+            # cannot be emitted. The string "json" is the legacy mode and only
+            # guarantees the output parses. Either way every item is still
+            # validated by `validate_extracted` below — a hosted adapter may not
+            # constrain at all, and behaviour has to match across adapters.
+            "format": _RESPONSE_SCHEMA if self._decoding == "schema" else "json",
             "stream": False,
             # num_predict bounds generation itself. The timeout above bounds only
             # waiting, and a model that never stops will exhaust it three times

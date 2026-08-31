@@ -67,5 +67,6 @@ def build_extractor(settings: Settings) -> ObligationExtractor:
             model=settings.extractor_model,
             timeout_seconds=settings.extractor_timeout_seconds,
             max_output_tokens=settings.extractor_max_output_tokens,
+            decoding=settings.extractor_decoding,
         )
     raise ValueError(f"unknown extractor adapter: {settings.extractor_adapter!r}")

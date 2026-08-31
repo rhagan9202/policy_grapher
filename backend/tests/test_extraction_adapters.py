@@ -9,6 +9,7 @@ from policy_grapher.extraction import build_extractor
 from policy_grapher.extraction.local import LocalExtractor
 from policy_grapher.extraction.null import NullExtractor
 from policy_grapher.extraction.prompt import EXTRACTION_PROMPT, PROMPT_VERSION
+from policy_grapher.extraction.schema import ExtractionPayload
 
 
 def test_the_null_adapter_extracts_nothing():
@@ -128,7 +129,8 @@ def test_the_runtime_version_falls_back_to_unknown_when_the_server_will_not_say(
 
 def test_the_cache_variant_combines_decoding_and_runtime_version():
     """Both halves of what silently varied a model's answer end up in the
-    variant the cache key is widened with."""
+    variant the cache key is widened with. Default decoding is "schema"
+    (Task 3): passing no `decoding` argument exercises that default."""
     extractor = LocalExtractor(
         base_url="http://model",
         model="test-model",
@@ -137,7 +139,7 @@ def test_the_cache_variant_combines_decoding_and_runtime_version():
         ),
     )
 
-    assert extractor.cache_variant == "json@0.32.15"
+    assert extractor.cache_variant == "schema@0.32.15"
 
 
 def test_an_unknown_adapter_name_fails_loudly():
@@ -568,3 +570,67 @@ def test_the_output_cap_leaves_room_for_the_longest_real_answer():
     from policy_grapher.config import Settings
 
     assert Settings(_env_file=None).extractor_max_output_tokens >= 554 * 2
+
+
+# --- constrained decoding: schema sent as `format`, not the legacy string -----
+
+
+def test_the_schema_names_every_modality():
+    """The enum is what makes `modality: null` unemittable, and null modalities
+    cost eight chunks in thirty-seven when measured 2026-08-26.
+
+    Checked against the actual `enum` array the schema publishes for
+    `Modality`, not a substring search over the whole dumped schema: every
+    member's name is also quoted repeatedly in that class's own docstring
+    (mutation-tested 2026-08-31 — deleting a member from the enum while
+    leaving the docstring intact left a plain substring check green for
+    five of the six), so a text search would pass even after a member was
+    silently dropped from what the model may actually emit.
+    """
+    schema = ExtractionPayload.model_json_schema()
+    emittable = set(schema["$defs"]["Modality"]["enum"])
+    for member in ("SHALL", "MUST", "WILL", "SHOULD", "MAY", "ASSIGNED"):
+        assert member in emittable, f"{member} is missing from the Modality enum"
+
+
+def test_schema_decoding_sends_the_schema_as_format():
+    """`format: "json"` is Ollama's legacy mode: it guarantees the output parses
+    and enforces nothing about its shape."""
+    sent = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, json={"response": '{"obligations": []}'})
+
+    extractor = LocalExtractor(
+        base_url="http://model",
+        model="llama3.1:8b",
+        transport=httpx.MockTransport(handler),
+        decoding="schema",
+    )
+    extractor.extract("text", section_path=["1"])
+
+    assert isinstance(sent["format"], dict), (
+        f"format was {sent['format']!r}; a string is the legacy JSON mode"
+    )
+    assert sent["format"]["properties"]["obligations"]["type"] == "array"
+
+
+def test_json_decoding_still_sends_the_legacy_string():
+    """Kept switchable so the two can be measured against each other with one
+    variable moving, and because a hosted adapter may not constrain at all."""
+    sent = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, json={"response": '{"obligations": []}'})
+
+    extractor = LocalExtractor(
+        base_url="http://model",
+        model="llama3.1:8b",
+        transport=httpx.MockTransport(handler),
+        decoding="json",
+    )
+    extractor.extract("text", section_path=["1"])
+
+    assert sent["format"] == "json"

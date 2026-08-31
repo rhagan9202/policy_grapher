@@ -314,3 +314,16 @@ def normalize(statement: str) -> str:
 def obligation_id(version_id: str, section_path: list[str], statement: str) -> str:
     key = f"{version_id}|{'/'.join(section_path)}|{normalize(statement)}"
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:32]
+
+
+class ExtractionPayload(BaseModel):
+    """The envelope the model fills — the shape `local.py` already expects.
+
+    **Generated from, never parsed with.** Parsing a whole response through this
+    would make one invalid item fail every item that shared its chunk, which is
+    exactly the blast radius ADR-030 shrank. Items stay validated one at a time
+    by `validate_extracted`. This exists so the server can be handed a schema,
+    and so that schema cannot drift from the models it is generated from.
+    """
+
+    obligations: list[ExtractedObligation]
