@@ -176,11 +176,19 @@ US_ORIGIN_EMBEDDING_MODELS = frozenset(
 # All four runs agree bit-for-bit: 25 matched, 29 predicted, 28 gold, in both
 # modes. On this gold set, at temperature 0, the model already emits output the
 # free-form mode's own schema validator accepts, so the constraint changes
-# nothing it was asked to change here — verified directly by comparing the raw
-# `/api/generate` response bodies for one fixture under each `format` payload,
-# which came back byte-identical. That is a property of this gold set, not a
-# claim that constrained decoding is inert in general: ADR-037 records the
-# reasoning for choosing it as the default anyway.
+# nothing it was asked to change here — verified directly by calling
+# `LocalExtractor._post_with_retries` for one fixture under each `format`
+# payload and comparing the `response` *text* of the two replies (not the
+# enclosing envelope, which carries per-call fields like `total_duration` that
+# are never expected to match) for full string equality, cross-checked with a
+# SHA-256 hash of each: identical. Separately, that the schema server-side
+# genuinely constrains generation rather than merely accepting the request
+# was confirmed with a hostile schema — narrowing `Modality`'s enum to a
+# single member the passage does not naturally produce forced every returned
+# `modality` to that member while the `statement` text was left untouched.
+# That is a property of this gold set and this server, not a claim that
+# constrained decoding is inert in general: ADR-037 records the full evidence
+# and the reasoning for choosing it as the default anyway.
 #
 # **The floors do not move.** The lower schema-mode observation truncates to
 # precision 0.862 and recall 0.892 — the values already recorded, not higher

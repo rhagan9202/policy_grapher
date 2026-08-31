@@ -67,9 +67,16 @@ stay comparable rather than have the code path disappear the moment it is not th
 One variable moved: `EXTRACTOR_DECODING`. Same model (`llama3.1:8b`, Ollama 0.32.15, CPU),
 same prompt (`PROMPT_VERSION 4`), same eight-fixture / twenty-eight-obligation gold set,
 same runtime. Two separate processes per mode, per this project's standing rule that
-repeated runs *inside* one process have previously proven less than they appeared to
-(`test_obligation_ratchet.py`'s own history records 0.842 and 0.905 for the same build in
-two processes on 2026-08-27). Never run concurrently — Ollama serialises.
+repeated runs *inside* one process prove less than they appear to. That rule survived a
+correction: sprint 9 (2026-08-28) measured precision 0.842 and then 0.905 for the same gold
+set in two processes on the same day and, at the time, read that as evidence two processes
+can disagree. Sprint 11 (2026-08-30) found the real cause — those two measurements ran
+against *different builds*, before and after ADR-035's actor rule landed, not two processes
+of one build — and re-measured properly: **identical scores across six runs in two separate
+processes** of one build. That re-measurement, not the sprint 9 number, is the standing
+evidence that two processes of the same build agree, and it is why two processes per mode is
+still the right amount of rigor here rather than one. Never run concurrently — Ollama
+serialises.
 
 ```bash
 cd backend
@@ -90,17 +97,39 @@ EXTRACTOR_ADAPTER=local EXTRACTOR_MODEL=llama3.1:8b EXTRACTOR_DECODING=schema \
 All four runs agree bit-for-bit. Neither mode scored lower than the other on any leg — there
 is no regression to report and no gain to claim from the number alone.
 
-**That agreement was checked, not assumed.** Identical scores to the fourth decimal across a
+**That agreement was checked, not assumed.** Identical scores to the sixth decimal across a
 mode switch is exactly the shape a wiring bug produces — the cache key covering the decoding
 mode, in particular, is new this sprint and a defect there would silently serve one mode's
 answers under the other's label. Verified directly: `LocalExtractor._post_with_retries` was
 called by hand for both modes against one fixture (`shall_dense_dodd_5000_01_4_3_4.json`),
-bypassing any cache, and the raw `/api/generate` request bodies carried different `format`
-payloads (the full JSON Schema versus the bare string `"json"`) while the raw response
-bodies came back byte-identical. The model, at temperature 0, already writes output the
-free-form mode's own downstream validator accepts on every gold fixture — so on *this* gold
-set neither mode has an opportunity to diverge. That is a property of the gold set's current
-coverage, not a general claim that the constraint is inert; see Consequences.
+bypassing any cache. The raw `/api/generate` request bodies carried different `format`
+payloads (the full JSON Schema versus the bare string `"json"`), and the `response` *text*
+of the two replies — the model's generated JSON, not the enclosing envelope, which also
+carries per-call fields like `total_duration` and `eval_count` that are never expected to
+match — was compared for full string equality (and cross-checked with a SHA-256 hash of
+each) and came back identical, not merely a matching length or prefix. The model, at
+temperature 0, already writes output the free-form mode's own downstream validator accepts
+on every gold fixture — so on *this* gold set neither mode has an opportunity to diverge.
+That is a property of the gold set's current coverage, not a general claim that the
+constraint is inert; see Consequences.
+
+**That the constraint is actually enforced, not merely accepted, was checked separately.**
+Getting a 200 and a well-shaped payload back (verified when `"schema"` mode was implemented,
+against Ollama 0.32.15) proves the server accepts the schema; it does not prove the server
+masks tokens against it, because a server that silently ignored an object `format` and just
+happened to produce a schema-conforming answer would return the exact same response. The
+discriminating test: take `ExtractionPayload`'s generated schema, narrow `Modality`'s `enum`
+from all six members to `["WILL"]` alone, and send it against the `shall_dense` fixture —
+whose gold obligations are all naturally `SHALL` and contain the word "shall" in every
+statement. Under the real schema the model returns three `SHALL` obligations, as expected.
+Under the hostile schema it returns four obligations (one more is admitted once "shall...
+serve as control objectives" is treated as a duty rather than dropped), and **every one is
+labelled `"WILL"`** — including the ones whose `statement` text still reads "PMs shall
+manage programs..." verbatim, with the word "shall" left untouched in the string and only
+the `modality` field forced to the sole enum member the hostile schema permitted. A server
+that was not enforcing the schema had no reason to change the label at all. This is direct
+evidence that constrained decoding binds on this server and model, not merely that it
+parses. Full request/response evidence is in the task report.
 
 ## Consequences
 
@@ -150,9 +179,25 @@ alongside obligations that had nothing wrong with them — mostly stops existing
 merely invalid.
 
 **ADR-030 is not superseded.** It still governs whatever the Python-level validators refuse
-after a syntactically valid response comes back — most concretely, the rule that a
-`statement` must contain the modality word it is labelled with. No JSON Schema can express
-"this string must contain that other field's value"; `Modality` being a closed enum is
-schema-expressible, but the cross-field containment check is not, and stays a
-`validate_extracted` rule enforced after generation, subject to ADR-030's per-item cost
-exactly as before.
+after a syntactically valid response comes back. The rule that a `statement` must contain
+the modality word it is labelled with is *not* the right example of that — because
+`Modality` is a closed enum, the check is enumerable as a JSON Schema after all (an `anyOf`
+of five branches, each pairing `modality: {"const": "SHALL"}` with a `statement` `pattern`
+requiring the word, and so on for each word modality), and a future iteration could move it
+into the schema if it were worth the schema's added size.
+
+What stays outside any schema, structurally, is a rule that needs information the model's
+output object does not carry. `ExtractionPayload` is built from `obligations: list[ExtractedObligation]`
+alone — no `section_title`, no `chunk_text` — so two rules this project already enforces in
+Python cannot be expressed under any encoding, no matter how the schema is written:
+
+- **ADR-033's section guard**, which permits `ASSIGNED` only in a chunk whose `section_title`
+  names a responsibilities section. `section_title` is an argument to `extract()`, not a
+  field the model emits, so no constraint on the emitted JSON can reference it.
+- **ADR-034's quotation rule**, that a `statement` must occur verbatim in the `chunk_text` it
+  was read from. The passage is the prompt, not the schema, and JSON Schema validates a
+  document against itself — it has no mechanism to check one field against text that was
+  never part of the instance being validated.
+
+Both remain `validate_extracted` rules enforced after generation, subject to ADR-030's
+per-item cost exactly as before.
