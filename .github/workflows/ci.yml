@@ -62,6 +62,31 @@ jobs:
       - name: Integration tests (real Neo4j and Redis)
         run: uv run pytest -m integration -rs
 
+      # The extraction gate. Until this existed it skipped on every push:
+      # `extractor_adapter` defaults to "null", FLOORS has no entry for "null",
+      # and the test takes its first skip branch — so the gate on the product's
+      # core value was green because nothing ran it. llama3.2:3b rather than the
+      # shipped 8b because 2GB is affordable per push and 4.9GB is not; its
+      # floors are its own, measured separately.
+      - name: Start the pinned model runtime
+        run: |
+          docker run -d --name ollama -p 11434:11434 ollama/ollama:0.32.15
+          for _ in $(seq 1 60); do
+            curl -sf http://localhost:11434/api/version && break
+            sleep 2
+          done
+          docker exec ollama ollama pull llama3.2:3b
+
+      - name: Extraction gate (real model)
+        env:
+          EXTRACTOR_ADAPTER: local
+          EXTRACTOR_MODEL: llama3.2:3b
+          EXTRACTOR_BASE_URL: http://localhost:11434
+        # -rs prints skip reasons. A skip here means the gate did not run, which
+        # is the failure this step exists to prevent — read the reason, do not
+        # assume the tick means it passed.
+        run: uv run pytest tests/test_obligation_ratchet.py -v -rs
+
   frontend:
     name: Frontend (eslint, tsc, vitest)
     runs-on: ubuntu-latest

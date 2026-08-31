@@ -199,6 +199,20 @@ US_ORIGIN_EMBEDDING_MODELS = frozenset(
 # regression either — schema mode did not score below a floor on any leg.
 FLOORS = {
     "local:llama3.1:8b": {"precision": 0.862, "recall": 0.892, "modality_accuracy": 0.85},
+    # Measured 2026-08-31 against llama3.2:3b at temperature 0, decoding=schema, on
+    # ollama 0.32.15, two separate processes. Lower observation, truncated. These
+    # are CI's per-push floors: 3b is not the shipped model, it is the smallest
+    # US-origin model (ADR-020) that makes the gate affordable on every push. A
+    # regression that 3b cannot see is what the canary set is for.
+    #
+    # Both processes agreed bit-for-bit: 7 matched, 8 predicted, 28 gold, 7 of 7
+    # matched pairs correct on modality — precision 0.875, recall 0.250, modality
+    # 1.000 in both. Materially lower than 8b's floors, as expected of a smaller
+    # model: recall in particular is far lower (0.250 vs 0.892), because 3b finds
+    # only 7 of the 28 gold obligations rather than 25. All three fractions are
+    # exact (7/8, 7/28, 7/7), so there is nothing to truncate beyond writing the
+    # observed values.
+    "local:llama3.2:3b": {"precision": 0.875, "recall": 0.250, "modality_accuracy": 1.000},
 }
 
 
@@ -429,6 +443,14 @@ def test_compose_does_not_override_the_default_with_an_ineligible_model():
 
     ADR-020 says the constraint is enforced by a test rather than a convention. It
     was only enforced for one of the two places the value comes from.
+
+    Read off `Settings.model_fields`, not an instantiated `Settings(_env_file=None)`:
+    `_env_file=None` only disables the dotenv source, and pydantic-settings still
+    reads `EXTRACTOR_MODEL` from the process environment regardless. CI's extraction
+    gate step sets exactly that variable so this test's own file measures a real
+    model, which made this assertion compare compose's static default against the
+    gate's override rather than the application default — failing on agreement, not
+    disagreement. The field default is what "the application default" means here.
     """
     import re
 
@@ -443,11 +465,12 @@ def test_compose_does_not_override_the_default_with_an_ineligible_model():
         f"excludes. The allowed set is {sorted(US_ORIGIN_MODELS)}."
     )
 
-    assert set(defaults) == {Settings(_env_file=None).extractor_model}, (
+    application_default = Settings.model_fields["extractor_model"].default
+    assert set(defaults) == {application_default}, (
         f"compose defaults {sorted(set(defaults))} disagree with the application "
-        f"default {Settings(_env_file=None).extractor_model!r}. They must agree, or "
-        "the model a container requests is not the model anything else describes — "
-        "and `ollama-pull` would pull one model while the worker asked for another."
+        f"default {application_default!r}. They must agree, or the model a "
+        "container requests is not the model anything else describes — and "
+        "`ollama-pull` would pull one model while the worker asked for another."
     )
 
 

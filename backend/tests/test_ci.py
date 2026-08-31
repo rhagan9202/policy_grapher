@@ -169,3 +169,17 @@ def test_the_compose_job_measures_the_lean_stack(workflow):
         "stack, whose images are ~16.6GB — the size gate would fail on every push"
     )
 
+
+
+def test_ci_runs_the_extraction_gate_against_a_real_model():
+    """The gate skips silently unless CI configures an adapter with floors.
+
+    Before this, `extractor_adapter` defaulted to "null", FLOORS had no "null"
+    key, and the gate took its first skip branch on every push — green because
+    nothing checked, for the whole of DI-2.
+    """
+    workflow = WORKFLOW.read_text()
+    assert "EXTRACTOR_ADAPTER: local" in workflow, (
+        "CI does not configure a real extractor, so the extraction gate skips"
+    )
+    assert "llama3.2:3b" in workflow, "CI does not pull the model the gate needs"
