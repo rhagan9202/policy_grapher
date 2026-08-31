@@ -160,6 +160,35 @@ US_ORIGIN_EMBEDDING_MODELS = frozenset(
 #
 # Truncated below the observation, never rounded to it — sprint 9 recorded a floor
 # above its own measurement and the gate failed on itself.
+#
+# Re-measured 2026-08-31 (sprint 12, ADR-037), comparing `extractor_decoding`
+# `"json"` (the legacy free-form mode) against `"schema"` (constrained decoding
+# against `ExtractionPayload`'s JSON Schema) — the only variable that moved,
+# same model, same prompt version, same eight-fixture gold set. Two separate
+# processes per mode, per this file's own standing rule that three runs inside
+# one process prove less than they appear to:
+#
+#     json,   process 1: precision 0.862069  recall 0.892857  modality 1.000  25 of 28 gold found
+#     json,   process 2: precision 0.862069  recall 0.892857  modality 1.000  25 of 28 gold found
+#     schema, process 1: precision 0.862069  recall 0.892857  modality 1.000  25 of 28 gold found
+#     schema, process 2: precision 0.862069  recall 0.892857  modality 1.000  25 of 28 gold found
+#
+# All four runs agree bit-for-bit: 25 matched, 29 predicted, 28 gold, in both
+# modes. On this gold set, at temperature 0, the model already emits output the
+# free-form mode's own schema validator accepts, so the constraint changes
+# nothing it was asked to change here — verified directly by comparing the raw
+# `/api/generate` response bodies for one fixture under each `format` payload,
+# which came back byte-identical. That is a property of this gold set, not a
+# claim that constrained decoding is inert in general: ADR-037 records the
+# reasoning for choosing it as the default anyway.
+#
+# **The floors do not move.** The lower schema-mode observation truncates to
+# precision 0.862 and recall 0.892 — the values already recorded, not higher
+# ones, so there is nothing to ratchet up to. Modality stays at 0.85 rather
+# than the observed 1.000, for the reason already given above: a floor at the
+# ceiling fires on the first single wrong answer, and that argument does not
+# expire because a different decoding mode was measured. Nothing here is a
+# regression either — schema mode did not score below a floor on any leg.
 FLOORS = {
     "local:llama3.1:8b": {"precision": 0.862, "recall": 0.892, "modality_accuracy": 0.85},
 }
