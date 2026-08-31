@@ -97,8 +97,9 @@ class GraphCacheStore:
 
 class CachedExtractor:
     """Any extractor, memoised. Satisfies `ObligationExtractor` itself, so it
-    wraps transparently and reports the adapter id of what it wraps — anything
-    keying off the adapter must not see the wrapper instead."""
+    wraps transparently and reports the adapter id and cache variant of what
+    it wraps — anything keying off the adapter must not see the wrapper
+    instead."""
 
     def __init__(
         self,
@@ -113,6 +114,10 @@ class CachedExtractor:
     @property
     def adapter_id(self) -> str:
         return self._inner.adapter_id
+
+    @property
+    def cache_variant(self) -> str:
+        return self._inner.cache_variant
 
     def extract(
         self,

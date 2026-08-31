@@ -176,6 +176,17 @@ def test_the_cache_reports_the_adapter_it_wraps():
     assert CachedExtractor(_RecordingExtractor([]), _DictStore()).adapter_id == "recording"
 
 
+def test_the_cache_reports_the_variant_of_the_adapter_it_wraps():
+    """The wrapper satisfies ObligationExtractor itself, so anything that keys
+    off cache_variant must see the wrapped adapter's, not the wrapper's own
+    (there isn't one) and not an empty default."""
+    inner = _RecordingExtractor([])
+    inner.cache_variant = "schema@0.32.15"
+    assert (
+        CachedExtractor(inner, _DictStore()).cache_variant == "schema@0.32.15"
+    )
+
+
 # --- obligations in the graph ------------------------------------------------
 
 
