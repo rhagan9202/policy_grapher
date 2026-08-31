@@ -246,6 +246,7 @@ class _InventingExtractor:
     """Reports a duty in every passage, including the one that has none."""
 
     adapter_id = "inventing"
+    cache_variant = ""
 
     def extract(self, chunk_text, *, section_path, section_title=None, on_drop=None):
         return [

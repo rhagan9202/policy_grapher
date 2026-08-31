@@ -44,11 +44,36 @@ class LocalExtractor:
         self._client = httpx.Client(transport=transport, timeout=timeout_seconds)
         self._backoff_seconds = backoff_seconds
         self._max_output_tokens = max_output_tokens
+        self._runtime_version: str | None = None
+        # Task 3 makes this configurable; a placeholder here lets the property
+        # resolve until it does.
+        self._decoding = "json"
 
     @property
     def adapter_id(self) -> str:
         return f"local:{self._model}"
 
+    @property
+    def runtime_version(self) -> str:
+        """The model server's version, asked once and remembered.
+
+        Part of the cache variant because a runtime upgrade changes sampling and
+        decoding. `"unknown"` rather than an exception when the server will not
+        answer: a cache that degrades to over-keying is safe, and failing
+        extraction because a version endpoint is missing is not.
+        """
+        if self._runtime_version is None:
+            try:
+                response = self._client.get(f"{self._base_url}/api/version")
+                response.raise_for_status()
+                self._runtime_version = response.json()["version"]
+            except (httpx.HTTPError, KeyError, ValueError):
+                self._runtime_version = "unknown"
+        return self._runtime_version
+
+    @property
+    def cache_variant(self) -> str:
+        return f"{self._decoding}@{self.runtime_version}"
 
     # A 37-chunk rebuild died at chunk 24 on a single 500 from a model server that
     # was healthy again seconds later and had served twenty-three calls before it.

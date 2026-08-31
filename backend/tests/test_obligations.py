@@ -52,6 +52,7 @@ class _RecordingExtractor:
     """Counts how many times the model would actually have been called."""
 
     adapter_id = "recording"
+    cache_variant = ""
 
     def __init__(self, result: list[ExtractedObligation]) -> None:
         self.calls = 0
@@ -101,6 +102,27 @@ def test_the_cache_key_changes_when_the_chunk_text_changes():
 def test_the_cache_key_changes_when_the_section_changes():
     """section_path is rendered into the prompt, so it varies the answer."""
     assert cache_key(**KEY) != cache_key(**{**KEY, "section_path": ["4.1"]})
+
+
+def test_the_variant_changes_the_key():
+    """Two runs that differ only in how the model was constrained are different
+    questions and must not share an answer."""
+    assert cache_key(**KEY) != cache_key(**KEY, variant="schema@0.32.15")
+
+
+def test_the_runtime_version_changes_the_key():
+    """An upgraded runtime is a different asker even when nothing else moved."""
+    assert cache_key(**KEY, variant="schema@0.32.15") != cache_key(
+        **KEY, variant="schema@0.33.0"
+    )
+
+
+def test_an_absent_variant_keeps_the_old_key():
+    """Adapters with nothing extra to say must not invalidate their own cache
+    merely because the parameter now exists."""
+    assert cache_key(**{**KEY, "adapter_id": "null"}) == cache_key(
+        **{**KEY, "adapter_id": "null"}, variant=""
+    )
 
 
 # --- the cache ---------------------------------------------------------------
@@ -465,6 +487,7 @@ def test_the_cache_forwards_the_section_title_to_the_adapter_behind_it():
 
     class Recording:
         adapter_id = "recording"
+        cache_variant = ""
 
         def extract(self, chunk_text, *, section_path, section_title=None, on_drop=None):
             seen["section_title"] = section_title
@@ -511,6 +534,7 @@ def test_a_cache_hit_does_not_walk_around_the_section_guard():
 
     class Never:
         adapter_id = "never"
+        cache_variant = ""
 
         def extract(self, chunk_text, *, section_path, section_title=None, on_drop=None):
             raise AssertionError("a hit must not reach the adapter")

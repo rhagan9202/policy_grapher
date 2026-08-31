@@ -92,6 +92,54 @@ def test_the_adapter_id_names_the_model():
     )
 
 
+def test_the_runtime_version_is_fetched_once_and_remembered():
+    """Lazily fetched, then cached — a chunk-by-chunk rebuild must not hit
+    /api/version once per chunk."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, json={"version": "0.32.15"})
+
+    extractor = LocalExtractor(
+        base_url="http://model",
+        model="test-model",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert extractor.runtime_version == "0.32.15"
+    assert extractor.runtime_version == "0.32.15"
+    assert calls["n"] == 1
+
+
+def test_the_runtime_version_falls_back_to_unknown_when_the_server_will_not_say():
+    """A cache that degrades to over-keying is safe; failing extraction because
+    a version endpoint is missing is not."""
+    extractor = LocalExtractor(
+        base_url="http://model",
+        model="test-model",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(404, text="not found")
+        ),
+    )
+
+    assert extractor.runtime_version == "unknown"
+
+
+def test_the_cache_variant_combines_decoding_and_runtime_version():
+    """Both halves of what silently varied a model's answer end up in the
+    variant the cache key is widened with."""
+    extractor = LocalExtractor(
+        base_url="http://model",
+        model="test-model",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"version": "0.32.15"})
+        ),
+    )
+
+    assert extractor.cache_variant == "json@0.32.15"
+
+
 def test_an_unknown_adapter_name_fails_loudly():
     """Better at startup than mid-ingest, halfway through a document."""
     with pytest.raises(ValueError, match="unknown extractor adapter"):

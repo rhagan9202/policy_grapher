@@ -47,6 +47,7 @@ class ModalSentenceExtractor:
     """
 
     adapter_id = "modal-sentence-stub"
+    cache_variant = ""
 
     def __init__(self, *, skip: str | None = None) -> None:
         self._skip = skip
@@ -528,6 +529,7 @@ class OneBadChunkExtractor:
     """
 
     adapter_id = "one-bad-chunk-stub"
+    cache_variant = ""
 
     def __init__(self, *, fail_on: int, inner=None) -> None:
         self._fail_on = fail_on
@@ -552,6 +554,7 @@ class OneBadChunkExtractor:
 
 class AlwaysBadExtractor:
     adapter_id = "always-bad-stub"
+    cache_variant = ""
 
     def extract(
         self,
@@ -660,6 +663,7 @@ class _DropsOneItem:
     an adapter should when a single item fails validation."""
 
     adapter_id = "drops-one"
+    cache_variant = ""
 
     def extract(
         self,
