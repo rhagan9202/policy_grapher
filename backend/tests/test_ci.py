@@ -168,36 +168,3 @@ def test_the_compose_job_measures_the_lean_stack(workflow):
         f"the compose job's build step is {command!r}, which builds the default "
         "stack, whose images are ~16.6GB — the size gate would fail on every push"
     )
-
-
-
-def test_ci_runs_the_extraction_gate_against_a_real_model(workflow):
-    """The gate skips silently unless CI configures an adapter with floors.
-
-    Before this, `extractor_adapter` defaulted to "null", FLOORS had no "null"
-    key, and the gate took its first skip branch on every push — green because
-    nothing checked, for the whole of DI-2.
-
-    Asserted against the parsed backend job's steps, not the raw file text: the
-    explanatory comment on the pull step also contains the string `llama3.2:3b`,
-    so a text scan for that string stays green even if the actual `ollama pull`
-    command is deleted and the comment is left behind. `yaml.safe_load` drops
-    comments entirely, so checking the parsed `run` commands is immune to that —
-    there is nowhere for a comment to hide once the file is parsed.
-    """
-    backend = workflow["jobs"]["backend"]
-
-    gate_steps = [
-        step
-        for step in backend["steps"]
-        if step.get("env", {}).get("EXTRACTOR_ADAPTER") == "local"
-    ]
-    assert gate_steps, (
-        "no backend step configures EXTRACTOR_ADAPTER: local, so the extraction "
-        "gate skips"
-    )
-
-    commands = _run_commands(backend)
-    assert any("ollama pull llama3.2:3b" in cmd for cmd in commands), (
-        "CI does not pull the model the gate needs"
-    )

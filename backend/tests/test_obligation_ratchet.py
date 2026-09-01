@@ -199,30 +199,6 @@ US_ORIGIN_EMBEDDING_MODELS = frozenset(
 # regression either — schema mode did not score below a floor on any leg.
 FLOORS = {
     "local:llama3.1:8b": {"precision": 0.862, "recall": 0.892, "modality_accuracy": 0.85},
-    # Measured 2026-08-31 against llama3.2:3b at temperature 0, decoding=schema, on
-    # ollama 0.32.15, two separate processes. Lower observation, truncated. These
-    # are CI's per-push floors: 3b is not the shipped model, it is the smallest
-    # US-origin model (ADR-020) that makes the gate affordable on every push. A
-    # regression that 3b cannot see is what the canary set is for.
-    #
-    # Both processes agreed bit-for-bit: 7 matched, 8 predicted, 28 gold, 7 of 7
-    # matched pairs correct on modality — precision 0.875, recall 0.250, modality
-    # 1.000 in both. Materially lower than 8b's floors, as expected of a smaller
-    # model: recall in particular is far lower (0.250 vs 0.892), because 3b finds
-    # only 7 of the 28 gold obligations rather than 25. Precision and recall are
-    # exact fractions (7/8, 7/28), so there is nothing to truncate beyond writing
-    # the observed values.
-    #
-    # modality_accuracy is NOT set to the observed 1.000, for the same reason
-    # already given above for 8b: a floor at the ceiling fires on the first single
-    # wrong answer, and that argument gets *stronger*, not weaker, as the
-    # denominator shrinks. 8b's ceiling case was one wrong answer in sixteen
-    # matched pairs (0.938, still above a 0.85 floor). 3b's denominator here is
-    # seven matched pairs — a single different modality answer scores 0.857,
-    # which a 1.000 floor would fail on a result that changed nothing else.
-    # 0.85 tolerates that one answer and still catches two, the same tolerance
-    # 8b's floor gives, applied to a thinner sample where it matters more.
-    "local:llama3.2:3b": {"precision": 0.875, "recall": 0.250, "modality_accuracy": 0.85},
 }
 
 

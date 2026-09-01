@@ -1,6 +1,6 @@
 # Architecture
 
-*Living document — edit in place. Last reviewed: 2026-08-21*
+*Living document — edit in place. Last reviewed: 2026-08-31*
 
 Describes the system as it is today, not as it's planned to be. Planned changes belong in
 the [roadmap](../planning/roadmap.md); the reasoning behind past choices belongs in
@@ -502,6 +502,18 @@ turns a surprise outage into a planned piece of work.
   rebuild runs is a speculative requirement nothing has asked for yet, and standing up a second
   source of truth (e.g. mirroring run state into Postgres) to serve a need that may never
   materialise is a worse trade than accepting that only the current run's state is queryable.
+- **Extraction quality is not gated by CI.** `test_the_configured_extractor_clears_its_floors`
+  is the gate on the product's core value, and it does not run on a push. `extractor_adapter`
+  defaults to `null`, `FLOORS` has no `null` entry, so the test takes its first skip branch —
+  loudly, with `-rs` printing the reason, but a skip nobody reads is how a check dies. A
+  per-push gate against `llama3.2:3b` was built on 2026-08-31 and removed the same day: at a
+  measured recall of 0.250 against the shipped `llama3.1:8b`, a prompt change that helped 3b
+  and wrecked 8b would have passed it green, which is the regression class the gate exists to
+  catch. Standing rule 4 in [`AGENTS.md`](../../AGENTS.md) now forbids that shape. Gating the
+  shipped model means running 8b — roughly eight minutes of CPU inference per gold-set pass —
+  so it belongs on a scheduled or manual job, not on every push. Until such a job exists, the
+  floors are enforced only when a person runs them locally.
+
 - **Auto-ingest only runs at startup.** It checks once, in `lifespan`, whether the graph is
   empty — and "empty" means holding no `:Document` nodes, not no nodes at all. Provenance
   outlives what it describes, so a create-then-delete round trip leaves an orphan `:Source`

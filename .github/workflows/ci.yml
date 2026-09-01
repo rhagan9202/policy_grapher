@@ -62,48 +62,6 @@ jobs:
       - name: Integration tests (real Neo4j and Redis)
         run: uv run pytest -m integration -rs
 
-      # The extraction canary. Until this existed it skipped on every push:
-      # `extractor_adapter` defaults to "null", FLOORS has no entry for "null",
-      # and the test takes its first skip branch — so the gate on the product's
-      # core value was green because nothing ran it. llama3.2:3b rather than the
-      # shipped 8b because 2GB is affordable per push and 4.9GB is not; its
-      # floors are its own, measured separately.
-      #
-      # Read "canary", not "quality gate on the shipped model". At recall 0.250
-      # (7 of 28 gold obligations found — see test_obligation_ratchet.py) the
-      # floors sit with essentially no headroom above the observation: what this
-      # step actually catches is catastrophe on the extraction path — a broken
-      # prompt template, a mis-wired decoding mode, a bad ollama runtime bump,
-      # the adapter failing to reach the model at all. It does NOT catch quality
-      # regression in llama3.1:8b, the model that ships. A prompt change that
-      # helps 3b and quietly wrecks 8b passes this step green; that comparison
-      # is 8b's own floors' job, not this one's.
-      - name: Start the pinned model runtime
-        timeout-minutes: 10
-        run: |
-          docker run -d --name ollama -p 11434:11434 ollama/ollama:0.32.15
-          for _ in $(seq 1 60); do
-            curl -sf http://localhost:11434/api/version && break
-            sleep 2
-          done
-          docker exec ollama ollama pull llama3.2:3b
-
-      - name: Extraction canary (llama3.2:3b)
-        env:
-          EXTRACTOR_ADAPTER: local
-          EXTRACTOR_MODEL: llama3.2:3b
-          EXTRACTOR_BASE_URL: http://localhost:11434
-        # -rs prints skip reasons. A skip here means the canary did not run,
-        # which is the failure this step exists to prevent — read the reason,
-        # do not assume the tick means it passed.
-        #
-        # timeout-minutes: measured 205-216s locally for this pytest run; a
-        # 2-vCPU runner doing CPU inference cold has no guarantee of matching
-        # that, so 20 minutes gives roughly 5-6x headroom over the local figure
-        # rather than burning the whole job's default timeout on a hang.
-        timeout-minutes: 20
-        run: uv run pytest tests/test_obligation_ratchet.py -v -rs
-
   frontend:
     name: Frontend (eslint, tsc, vitest)
     runs-on: ubuntu-latest
