@@ -56,270 +56,278 @@
     "section_title": null
   },
   {
-    "chunk_id": "5232049b3dbb40aaec5807171af3970e",
-    "text": ".................................................. 5 \ne.  Emphasize Competition. ................................................................................................ 5 \nf.  Be Responsive. ............................................................................................................... 5 \ng.  Employ a Disciplined Approach. ................................................................................... 5 \nh.  Manage Efficiently and Effectively. .............................................................................. 6 \ni.  Focus on Affordability. ................................................................................................... 6 \nj.  Emphasize Environment, Safety, and Occupational Health (ESOH) Risks and \nRequirements Management. ......................................................................................... 6 \nk.  Employ Performance Based-Acquisition Strategies. ..................................................... 7 \nl.  Plan for Product Support................................................................................................. 7 \nm.  Implement Effective Life-Cycle Management. ............................................................ 7 \nn.  Implement Reliability and Maintainability by Design. .................................................. 7 \no.  Conduct Integrated Test and Evaluation. ....................................................................... 7 \np.  Apply Human Systems Integration. ............................................................................... 8 \nq.  Deploy Interoperable Systems. ...................................................................................... 8 \nr.  Plan for Corrosion Prevention and Mitigation. .............................................................. 8 \ns. ",
+    "chunk_id": "a2a093be95ba6b09e2d2da0c327ce7d9",
+    "text": "SECTION 1:  GENERAL ISSUANCE INFORMATION 5 \nc.  Develop a Culture of Innovation.   \nCreativity and critical thinking will guide acquisition business practice.  Acquisition \nprofessionals will seek, develop, and implement initiatives to streamline and improve the DAS.  \nManagers at every level will consider and adopt innovative practices, including best commercial \npractices and electronic business solutions, that reduce cycle time and cost, and encourage \nteamwork. \nd.  Develop and Deliver Secure Capabilities.   \nSecurity, cybersecurity, and protection of critical technologies at all phases of acquisition are \nthe foundation for uncompromised delivery and sustainment of warfighting capability.  \nAcquisition managers, in coordination with security and counterintelligence (CI) professionals, \nwill implement initiatives and processes for the identification, integration and continual \nevaluation of security and CI requirements throughout the life cycle of a system, service, or \ncritical technology. \ne.  Emphasize Competition. \nThe DoD Components will acquire systems, subsystems, equipment, supplies, product \nsupport, sustainment, and services in accordance with the statutory requirements for competition. \n(1)  Acquisition managers will take all necessary actions to promote a competitive \nenvironment, including consideration of alternative systems, data rights, and modular design to \nmeet current and future mission needs. \n(2)  Planning and contracting for appropriate amounts of data rights, and incorporating a \nmodular and open design to enable upgrades, technology refreshes, and future re-competes may \nenhance competition throughout the life cycle. \nf.  Be Responsive.   \nAdvanced technology will be integrated into developmental prototypes and production \nsystems, and deployed to the operational community as soon as possible. ",
     "section_path": [
-      "(preamble)"
+      "SECTION 1"
+    ],
+    "section_title": "GENERAL ISSUANCE INFORMATION"
+  },
+  {
+    "chunk_id": "179bb9ee19d9236da7cc84d05525e8b0",
+    "text": "3.  DEFINITIONS",
+    "section_path": [
+      "3"
     ],
     "section_title": null
   },
   {
-    "chunk_id": "52b47f0dfa7432dbd41b811a6d895125",
-    "text": "1.  PURPOSE  \n \nThis Directive: \nDODD 5000.01, May 12, 2003 \n \n \nChange 2, 08/31/2018  2",
+    "chunk_id": "8d361f8ee65ef26ae80d1882e19b7afb",
+    "text": "1.2.  POLICY. \nThe objective of the Defense Acquisition System (DAS) is to support the National Defense \nStrategy, through the development of a more lethal force based on U.S. technological innovation \nand a culture of performance that yields a decisive and sustained U.S. military advantage.  The \nacquisition system will be designed to acquire products and services that satisfy user needs with \nmeasurable and timely improvements to mission capability, material readiness, and operational \nsupport, at a fair and reasonable price.  The following overarching policies will govern the DAS: \na.  Deliver Performance at the Speed of Relevance.   \nThe DAS will: \n(1)  Employ the following operating policies: \n(a)  Empower program managers (PMs). \n(b)  Simplify acquisition policy. \n(c)  Employ tailored acquisition approaches. \n(d)  Conduct data driven analysis. \n(e)  Actively manage risk. \n(f)  Emphasize product support and sustainment. \n(2)  Use an adaptive acquisition framework to emphasize these principles. \nb.  Conduct System of Systems (SoS) Analysis.  \nCapability portfolio management, mission engineering, and integration analysis using an \neffects/kill chain framework will be employed to assess the integration and interoperability of the \nSoS required to execute critical mission requirements.  The objective is to identify operational \ngaps and develop SoS employment concepts in order to develop system capabilities that improve \nthe warfighters\u2019 ability to execute critical mission threads. \nDoDD 5000.01, September 9, 2020",
     "section_path": [
-      "1"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "de07fc0aa4a57f5c8e41d308c77f28cd",
-    "text": "........................... 5 \nf.  Be Responsive. ............................................................................................................... 5 \ng.  Employ a Disciplined Approach. ................................................................................... 5 \nh.  Manage Efficiently and Effectively. .............................................................................. 6 \ni.  Focus on Affordability. ................................................................................................... 6 \nj.  Emphasize Environment, Safety, and Occupational Health (ESOH) and Requirements \nManagement. ................................................................................................................. 6 \nk.  Employ Performance Based-Acquisition Strategies. ..................................................... 7 \nl.  Plan for Product Support................................................................................................. 7 \nm.  Implement Effective Life-Cycle Management. ............................................................ 7 \nn.  Implement Reliability and Maintainability by Design. .................................................. 7 \no.  Conduct Integrated Test and Evaluation. ....................................................................... 7 \np.  Apply Human Systems Integration. ............................................................................... 8 \nq.  Deploy Interoperable Systems. ...................................................................................... 8 \nr.  Plan for Corrosion Prevention and Mitigation. .............................................................. 8 \ns.  Employ Artificial Intelligence, Machine Learning, Deep Learning, and Other Related \nCapabilities throughout Execution of the Acquisition Process..................................... 8 \nt.  Plan for Coalition Partners. ",
-    "section_path": [
-      "(preamble)"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "31378a3f5648581455845b95b2ae3428",
-    "text": "tary of Defense for Acquisition and Sustainment (USD(A&S))................... 5 \n2.3.  Under Secretary of Defense for Intelligence and Security. .............................................. 5 \n2.4.  DoD Component Heads, Except the Chairman of the Joint Chiefs of Staff. .................... 6 \n2.5.  Chairman of the Joint Chiefs of Staff. .............................................................................. 7 \nSECTION 3:  ENGINEERING APPLICATION REQUIREMENTS ............................................................... 8 \n3.1.  Introduction. ...................................................................................................................... 8 \na.  Engineering Overview. .................................................................................................. 8 \nb.  Engineering Guidance. ................................................................................................... 8 \n3.2.  Independent Review Teams (IRTs). ................................................................................. 9 \n3.3.  ME and Concept Development. ........................................................................................ 9 \n3.4.  Program Technical Planning and Management. ............................................................. 11 \na.  SEP. .............................................................................................................................. 11 \nb.  Technical Baseline Management. ................................................................................ 14 \nc.  Configuration and Change Management. .................................................................... 14 \nd.  Program Schedules....................................................................................................... 15 \ne.  Test and Evaluation. ..................................................................................................... 15 \nf.  Risk, Issue, and Opportunity Management. ",
-    "section_path": [
-      "(preamble)"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "700f7690d7d6b6a7b53c3b0dfc363b2b",
-    "text": "1.  PURPOSE.  This directive: \n \na.  Reissues DoD Directive (DoDD) 5143.01 (Reference (a)) to update the responsibilities \nand functions, relationships, and authorities of the USD(I&S), pursuant to the authority vested in \nthe Secretary of Defense (SecDef) by sections 113 and 137 of Title 10, United States Code \n(U.S.C.) (Reference (b)), and in accordance with section 3001 et seq. of Title 50, U.S.C. \n(Reference (c)), as well as Public Law 108-458 (Reference (d)), Executive Order (E.O.) 12333 \n(Reference (e)), E.O. 13470 (Reference (f)), and E.O. 13869 (Reference (g)).    \n \nb.  Authorizes the USD(I&S) to reissue chartering DoDDs, in accordance with DoD \nInstruction (DoDI) 5025.01 (Reference (h)), for OSD Presidentially-appointed, Senate-confirmed \nofficials, who are under the authority, direction, and control of the USD(I&S). \n \nc.  Conforms to and is consistent with law and Presidential guidance concerning the \nauthorities and responsibilities of the Director of National Intelligence (DNI). \n \nd.  Cancels Deputy Secretary of Defense (DepSecDef) Memorandums (References (i) and \n(j)).",
-    "section_path": [
-      "1"
-    ],
-    "section_title": "PURPOSE"
-  },
-  {
-    "chunk_id": "142ac3cc58573d4bd6aa649f2a6404a7",
-    "text": "................................... 8 \nSECTION 3:  OVERVIEW .................................................................................................................... 9 \n3.1.  Introduction. ...................................................................................................................... 9 \na.  Overview. ....................................................................................................................... 9 \nb.  DoD Information Enterprise (IE). .................................................................................. 9 \nc.  Alignment with DoD Data Strategy Guiding Principles. ............................................... 9 \n3.2.  ERM Technology Perspective. ......................................................................................... 9 \na.  Building Blocks. ............................................................................................................. 9 \nb.  Purpose-built Versus Utility IT. ................................................................................... 12 \n3.3.  Stakeholders. ................................................................................................................... 13 \na.  Expertise. ...................................................................................................................... 13 \nb.  Groups. ......................................................................................................................... 14 \n3.4.  Using This Issuance. ....................................................................................................... 15 \na.  Application of the RM Architecture Perspective. ........................................................ 15 \nb.  Using for Compliance. ................................................................................................. 16 \nSECTION 4:  RETENTION PLANNING ............................................................................................... ",
-    "section_path": [
-      "(preamble)"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "2eec8da117ad315e730b7108b47bfcfe",
-    "text": "1.  PURPOSE\n.  This instruction: \n \na.  Reissues and renames DoD Directive (DoDD) 8500.01E (Reference (a)) as a DoD \nInstruction (DoDI) pursuant to the authority in DoDD 5144.02 (Reference (b)) to establish a \nDoD cybersecurity program to protect and defend DoD information and information technology \n(IT). \n \n b.  Incorporates and cancels DoDI 8500.02 (Reference (c)), DoDD C-5200.19 (Reference \n(d)), DoDI 8552.01 (Reference (e)), Assistant Secretary of Defense for Networks and \nInformation Integration (ASD(NII))/DoD Chief Information Officer (DoD CIO) Memorandums \n(References (f) through (k)), and Directive-type Memorandum 08-060 (Reference (l)). \n \nc.  Establishes the positions of DoD principal authorizing official (PAO) and the DoD Senior \nInformation Security Officer (SISO) and continues the DoD Information Security Risk \nManagement Committee (DoD ISRMC). \n \n d.  Adopts the term \u201ccybersecurity\u201d as it is defined in National Security Presidential \nDirective-54/Homeland Security Presidential Directive-23 (Reference (m)) to be used throughout  \nDoD instead of the term \u201cinformation assurance (IA).\u201d",
-    "section_path": [
-      "1"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "387d5f88d07d71dc673cce27617097c3",
-    "text": "............................................................................. 8 \nr.  Plan for Corrosion Prevention and Mitigation. .............................................................. 8 \ns.  Employ Artificial Intelligence, Machine Learning, Deep Learning, and Other Related \nCapabilities throughout Execution of the Acquisition Process..................................... 8 \nt.  Plan for Coalition Partners. ............................................................................................. 8 \nu.  Maintain a Professional Workforce. .............................................................................. 8 \nv.  Comply with Statute and International Agreements. ..................................................... 9 \nw.  Maintain Data Transparency. ........................................................................................ 9 \nx.  Manage Records Effectively. ......................................................................................... 9 \ny.  Employ a Collaborative Process. ................................................................................... 9 \nz.  Conduct Industrial Base Assessments. ........................................................................... 9 \n1.3.  Summary of Change 1. ..................................................................................................... 9 \nSECTION 2:  RESPONSIBILITIES ....................................................................................................... 11 \n2.1.  Under Secretary of Defense for Acquisition and Sustainment (USD(A&S)). ................ 11 \n2.2.  Under Secretary of Defense for Research and Engineering (USD(R&E)). .................... 11 \n2.3.  Under Secretary of Defense for Intelligence and Security (USD(I&S)). ....................... 12 \n2.4.  Under Secretary of Defense for Personnel and Readiness. ............................................. 12",
-    "section_path": [
-      "(preamble)"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "0fc552e6d7aa10e145b648ea3619428c",
-    "text": "1.1.  Reissues reference (a) and authorizes publication of reference (b).",
-    "section_path": [
-      "1",
-      "1.1"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "9d45cd64eed3a25541a64d8c06d39010",
-    "text": "Intelligence, Machine Learning, Deep Learning, and Other Related \nCapabilities throughout Execution of the Acquisition Process..................................... 8 \nt.  Plan for Coalition Partners. ............................................................................................. 8 \nu.  Maintain a Professional Workforce. .............................................................................. 8 \nv.  Comply with Statute and International Agreements. ..................................................... 9 \nw.  Maintain Data Transparency. ........................................................................................ 9 \nx.  Manage Records Effectively. ......................................................................................... 9 \ny.  Employ a Collaborative Process. ................................................................................... 9 \nSECTION 2:  RESPONSIBILITIES ....................................................................................................... 10 \n2.1.  Under Secretary of Defense for Acquisition and Sustainment (USD(A&S))................. 10 \n2.2.  Under Secretary of Defense for Research and Engineering (USD(R&E)). .................... 10 \n2.3.  Under Secretary of Defense for Intelligence and Security (USD(I&S)). ....................... 11 \n2.4.  Under Secretary of Defense for Personnel and Readiness (USD(P&R)). ...................... 11 \n2.5.  Chief Management Officer (CMO) of the DoD. ............................................................ 11 \n2.6.  DoD Chief Information Officer. ..................................................................................... 12 \n2.7.  Director of Operational Test and Evaluation (DOT&E). ................................................ 12 \n2.8.  Director of Cost Assessment and Program Evaluation. .................................................. 13 \n2.9.  DoD Component Heads. ",
-    "section_path": [
-      "(preamble)"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "a2731e06319e34604eb480ddd925fef3",
-    "text": "................... 15 \ne.  Test and Evaluation. ..................................................................................................... 15 \nf.  Risk, Issue, and Opportunity Management. ................................................................. 15 \ng.  Program Protection. ..................................................................................................... 16 \n3.5.  Program Technical Reviews and Assessments. .............................................................. 16 \na.  Technical Reviews. ...................................................................................................... 16 \nb.  ITRA. ........................................................................................................................... 16 \nc.  Additional Assessments. .............................................................................................. 19 \n3.6. Specialty Engineering. ..................................................................................................... 19 \na.  Software Engineering. .................................................................................................. 19 \nb.  Reliability and Maintainability (R&M). ...................................................................... 21 \nc.  Quality and Manufacturing. ......................................................................................... 22 \nd.  Human Systems Integration. ........................................................................................ 23 \ne.  System Safety. .............................................................................................................. 23 \nf.  Parts Management. ....................................................................................................... 25 \n3.7.  Design and Architectural Factors.................................................................................... 25 \na.  MOSA. ",
-    "section_path": [
-      "(preamble)"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "1394855308997df8e5506f8ca9c4d630",
-    "text": "2.  APPLICABILITY.  This directive applies to OSD, the Military Departments (MILDEPs), the \nOffice of the Chairman of the Joint Chiefs of Staff (CJCS) and the Joint Staff, the Combatant \nCommands (CCMDs), the Office of the Inspector General of the Department of Defense, the \nDefense Agencies, the DoD Field Activities, and all other organizational entities within the DoD \n(referred to collectively in this directive as the \u201cDoD Components\u201d).",
-    "section_path": [
-      "2"
-    ],
-    "section_title": "APPLICABILITY"
-  },
-  {
-    "chunk_id": "a895c9d77c58504590e8d732953aca93",
-    "text": ".................................................................... 16 \nSECTION 4:  RETENTION PLANNING ............................................................................................... 18 \n4.1.  Overview. ........................................................................................................................ 18 \n4.2.  Required Inputs. .............................................................................................................. 18 \na.  Mission or Business Process Information. ................................................................... 18 \nb.  File Plans and Records Schedules................................................................................ 19 \nc.  Existing Data to Be Imported. ...................................................................................... 19 \nd.  Policy. .......................................................................................................................... 19 \ne.  IT Vendor Assumptions. .............................................................................................. 19 \nf.  Information about the DoD Strategic Plans. ................................................................. 19 \n4.3.  IT Provider Considerations. ............................................................................................ 20 \na.  Determine if the IT System or Service is Purpose-built or Utility. .............................. 20 \nb.  Identify Possible Records Schedule Item Conflicts. .................................................... 20 \nc.  Identify Data Groupings. .............................................................................................. 20 \nd.  Consider When Transitory, Intermediary, or Position-based Retentions Apply. ........ 21 \ne.  Develop the Data Retention Plan. ................................................................................ 22 \nf.  Plan for Rescheduling. ",
-    "section_path": [
-      "(preamble)"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "8b108d80b8f21fa120d9431d0a22a6fd",
-    "text": "2.  APPLICABILITY \n \n a. \n This instruction applies to: \n \n  (1)  OSD, the Military Departments, the Office of the Chairman of the Joint Chiefs of \nStaff (CJCS) and the Joint Staff, the Combatant Commands, the Office of the Inspector General \nof the DoD, the Defense Agencies, the DoD Field Activities, and all other organizational entities \nwithin the DoD (referred to collectively in this instruction as the \u201cDoD Components\u201d). \n \nDoDI 8500.01, March 14, 2014 \n \nChange 1, 10/07/2019 2 \n \n(2)  All DoD IT. \n \n (3)  All DoD information in electronic format. \n \n (4)  Special access program (SAP) information technology, other than SAP ISs handling \nsensitive compartmented information (SCI) material. \n \n b.  Nothing in this instruction  alters or supersedes the existing authorities and policies of the \nDirector of National Intelligence (DNI) regarding the protection of SCI as directed by Executive \nOrder 12333 (Reference (n)) and other laws and regulations.",
-    "section_path": [
-      "2"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "d79432da7ed6a69425388477995f406b",
-    "text": "2.5.  Under Secretary of Defense (Comptroller)/Chief Financial Officer, Department of \nDefense. ............................................................................................................................ 12 \n2.6.  DoD Chief Information Officer. ..................................................................................... 12 \n2.7.  Director of Operational Test and Evaluation (DOT&E). ................................................ 13 \n2.8.  Director of Cost Assessment and Program Evaluation. .................................................. 14 \n2.9.  DoD Component Heads. ................................................................................................. 14 \nDoDD 5000.01, September 9, 2020 \nChange 1, July 28, 2022 \nTABLE OF CONTENTS 3 \n2.10.  Secretaries of the Military Departments. ...................................................................... 15 \n2.11.  CJCS. ............................................................................................................................ 15 \nGLOSSARY ..................................................................................................................................... 16 \nG.1.  Acronyms. ...................................................................................................................... 16 \nG.2.  Definitions. ..................................................................................................................... 16 \nREFERENCES .................................................................................................................................. 17 \n \n \n \nDoDD 5000.01, September 9, 2020 \nChange 1, July 28, 2022",
-    "section_path": [
-      "2.5"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "910cafd08b73cf1f5d03b355f402043b",
-    "text": "1.2.  Along with reference (b), provides management principles and mandatory policies and \nprocedures for managing all acquisition programs.",
-    "section_path": [
-      "1",
+      "SECTION 1",
       "1.2"
     ],
-    "section_title": null
+    "section_title": "GENERAL ISSUANCE INFORMATION"
   },
   {
-    "chunk_id": "a5ad4417a1959986697cb34430e280d7",
-    "text": "OT&E). ................................................ 12 \n2.8.  Director of Cost Assessment and Program Evaluation. .................................................. 13 \n2.9.  DoD Component Heads. ................................................................................................. 13 \n2.10.  CJCS. ............................................................................................................................ 14 \nGLOSSARY ..................................................................................................................................... 15 \nG.1.  Acronyms. ...................................................................................................................... 15 \nDoDD 5000.01, September 9, 2020 \n \nTABLE OF CONTENTS 3 \nG.2.  Definitions. ..................................................................................................................... 15 \nREFERENCES .................................................................................................................................. 16 \n \n \n \nDoDD 5000.01, September 9, 2020",
+    "chunk_id": "e1031a24b0cc39e271d16f314729c993",
+    "text": "3.1.  INTRODUCTION. \na.  Engineering Overview. \n(1)  The application of this engineering instruction covers systems engineering, and other \nengineering disciplines, in the development of DoD systems which aligns with industry best \npractices.  Systems engineering comprises a methodical and disciplined approach for the \nspecification, design, development, realization, technical management, operations, and \nretirement of a system. \n(a)  The engineering processes apply critical thinking in a structured multi-disciplined \napproach to solve problems including the balance of cost, schedule, and performance while \nmaintaining an acceptable level of risk. \n(b)  Although this issuance employs some terminology mainly applicable to the major \ncapability acquisition pathway, the principles and practices described herein should be applied, \nas appropriate, to all DoD systems. \n(2)  ME and MIM activities will be performed as part of concept and system development \nto inform developmental decisions and ensure the department is systematically investing in the \nappropriate capabilities, in an integrated and cost effective manner, to meet mission needs. \n(a)  ME and MIM activities start before conducting material solution analysis in order \nto inform development of the concept baseline, and continue through the acquisition life-cycle. \n(b)  The Office of the USD(R&E) (OUSD(R&E)) will promulgate ME and \nintegration management guidance, standards, and infrastructure to govern and digitally facilitate \nintegration and data sharing across all DoD and OSD Components and life-cycle phases. ",
     "section_path": [
-      "(preamble)"
+      "SECTION 3",
+      "3.1"
     ],
-    "section_title": null
+    "section_title": "ENGINEERING APPLICATION REQUIREMENTS"
   },
   {
-    "chunk_id": "04fdd698b206a2983762869e641092a4",
-    "text": ".......................................................... 25 \n3.7.  Design and Architectural Factors.................................................................................... 25 \na.  MOSA. ......................................................................................................................... 25 \nb.  Spectrum Supportability. ............................................................................................. 26 \nc.  Corrosion Prevention and Control. .............................................................................. 27 \nd.  Item Unique Identification. .......................................................................................... 27 \ne.  Supportability. .............................................................................................................. 27 \nf.  Standardization. ............................................................................................................ 27 \nGLOSSARY ..................................................................................................................................... 28 \nG.1.  Acronyms. ...................................................................................................................... 28 \nDoDI 5000.88, November 18, 2020 \nTABLE OF CONTENTS 3 \nG.2.  Definitions. ..................................................................................................................... 29 \nREFERENCES .................................................................................................................................. 30 \nDoDI 5000.88, November 18, 2020",
-    "section_path": [
-      "(preamble)"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "ed843a515dd5c176361c57b5f53d32a9",
-    "text": "3.  RESPONSIBILITIES AND FUNCTIONS.  The USD(I&S) is the Principal Staff Assistant \n(PSA) and advisor to the SecDef and DepSecDef regarding Intelligence, Counterintelligence \n(CI), Security, sensitive activities, and other intelligence-related matters (referred to in this \ndirective as \u201cassigned responsibilities\u201d or \u201cDefense Intelligence, CI, and Security\u201d).  In this \nDoDD 5143.01, October 24, 2014 \nChange 2, 04/06/2020 2 \ncapacity, the USD(I&S) exercises SecDef authority, direction, and control over, and oversees the \nactivities of, the Defense Intelligence Agency (DIA), the National Geospatial-Intelligence \nAgency (NGA), the National Security Agency/Central Security Service (NSA/CSS), the National \nReconnaissance Office (NRO), and the Defense Counterintelligence and Security Agency; and \nexercises planning, policy, and strategic oversight for all associated policy, plans, and programs.  \nIn the exercise of assigned responsibilities, the USD(I&S):   \n \na.  Serves as the senior Defense Intelligence, CI, and Security official below the SecDef and \nDepSecDef.  \n \nb.  Engages the National Security Council (NSC) staff, other government agencies (OGAs), \nand DoD Components to develop policies, plans, and programs to enable operational application \nof Defense Intelligence and other capabilities, as appropriate.  Provides the NSC principals and \ndeputies committees with Defense Intelligence, CI, Security, sensitive activities, and special \nprogram perspectives, in coordination with the Under Secretary of Defense for Policy (USD(P)).  \nEnsures DoD intelligence and intelligence-related sensitive activities and special access \nprograms (SAPs) align with SecDef and U.S. Government (USG) guidance. \n \nc. ",
+    "chunk_id": "9999416172fb3d0bcb4df241656e5844",
+    "text": "ecurity forums. \n \n(2)  Establishes policy and an integrated strategic framework for the management and \noversight of the Defense Security Enterprise, in accordance with DoDD 5200.43 (Reference (z)). \n \n(3)  Develops personnel security policy and guidance, and oversees the DoD \nDoDD 5143.01, October 24, 2014 \nChange 2, 04/06/2020 5 \nimplementation of E.O.s 12968 and 13467 (References (aa) and (ab)), Reference (g), and the \nDoD Personnel Security Program. \n \n(4)  Performs all SecDef duties and responsibilities regarding the physical security \nprogram, pursuant to Reference (y).  Develops physical security policy and guidance, and \noversees DoD implementation of section 797 of Reference (c), section 1382 of Title 18, U.S.C., \nsection 1069 of Public Law 110-181 (References (ac), and (ad)), and the DoD Physical Security \nProgram. \n \n(5)  Develops information security policy and guidance and oversees DoD \nimplementation of References (v), (w), and (x), and the DoD Information Security Program. \n \n(6)  Performs all SecDef duties and responsibilities regarding the National Industrial \nSecurity Program, pursuant to E.O. 12829 (Reference (ae)).  Develops industrial security policy \nand guidance, and oversees DoD implementation of Reference (z) and the DoD Industrial \nSecurity Program. \n \n(7)  Oversees the implementation of policy regarding the protection of sensitive \ncompartmented information, pursuant to Presidential and DNI guidance.   \n \n(8)  Develops and oversees implementation of DoD SAP security policy, pursuant to \nDoDD 5205.07 (Reference (af)).  \n \n(9)  Provides policy and direction for the identification, reporting, investigation, and \nreferral of serious security incidents, including unauthorized disclosures of classified \ninformation. \n \n(10)  Develops and oversees implementation of policy and guidance for critical program \ninformation identification and protection, in coordination with the Under Secretary of Defense \nfor Acquisition and Sustainment (USD(A&S)). ",
     "section_path": [
       "3"
     ],
     "section_title": "RESPONSIBILITIES AND FUNCTIONS"
   },
   {
-    "chunk_id": "b81116d119abda35c2833be201461bbc",
-    "text": ", or Position-based Retentions Apply. ........ 21 \ne.  Develop the Data Retention Plan. ................................................................................ 22 \nf.  Plan for Rescheduling. .................................................................................................. 24 \ng.  Unscheduled Records................................................................................................... 24 \nh.  Undeclared Records. .................................................................................................... 24 \ni.  Support Management of Records Schedules. ............................................................... 25 \n4.4.  Outcomes. ....................................................................................................................... 25 \nAPPENDIX 4A:  DATA RETENTION PLAN EXAMPLES ...................................................................... 27 \n4A.1.  Overview. ..................................................................................................................... 27 \n4A.2.  Sample Data Retention Plan for a Purpose-built IT System. ....................................... 27 \nDoDM 8180.01, August 4, 2023 \nTABLE OF CONTENTS 3 \na.  Data Retention Plan. ..................................................................................................... 27 \nb.  Observations. ............................................................................................................... 27 \n4A.3.  Sample Data Retention Plan for a Utility IT Service. .................................................. 29 \na.  Data Retention Plan. ..................................................................................................... 29 \nb.  Observations. ............................................................................................................... 29 \n4A.4.  Sample Data Retention Plan for a Purpose-built IT System That Includes Operational \nRecords. ",
+    "chunk_id": "3f884310b360e40593b1bb099575e6ba",
+    "text": " record to a record schedule item when using the \nsystem or service.  IT systems and services must be able to identify and take actions on \ninformation products based on its record schedule item. \nd.  Record lifespans will most likely not align with system or service lifecycle or their \nsupporting contracts.  During retention planning, IT providers and customer technical staff must \nplan for maintenance of records across consecutive systems or services.  To support the full \nlifespan, IT providers and vendors are accountable for providing functionality for lossless data \ningestion for immediate use and export of records.",
     "section_path": [
-      "(preamble)"
+      "SECTION 4",
+      "4.1"
+    ],
+    "section_title": "RETENTION PLANNING"
+  },
+  {
+    "chunk_id": "5f205c8652d83322b07244e49aad4826",
+    "text": "nd Management of DoD Equipment and Other \nAccountable Property,\u201d April 27, 2017, as ammended \n(dg) DoD Instruction 2030.08, \u201cImplementation of Trade Security Controls (TSC) for Transfers \nof DoD U.S. Munitions List (USML) and Commerce Control List (CCL) Personal Property \nto Parties Outside DoD Control,\u201d February 19, 2015, as ammended \n(dh) DoD Instruction 1035.01, \u201cTelework Policy,\u201d April 4, 2012 \n(di) National Institute of Standards and Technology Special Publication 800-114, \u201cUsers Guide \nto Telework and Bring Your Own Device (BYOD) Security,\u201d current edition \n(dj) National Institute of Standards and Technology Special Publication 800-147, \u201cBIOS \nProtection Guidelines for Servers,\u201d current edition \n(dk) Assistant Secretary of Defense for Networks and Information Integration/DoD Chief \nInformation Officer, \u201cCoalition Public Key Infrastructure, X.509 Certificate Policy,\u201d \ncurrent edition \n(dl) DoD Directive 5230.20, \u201cVisits and Assignments of Foreign Nationals,\u201d June 22, 2005 \n(dm) DoD Instruction 5230.27, \u201cPresentation of DoD-Related Scientific and Technical Papers at \nMeetings,\u201d November 18, 2016, as amended \n(dn)  DoD Instruction 2040.02, \u201cInternational Transfers of Technology, Articles, and Services,\u201d \nMarch 27, 2014, as amended \n(do) DoD Instruction 1100.22, \u201cPolicy and Procedures for Determining Workforce Mix,\u201d  \nApril 12, 2010, as amended \n(dp) DoD Directive 5205.02E, \u201cDoD Operations Security (OPSEC) Program,\u201d June 20, 2012, as \namended \n(dq) Committee on National Security Systems Instruction Number 4009, \u201cCommittee on \nNational Security Systems (CNSS) Glossary,\u201d April 6, 2015 \n(dr) Office of the Chairman of the Joint Chiefs of Staff, \u201cDoD Dictionary of Military and \nAssociated Terms,\u201d current edition \n(ds) Presidential Memorandum, \u201cElevation of U.S. ",
+    "section_path": [
+      "REFERENCES"
     ],
     "section_title": null
   },
   {
-    "chunk_id": "011775d1617829e35a080aaaaf051e3e",
-    "text": "3.  POLICY\n.  It is DoD policy that: \n \n a.  \nRisk Management \n \n (1)  DoD will implement a multi-tiered cybersecurity risk management process to protect \nU.S. interests, DoD operational capabilities, and DoD individuals, organizations, and assets from \nthe DoD Information Enterprise level, through the DoD Component level, down to the IS level \nas described in National Institute of Standards and Technology (NIST) Special Publication (SP) \n800-39 (Reference (o)) and Committee on National Security Systems (CNSS) Policy (CNSSP) \n22 (Reference (p)). \n \n (2)  Risks associated with vulnerabilities inherent in IT, global sourcing and distribution, \nand adversary threats to DoD use of cyberspace must be considered in DoD employment of \ncapabilities to achieve objectives in military, intelligence, and business operations. \n \n  (3)  All DoD IT will be assigned to, and governed by, a DoD Component cybersecurity \nprogram that manages risk commensurate with the importance of supported missions and the \nvalue of potentially affected information or assets. \n \n (4)  Risk management will be addressed as early as possible in the acquisition of IT and \nin an integrated manner across the IT life cycle. \n \n (5)  Documentation regarding the security posture of DoD IS and PIT systems will be \nmade available to promote reciprocity as described in DoDI 8510.01 (Reference (q)) and to assist \nauthorizing officials (AOs) from other organizations in making credible, risk-based decisions \nregarding the acceptance and use of systems and the information that they process, store, or \ntransmit. \n \n b.  Operational Resilience\n.  DoD IT will be planned, developed, tested, implemented, \nevaluated, and operated to ensure that: \n \n (1)  Information and services are available to authorized users whenever and wherever \nrequired according to mission needs, priorities, and changing roles and responsibilities. ",
-    "section_path": [
-      "3"
-    ],
-    "section_title": null
-  },
-  {
-    "chunk_id": "7fb5e423c2654f63a420cbaf73c43c9c",
-    "text": "SECTION 1:  GENERAL ISSUANCE INFORMATION 4",
+    "chunk_id": "c573704802b8619687be7f1b6f45a405",
+    "text": "SECTION 1:  GENERAL ISSUANCE INFORMATION 9 \nv.  Comply with Statute and International Agreements.   \nThe acquisition and procurement of DoD weapons and information systems must be \nconsistent with all applicable domestic law, and the resulting systems must comply with \napplicable treaties and international agreements (for arms control agreements, see DoD Directive \n(DoDD) 2060.01), customary international law, and the law of armed conflict (also known as the \nlaws and customs of war).  An attorney authorized to conduct such legal reviews in the DoD \nmust conduct the legal review of the intended acquisition of weapons or weapons systems. \nw.  Maintain Data Transparency.   \nAll acquisition program data should be transparently shared, to the greatest extent possible, \nin its native form and require minimal formatting and manipulation.  All DoD data will be shared \nas widely as possible across the Military Services and OSD.  Options to frustrate or prevent data \ntransparency should not be entertained. \nx.  Manage Records Effectively.   \nDoD records must be managed in compliance with DoD Instruction 5015.02 and Title 44 of \nU.S.C., while protecting the legal and financial rights and interests of the Federal Government \nand of persons affected by U.S. Government activities. \ny.  Employ a Collaborative Process.   \nThe DAS should be a collaborative process in which the DoD Components consult and \ncoordinate with one another.  However, if a Principal Staff Assistant or Service Secretary has an \nobjection to a fundamental aspect of the acquisition process, he or she may raise this objection to \nthe Deputy Secretary of Defense in the form of a briefing.  The briefing serves to notify the \nDeputy of a dissenting view, but does not preemptively halt the acquisition process, unless the \nDeputy chooses to intercede. \nz.  Conduct Industrial Base Assessments. ",
     "section_path": [
       "SECTION 1"
     ],
     "section_title": "GENERAL ISSUANCE INFORMATION"
   },
   {
-    "chunk_id": "e06428a7976ce684cd0166c78a945b20",
-    "text": "2.  APPLICABILITY AND SCOPE",
+    "chunk_id": "b64097dd826db711deb6d82d389edecd",
+    "text": "4.2.  The primary objective of Defense acquisition is to acquire quality products that satisfy \nuser needs with measurable improvements to mission capability and operational support, in a \ntimely manner, and at a fair and reasonable price.",
     "section_path": [
+      "4",
+      "4.2"
+    ],
+    "section_title": null
+  },
+  {
+    "chunk_id": "877f223a5f6ccd4707e1653484b7dc34",
+    "text": "SECTION 1:  GENERAL ISSUANCE INFORMATION 8 \n(c)  Facilitate integration into fielded forces. \n(d)  Confirm performance against documented capability needs and adversary \ncapabilities as described in the system threat assessment. \np.  Apply Human Systems Integration.   \nHuman systems integration planning will begin in the early stages of the program life cycle.  \nThe goal will be to optimize total system performance and total ownership costs, while ensuring \nthat the system is designed, operated, and maintained consistent with mission requirements. \nq.  Deploy Interoperable Systems.   \nJoint concepts, standardization, and integrated architectures will be used to the maximum \nextent possible to characterize the exchange of data, information, materiel, and services to and \nfrom systems, units, and platforms to assure all systems effectively and securely interoperate \nwith other U.S. forces and coalition partner systems. \nr.  Plan for Corrosion Prevention and Mitigation.   \nAcquisition managers will implement corrosion prevention and control procedures early in \nthe program life cycle to prevent it from impacting the availability, cost, and safety of military \nequipment. \ns.  Employ Artificial Intelligence, Machine Learning, Deep Learning, and Other \nRelated Capabilities throughout Execution of the Acquisition Process.   \nTo ensure a culture of performance that yields a decisive and sustained U.S. military \nadvantage, the acquisition system will leverage capabilities including artificial intelligence, \nmachine learning, and deep learning to maximize efficiency and streamline the acquisition of \ngoods and services. \nt.  Plan for Coalition Partners.   \nTo enable allies and partners to enhance U.S. military capability, collaboration opportunities, \npotential partnerships, and international acquisition and exportability features and limitations \nwill be considered in the early design and development phase of acquisition programs. \nu.  Maintain a Professional Workforce. ",
+    "section_path": [
+      "SECTION 1"
+    ],
+    "section_title": "GENERAL ISSUANCE INFORMATION"
+  },
+  {
+    "chunk_id": "2f7924361659ac5eea6463fc060f8b61",
+    "text": "k, Issue, and Opportunity Management Guide for \nDefense Acquisition Programs. \n(b)  Establish a process that considers risks across the entire life-cycle and not be \nconstrained to the current phase. \n(2)  Risk management plans will address risk identification, analysis, mitigation planning, \nmitigation implementation, and tracking.  Technical risks and issues will be reflected in the \nprogram\u2019s IMP and IMS. \n(3)  Opportunity management will identify potential opportunities to include technology \ndevelopment that could have a positive impact on providing better value in performance, \nimproved mission capability, and reduced cost and schedule. \nDoDI 5000.88, November 18, 2020",
+    "section_path": [
+      "SECTION 3"
+    ],
+    "section_title": "ENGINEERING APPLICATION REQUIREMENTS"
+  },
+  {
+    "chunk_id": "543610a184c20fea2282ef5c6850cc1b",
+    "text": "uld delay fielding of intelligence capabilities.  \n \n(4)  Regarding technology insertion: \n \n(a)  Identifies capability gaps and opportunities to enhance Intelligence, CI, and \nSecurity capabilities.   \n \n(b)  Oversees research, development, test, and evaluation, in conjunction with the \nUSD(R&E), the Director of Operational Test and Evaluation, and the DoD Component heads, as \nappropriate, and in accordance with DoD acquisition regulations and sections 139 and 2399 of \nReference (b).  NIP-funded programs must be undertaken in coordination with the DNI.   \n \n(5)  Regarding Defense Intelligence, and designated SAP management and oversight: \n \n(a)  Implements guidance provided by the DoD SAP Oversight Committee.  Serves as \noversight authority for all designated SAPs.   \n \n(b)  Ensures SAP oversight by establishing a SAP Central Office in the Office of the \nUSD(I&S) and designating a SAP Central Office Director to be responsible for executing the \nresponsibilities outlined in Reference (af): \n \nDoDD 5143.01, October 24, 2014 \nChange 2, 04/06/2020 10",
+    "section_path": [
+      "3"
+    ],
+    "section_title": "RESPONSIBILITIES AND FUNCTIONS"
+  },
+  {
+    "chunk_id": "8fd5641a19decaa44c226b6c69b258b6",
+    "text": "SECTION 6:  CAPTURE",
+    "section_path": [
+      "SECTION 6"
+    ],
+    "section_title": "CAPTURE"
+  },
+  {
+    "chunk_id": "3776e7b47735113a8dffeb3a7bf5cb5b",
+    "text": "2.  RISK MANAGEMENT \n \na.  Cybersecurity Risk Management.  Managing cybersecurity risks is a complex, \nmultifaceted undertaking that requires the involvement of the entire organization, from senior \nleaders planning and managing DoD operations, to individuals developing, implementing, and \noperating the IT supporting those operations.  Cybersecurity risk management is a subset of the \noverall risk management process for all DoD acquisitions as defined in Reference (at), which \nincludes cost, performance, and schedule risk associated with the execution of all programs of \nrecord, and all other acquisitions of DoD.  The risk assessment process extends to the logistics \nsupport of fielded equipment and the need to maintain the integrity of supply sources. \nDoDI 8500.01, March 14, 2014 \n \nChange 1, 10/07/2019 27 ENCLOSURE 3 \n  (1)  DoD will use  NIST SP 800-37 (Reference (ca)), as implemented by Reference (q), to \naddress risk management, including authorization to operate (ATO), for all DoD ISs and PIT \nsystems. \n \n(2)  DoD IS and PIT systems will transition to CNSSI 1253 (Reference (cb)), NIST SP \n800-53 (Reference (cc)), and Reference (ca) in accordance with transition guidance provided in \nReference (q). \n \nb.  Integrated Organization-Wide Risk Management.  Risk management can be viewed as a \nholistic activity that is fully integrated into every aspect of the organization as described in \nReference (o).  Figure 1 illustrates a three-tiered approach to risk management that addresses \nrisk-related concerns at the organization level, the mission and business process level, and the IS \nlevel. \n \nFigure 1. ",
+    "section_path": [
+      "ENCLOSURE 3",
       "2"
     ],
+    "section_title": "PROCEDURES"
+  },
+  {
+    "chunk_id": "b1939ef9550eab8a3a8f5c90b6e89fd3",
+    "text": "SECTION 2:  RESPONSIBILITIES 12 \ng.  Serves as the approval authority for the developmental test and evaluation (DT&E) plan in \nthe Test and Evaluation Master Plan (TEMP), test strategy, or other overarching program test \nplanning document for all ACAT ID programs.  Reviews and advises the MDA on the DT&E \nplan in the TEMP, test strategy, or other overarching program test planning document for ACAT \nIB and IC programs.",
+    "section_path": [
+      "SECTION 2"
+    ],
+    "section_title": "RESPONSIBILITIES"
+  },
+  {
+    "chunk_id": "8fbc9086159bb5fe98f353a759ed4a54",
+    "text": "4.4.  Additional policies that will be applied to the acquisition system are at enclosure 1. \n \nDODD 5000.01, May 12, 2003 \n \nChange 2, 08/31/2018  4",
+    "section_path": [
+      "4",
+      "4.4"
+    ],
     "section_title": null
   },
   {
-    "chunk_id": "299232d147a8737676524eafc86d777f",
-    "text": "SECTION 1:  GENERAL ISSUANCE INFORMATION 4",
+    "chunk_id": "3ffa5dd1a0d323ba30d4da2d5286d1b7",
+    "text": "2.3.  UNDER SECRETARY OF DEFENSE FOR INTELLIGENCE AND SECURITY \n(USD(I&S)).   \nIn accordance with DoDD 5143.01, the USD(I&S): \na.  Advises and assists the integration of intelligence data, CI, and security throughout the \nacquisition life cycle. \nb.  Oversees Defense Intelligence Enterprise and Defense Security Enterprise performance in \nmeeting critical intelligence needs of life-cycle acquisition. \nc.  Provides intelligence and security advice for ACAT ID programs. \nd.  Manages a professional certification program for the intelligence workforce that supports \nthe DoD acquisition process.",
     "section_path": [
-      "SECTION 1"
+      "SECTION 2",
+      "2.3"
     ],
-    "section_title": "GENERAL ISSUANCE INFORMATION"
+    "section_title": "RESPONSIBILITIES"
   },
   {
-    "chunk_id": "11f924a9e3d9a4ade061c847285c3ac1",
-    "text": "SECTION 1:  GENERAL ISSUANCE INFORMATION 4",
+    "chunk_id": "dc40086f7442fd28a8657d454e0db2f8",
+    "text": "3.  Software obsolescence.",
     "section_path": [
-      "SECTION 1"
-    ],
-    "section_title": "GENERAL ISSUANCE INFORMATION"
-  },
-  {
-    "chunk_id": "eba898b2df3d06b55d4e63a7ab902c73",
-    "text": "f Defense for Policy (USD(P)).  \nEnsures DoD intelligence and intelligence-related sensitive activities and special access \nprograms (SAPs) align with SecDef and U.S. Government (USG) guidance. \n \nc.  Serves as Director of Defense Intelligence and principal advisor to the DNI on Defense \nIntelligence matters, in accordance with the SecDef and DNI Memorandum of Agreement \n(Reference (k)), and as the primary SecDef representative to the Office of the DNI (ODNI) and \nall other Intelligence Community (IC) elements regarding the responsibilities and functions \nprescribed in this directive. \n \nd.  Serves as the DoD senior official for the insider threat program; develops policy and \nguidance and oversees implementation of the DoD insider threat program; and makes resource \nrecommendations to implement requirements, in accordance with E.O. 13587, Presidential \nMemorandum, and DoDD 5205.16 (References (l), (m), and (n)). \n \ne.  Facilitates integration of Defense Intelligence and DoD support with IC activities.   \n \nf.  Establishes policy and priorities for, and provides oversight of, the Defense Intelligence \nEnterprise, including pursuant to DoDD 5240.01 (Reference (o)) and other SecDef and DNI \nguidance.  Ensures DoD IC elements are responsive and timely with respect to satisfying the \nneeds of operational military forces, in accordance with section 3038 of Reference (c). \n \ng.  For Defense Intelligence:  \n \n(1)  For Defense Intelligence analysis:  \n \n(a)  Provides oversight and guidance to ensure the analysis meets DoD policy, \noperations, planning, and acquisition requirements; supports timely and accurate decision-\nmaking; and is available to support national requirements. \n \n(b)  Provides oversight and direction for capabilities and the implementation of \npolicies, plans, and programs to ensure effective support to the DoD mission. ",
-    "section_path": [
+      "SECTION 3",
       "3"
     ],
-    "section_title": "RESPONSIBILITIES AND FUNCTIONS"
+    "section_title": "ENGINEERING APPLICATION REQUIREMENTS"
   },
   {
-    "chunk_id": "4f415aa4bb5a5e5b98f2b3f6bb47c218",
-    "text": "............................................................................................... 29 \n4A.4.  Sample Data Retention Plan for a Purpose-built IT System That Includes Operational \nRecords. ............................................................................................................................ 32 \na.  Data Retention Plan. ..................................................................................................... 32 \nb.  Observations. ............................................................................................................... 32 \nSECTION 5:  METADATA ................................................................................................................. 34 \n5.1.  Overview. ........................................................................................................................ 34 \n5.2.  Required Inputs. .............................................................................................................. 34 \na.  Data Retention Plan. ..................................................................................................... 34 \nb.  Metadata Standards. ..................................................................................................... 34 \nc.  Metadata Sources. ........................................................................................................ 35 \n5.3.  IT Provider Considerations. ............................................................................................ 35 \na.  Metadata Requirements. ............................................................................................... 35 \nb.  Metadata Storage Mechanisms. ................................................................................... 35 \nc.  Categories of RM Metadata. ........................................................................................ 35 \nd.  Required Metadata Elements for RM. ",
+    "chunk_id": "b0e99a6585595885ebdd2e59d86ec91f",
+    "text": "5.  AUTHORITIES.  Pursuant to the authority vested in the SecDef, and subject to SecDef \nauthority, direction, and control, and in accordance with DoD policies and issuances, the \nUSD(I&S) is hereby delegated authority to:  \n \na.  Exercise, within assigned responsibilities and functional areas, all authority of the SecDef \nderived from statute, E.O., regulation, or interagency agreement, except where specifically \nlimited by statute or E.O. to the SecDef. \n \nb.  Establish DoD policy through DoDIs, directive-type memorandums (DTMs), and rules \npublished in the Federal Register, within the authorities and responsibilities assigned in this \nissuance and in accordance with Reference (h) or Administrative Instruction 102 (Reference \n(bj)).   \n \n (1)  In those documents, assign responsibilities related to the authorities and \nresponsibilities in this issuance to other OSD PSAs and the DoD Component heads.  Assignment \nof responsibilities in DoD issuances or rules published in the Federal Register to Military \nDepartment officials must be made through the Secretaries of those Departments.  DoD \nissuances or rules published in the Federal Register assigning responsibilities to the CCMDs \nmust be coordinated with the CJCS. \n (2)  DoDIs and DTMs must be fully coordinated in accordance with Reference (h).  Rules \npublished in the Federal Register must be fully coordinated with impacted OSD and DoD \nComponent heads and be consistent with Reference (bi).   \nDoDD 5143.01, October 24, 2014 \nChange 2, 04/06/2020 14 \n (3)  This authority may not be redelegated.   \nc.  Approve other DoDIs, DoDMs, and DTMs in areas of assigned responsibilities and \nfunctions that implement policy already established by a DoD directive, DoDI, DTM, or policy \nmemorandum issued by the SecDef or DepSecDef.   \n(1)  In these documents, assign responsibilities related to the authorities and \nresponsibilities in this issuance to other OSD PSAs and the DoD Component heads. ",
     "section_path": [
-      "(preamble)"
+      "5"
+    ],
+    "section_title": "AUTHORITIES"
+  },
+  {
+    "chunk_id": "8cc54afe9bcaddd0022987733f4b2582",
+    "text": "SECTION 11:  ACCESS CONTROL 63",
+    "section_path": [
+      "SECTION 11"
+    ],
+    "section_title": "ACCESS CONTROL"
+  },
+  {
+    "chunk_id": "40d85f77b84b35bac8d81b8e80a77e3f",
+    "text": "2.  Ensure that processes, roles , and responsibilities are established between \nprogram management office and network operations entities for continued assessment.",
+    "section_path": [
+      "ENCLOSURE 3",
+      "2"
+    ],
+    "section_title": "PROCEDURES"
+  },
+  {
+    "chunk_id": "c26481f20cc3bfdca1ea1ba3181f0560",
+    "text": "2.8.  DIRECTOR OF COST ASSESSMENT AND PROGRAM EVALUATION.   \nIn addition to the responsibilities assigned in DoDD 5105.84, the Director of Cost Assessment \nand Program Evaluation: \na.  Conducts or approves independent cost analysis and issues the policies for collection of \ncost data. \nb.  Provides analysis and advice on matters relating to the planning and programming phases \nof the planning, programming, budgeting, and execution system, and the preparation of materials \nand guidance for such system. \nc.  Develops AoA study guidance, approves AoA study plans, and evaluates the adequacy of \nAoAs for all MDAPs, in accordance with DoDD 5105.84. \nd.  Conducts analysis and provides advice to inform the establishment of program cost and \nfielding goals pursuant to Section 4271 of Title 10, U.S.C.",
+    "section_path": [
+      "SECTION 2",
+      "2.8"
+    ],
+    "section_title": "RESPONSIBILITIES"
+  },
+  {
+    "chunk_id": "4def5eab4c61d95bf66daac53d80a69e",
+    "text": "xpectation of a potential commercial application.  Contractors are \nentitled to earn reasonable rewards on DoD contracts, including competitively awarded \ncontracts. \n \nE1.1.7.  Financial Management.  The  Defense Business Systems Management Committee \nshall develop a  Business Enterprise Architecture and a transition plan in accordance with section \n2222, title 10, U.S.C. reference (k)) and shall approve any obligation of funds in excess of $1M \nfor a defense  business system modernization. \n \nE1.1.8.  Independent Operational Test Agency (OTA).  Each Military Department shall \nestablish an independent OTA reporting directly to the Service Chief to plan and conduct \noperational tests, report results, and provide evaluations of effectiveness and suitability. \n \nE1.1.9.  Information Assurance.  Acquisition managers shall address information assurance \nrequirements for all weapon systems; Command, Control, Communications, Computers, \nIntelligence, Surveillance, and Reconnaissance systems; and information technology programs \nthat depend on external information sources or provide information to other DoD systems.  DoD \npolicy for information assurance of information technology, including NSS, appears in DoD \nDirective 8500.01E, reference (l). \n \nE1.1.10.  Information Superiority.  Acquisition managers shall provide U.S. Forces with \nsystems and families of systems that are secure, reliable, interoperable, compatible with the \nelectromagnetic spectrum environment, and able to communicate across a universal information \ntechnology infrastructure, including NSS, consisting of data, information, processes, \norganizational interactions, skills, analytical expertise, other systems, networks, and information \nexchange capabilities. \n \nE1.1.11.  Integrated Test and Evaluation.  Test and evaluation shall be integrated throughout \nthe defense acquisition process. ",
+    "section_path": [
+      "ENCLOSURE 1"
+    ],
+    "section_title": "ADDITIONAL POLICY"
+  },
+  {
+    "chunk_id": "061af6370e96e5c67a95640ba455a433",
+    "text": "2.8.  DIRECTOR OF COST ASSESSMENT AND PROGRAM EVALUATION.   \nIn addition to the responsibilities assigned in DoDD 5105.84, the Director of Cost Assessment \nand Program Evaluation: \na.  Conducts or approves independent cost analysis and issues the policies for collection of \ncost data. \nb.  Provides analysis and advice on matters relating to the planning and programming phases \nof the planning, programming, budgeting, and execution system, and the preparation of materials \nand guidance for such system. \nc.  Develops AoA study guidance, approves AoA study plans, and evaluates the adequacy of \nAoAs for all MDAPs, in accordance with DoDD 5105.84. \nd.  Conducts analysis and provides advice to inform the establishment of program cost and \nfielding goals pursuant to Section 2448a of Title 10, U.S.C.",
+    "section_path": [
+      "SECTION 2",
+      "2.8"
+    ],
+    "section_title": "RESPONSIBILITIES"
+  },
+  {
+    "chunk_id": "c5a99ab2d347297850a642e279ed1c74",
+    "text": "SECTION 3:  ENGINEERING APPLICATION REQUIREMENTS  23 \n(a)  Manufacturing, producibility, and quality risks are acceptable. \n(b)  Supplier qualifications are completed. \n(c)  Any applicable manufacturing processes are or will be under statistical process \ncontrol. \nd.  Human Systems Integration. \nThe LSE will: \n(1)  Working for the PM, use a human-centered design approach for system definition, \ndesign, development, test, and evaluation to optimize human-system performance. \n(2)  Conduct frequent and iterative end user validation of features and usability for \nidentifying, communicating, and visualizing user needs under defined operational conditions and \nexpected mission threads. \n(3)  Working for the PM, ensure human systems integration risks are identified and \nmanaged throughout the program\u2019s life-cycle.  For more information, refer to Enclosure 7 of \nDoDI 5000.02T. \ne.  System Safety. \nThe system safety standard practice identifies the DoD Systems Engineering approach to \neliminating hazards, where possible, and minimizing risks where those hazards cannot be \neliminated. \n(1)  System Safety Engineering. \nThe LSE, working for the PM, will: \n(a)  Integrate system safety engineering into the overall systems engineering process. \nThe LSE will use the methodology in Military Standard (MIL-STD)-882E to address \nenvironment, safety, and occupational health (ESOH) risks associated with system-related \nhazards.  In addition to MIL-STD-822E, the LSE will use the guidance identified in the DoD \nJoint Software Systems Safety Engineering Handbook to achieve an acceptable level of software \nsystem safety risk.  \n(b)  Identify, document, and analyze identified hazards and assess the ESOH risks \nwhere hazards cannot be eliminated.",
+    "section_path": [
+      "SECTION 3"
+    ],
+    "section_title": "ENGINEERING APPLICATION REQUIREMENTS"
+  },
+  {
+    "chunk_id": "55444eb53ada0f3dac9d685e6e28b4eb",
+    "text": "01, \u201cDoD Intelligence Activities,\u201d August 27, 2007, as amended \n(p) DoD Directive S-5200.37, \u201cManagement and Execution of Defense Human Intelligence \n(HUMINT) (U),\u201d February 9, 2009, as amended \n(q) DoD Directive S-3325.09 \u201cOversight Management, and Execution of Defense Clandestine \nSource Operation (U),\u201d January 9, 2013, as amended  \n(r) Intelligence Community Directive 310, \u201cCoordination of Clandestine Human Source and \nHuman-Enabled Foreign Intelligence Collection and Counterintelligence Activities Outside \nthe United States,\u201d June 27, 2016  \n(s) Intelligence Community Directive 304, \u201cHuman Intelligence,\u201d March 6, 2008, as amended \n(t) DoD Directive S-5210.36, \u201cProvision of DoD Sensitive Support to DoD Components and \nother Departments and Agencies of the U.S. Government (U),\u201d November 6, 2008, as \namended \n(u) DoD Instruction S-3200.17, \u201cImplementing Instructions for the DoD Special \nCommunications Enterprise Office (SCEO) (U),\u201d July 15, 2009 \nDoDD 5143.01, October 24, 2014 \nChange 2, 04/06/2020 18 ENCLOSURE \n(v) Executive Order 13526, \u201cClassified National Security Information,\u201d December 29, 2009,  \nas amended  \n(w) Executive Order 13556, \u201cControlled Unclassified Information,\u201d November 4, 2010 \n(x) Executive Order 13549, \u201cClassified National Security Information Progr am for State, \nLocal, Tribal, and Private Sector Entities,\u201d August 18, 2010 \n(y) Executive Order 12977, \u201cInteragency Security Committee,\u201d October 19, 1995 \n(z) DoD Directive 5200.43, \u201cManagement of the Defense Security Enterprise,\u201d October 1, \n2012, as amended \n(aa) Executive Order 12968, \u201cAccess to Classified Information,\u201d August 2, 1995, as amended \n(ab) Executive Order 13467, \u201cReforming Processes Related to Suitability for Government \nEmployment, Fitness for Contractor Employees, and Eligibility for Access to Classified \nNational Security Information,\u201d June 30, 2008, as amended \n(ac) Title 18, United States Code \n(ad) Public Law 110-181, \u201cNational Defense Authorization Act for Fiscal Year 2008,\u201d",
+    "section_path": [
+      "REFERENCES"
     ],
     "section_title": null
   },
   {
-    "chunk_id": "16ec2a908c001236e46ef715df37f67c",
-    "text": "ed to ensure that: \n \n (1)  Information and services are available to authorized users whenever and wherever \nrequired according to mission needs, priorities, and changing roles and responsibilities. \n \nDoDI 8500.01, March 14, 2014 \n \nChange 1, 10/07/2019 3 \n \n (2)  Security posture, from individual device or software object to aggregated syst ems of \nsystems, is sensed, correlated, and made visible to mission owners, network operators, and to the \nDoD Information Enterprise consistent with DoDD 8000.01 (Reference (r)). \n \n  (3)  Whenever possible, technology components (e.g., hardware and software)  have the \nability to reconfigure, optimize, self-defend, and recover with little or no human intervention.  \nAttempts made to reconfigure, self-defend, and recover should produce an incident audit trail. \n \n c.  \nIntegration and Interoperability \n \n (1)  Cybersecurity must be fully integrated into system life cycles and will be a visible \nelement of organizational, joint, and DoD Component IT portfolios. \n \n (2)  Interoperability will be achieved through adherence to DoD architecture principles, \nadopting a standards-based approach, and by all DoD Components sharing the level of risk \nnecessary to achieve mission success. \n \n  (3)  All interconnections of DoD IT will be managed to minimize shared risk by ensuring \nthat the security posture of one system is not undermined by vulnerabilities of interconnected \nsystems. \n \nd.  Cyberspace Defense\n.  Cyberspace defense actions are taken within cyberspace to defeat \nspecific threats that have breached or are threatening to beach system cybersecurity measures.  \nActions include detecting, characterizing, countering, mitigating threats, (e.g., malware, \nunauthorized activity, and vulnerabilities) and restoring systems to a secure configuration as \ndescribed in Joint Publication 3-12 (Reference (s)). \n \n e. ",
+    "chunk_id": "fb728583ee93395cfd834e3ae3adc1ab",
+    "text": "ation 14721:2012, \u201cSpace Data and Information \nTransfer Systems - Open Archival Information System (OAIS) - Reference Model\u201d \nInternational Organization for Standardization 15489-1:2016, \u201cInformation and Documentation - \nRecords Management - Part 1:  Concepts and Principles\u201d \nInternational Organization for Standardization 23081-2:2009, \u201cInformation and Documentation - \nManaging Metadata for Records - Part 2: Conceptual and Implementation Issues\u201d \nNational Archives and Records Administration, \u201cGeneral Records Schedule,\u201d \nhttps://www.archives.gov/records-mgmt/grs \nNational Archives and Records Administration, \u201cGeneral Records Schedule 5.2 Transitory and \nIntermediary Records,\u201d https://www.archives.gov/records-mgmt/grs \nNational Archives and Records Administration, \u201cGeneral Records Schedule 6.1 Email Managed \nunder a Capstone Approach,\u201d https://www.archives.gov/records-mgmt/grs \nDoDM 8180.01, August 4, 2023 \n \nREFERENCES 88 \nNational Archives and Records Administration, \u201cUniversal Electronic Records Management \n(ERM) Requirements,\u201d https://www.archives.gov/records-\nmgmt/policy/universalermrequirements \nNational Archives and Records Administration Bulletin 2014-02, \u201cGuidance on Managing Social \nMedia Records,\u201d October 24, 2013 \nNational Archives and Records Administration Bulletin 2015-04, \u201cMetadata Guidance for the \nTransfer of Permanent Electronic Records,\u201d September 15, 2015 \nNational Institute of Standards and Technology, Special Publication 800-145, \u201cThe NIST \nDefinition of Cloud Computing,\u201d September 2011 \nNational Information Exchange Model Executive Steering Council, \u201cNational Information \nExchange Model,\u201d current edition \nOffice of the Program Manager, Information Sharing Environment, \u201cPriority Objective 3: Data \nTagging Functional Requirements,\u201d Version 1.0, December 2014 \nUnited States Code, Title 5, Sections 552 and 552a (also known as the \u201cFreedom of Information \nAct\u201d and \u201cPrivacy Act\u201d, respectively) \nUnited States Code, Title 44, Section 3552(b)(6)",
     "section_path": [
-      "3"
+      "REFERENCES"
     ],
     "section_title": null
   },
   {
-    "chunk_id": "de578070713c84a1403cead1670bee08",
-    "text": "SECTION 1:  GENERAL ISSUANCE INFORMATION",
+    "chunk_id": "1b2193f6cdb80efa75e996f1dd276143",
+    "text": "r that stores keys, passwords, and digital certificates.  It \ntypically is affixed to the motherboard of computers.  It potentially can be used in any computing \ndevice that requires these functions.  The nature of this hardware chip ensures that the \ninformation stored there is made more secure from external software attack and physical theft.  \nThe TPM standard is a product of the Trusted Computing Group consortium.  For more \ninformation on the TPM specification and architecture, refer to \nwww.trustedcomputinggroup.org/groups/tpm.",
     "section_path": [
-      "SECTION 1"
-    ],
-    "section_title": "GENERAL ISSUANCE INFORMATION"
-  },
-  {
-    "chunk_id": "2a6232f36ab96696062d53ad24b67029",
-    "text": "2.1.  This Directive applies to the Office of the Secretary of Defense, the Military \nDepartments, the Office of the Chairman of the Joint Chiefs of Staff, the Combatant Commands, \nthe Office of the Inspector General of the Department of Defense, the Defense Agencies, the \nDoD Field Activities, and all organizational entities within the Department of Defense (hereafter \ncollectively referred to as the \u201cDoD Components\u201d).",
-    "section_path": [
-      "2",
-      "2.1"
+      "GLOSSARY"
     ],
     "section_title": null
   },
   {
-    "chunk_id": "644b8acf81a0b5141e4c58c84beb264e",
-    "text": "SECTION 1:  GENERAL ISSUANCE INFORMATION",
+    "chunk_id": "64756e65a7207eff0d9059f2cf740af8",
+    "text": "REFERENCES \n\u201cSummary of the 2018 National Defense Strategy of the United States of America,\u201d 2018 \nDoD Directive 1322.18, \u201cMilitary Training,\u201d October 3, 2019 \nDoD Directive 2060.01, \u201cImplementation of, and Compliance with, Arms Control Agreements,\u201d \nJune 23, 2020 \nDoD Directive 5105.84, \u201cDirector of Cost Assessment and Program Evaluation,\u201d  \nAugust 14, 2020 \nDoD Directive 5124.02, \u201cUnder Secretary of Defense for Personnel and Readiness \n(USD(P&R)),\u201d June 23, 2008 \nDoD Directive 5135.02, \u201cUnder Secretary of Defense for Acquisition and Sustainment \n(USD(A&S)),\u201d July 15, 2020 \nDoD Directive 5137.02, \u201cUnder Secretary of Defense for Research and Engineering \n(USD(R&E)),\u201d July 15, 2020 \nDoD Directive 5141.02, \u201cDirector of Operational Test and Evaluation (DOT&E),\u201d  \nFebruary 2, 2009 \nDoD Directive 5143.01, \u201cUnder Secretary of Defense for Intelligence and Security \n(USD(I&S)),\u201d October 24, 2014, as amended \nDoD Directive 5144.02, \u201cDoD Chief Information Officer (DoD CIO),\u201d November 21, 2014, as \namended \nDoD Instruction 5015.02, \u201cDoD Records Management Program,\u201d February 24, 2015, as \namended \nDoD Instruction 8500.01, \u201cCybersecurity,\u201d March 14, 2014, as amended \nMilitary-Standard 882E, \u201cDoD Standard Practice for System Safety,\u201d May 11, 2012 \nPublic Law 116-283, \u201cWilliam M. Thornberry National Defense Authorization Act for Fiscal \nYear 2021,\u201d January 1, 2021 \nUnited States Code, Title 10 \nUnited States Code, Title 44",
     "section_path": [
-      "SECTION 1"
+      "REFERENCES"
     ],
-    "section_title": "GENERAL ISSUANCE INFORMATION"
+    "section_title": null
   },
   {
-    "chunk_id": "b919642b2e5aee5005efbae993255ceb",
-    "text": "SECTION 1:  GENERAL ISSUANCE INFORMATION",
+    "chunk_id": "bb3d55b132df6be21e693dfc7127af3f",
+    "text": "life cycle costs, \nperformance, and schedule comparable in making program decisions.  Planning for Operation \nand Support and the estimation of total ownership costs shall begin as early as possible.  \nSupportability, a key component of performance, shall be considered throughout the system life \ncycle.",
     "section_path": [
-      "SECTION 1"
+      "ENCLOSURE 1"
     ],
-    "section_title": "GENERAL ISSUANCE INFORMATION"
+    "section_title": "ADDITIONAL POLICY"
   },
   {
-    "chunk_id": "9d293378daf0c1bad368193f0770173f",
-    "text": "le to support national requirements. \n \n(b)  Provides oversight and direction for capabilities and the implementation of \npolicies, plans, and programs to ensure effective support to the DoD mission.   \n \nDoDD 5143.01, October 24, 2014 \nChange 2, 04/06/2020 3 \n(c)  Ensures the analysis is aligned with IC and DoD analytical concepts, \nmethodologies, and tradecraft efforts.   \n \n(2)  For Defense human intelligence (HUMINT): \n \n(a)  Establishes policy and provides oversight and direction, in accordance with \nDoDD S-5200.37 (Reference (p)).  Serves as DoD representative to the IC for Defense HUMINT \npolicy and related matters.   \n \n(b)  Provides oversight and direction to ensure Defense HUMINT Executors are \norganized and structured to support the missions of DoD and the requirements of the OSD and \nDoD Components and ODNI, in accordance with Reference (p). \n \n(c)  Identifies DoD-related National Intelligence requirements to guide Defense \nHUMINT activities.  Facilitates and guides Defense HUMINT activities and source operations, \nin consultation with the Assistant Secretary of Defense for Special Operations and Low-Intensity \nConflict, as appropriate, in accordance with Reference (p) and DoDD S-3325.09, Intelligence \nCommunity Directive 310, and IC Directive 304 (References (q), (r), and (s)).  \n \n(d)  Oversees the integration and delivery of actionable HUMINT to the warfighter \nthrough clandestine tradecraft, technologies, methodologies, and processes.  \n \n(3)  For technical collection (i.e., signals intelligence, geospatial intelligence, \nmeasurement and signature intelligence, and biometrics-enabled and forensics-enabled \nintelligence):  \n \n(a)  Provides oversight and direction of technical collection capabilities, including \ntechnical collection support, to the DoD.  Ensures NSA/CSS, NGA, DIA, and NRO, in the \nexecution of their missions, fully support the operations, policy, planning, and acquisition \nrequirements of DoD and the USG, as appropriate. ",
+    "chunk_id": "78ac0729ed99d00798625521a9c71dbd",
+    "text": "REFERENCES \n\u201cSummary of the 2018 National Defense Strategy of the United States of America,\u201d 2018 \nDoD Directive 1322.18, \u201cMilitary Training,\u201d October 3, 2019 \nDoD Directive 2060.01, \u201cImplementation of, and Compliance with, Arms Control Agreements,\u201d  \nJune 23, 2020 \nDoD Directive 5105.82, \u201cDeputy Chief Management Officer (DCMO) of the Department of \nDefense,\u201d October 17, 2008 \nDoD Directive 5105.84, \u201cDirector of Cost Assessment and Program Evaluation,\u201d  \n August 14, 2020 \nDoD Directive 5124.02, \u201cUnder Secretary of Defense for Personnel and Readiness \n(USD(P&R)),\u201d June 23, 2008 \nDoD Directive 5135.02, \u201cUnder Secretary of Defense for Acquisition and Sustainment \n(USD(A&S)),\u201d July 15, 2020 \nDoD Directive 5137.02, \u201cUnder Secretary of Defense for Research and Engineering \n(USD(R&E)),\u201d July 15, 2020 \nDoD Directive 5141.02, \u201cDirector of Operational Test and Evaluation (DOT&E),\u201d  \nFebruary 2, 2009 \nDoD Directive 5143.01, \u201cUnder Secretary of Defense for Intelligence and Security \n(USD(I&S)),\u201d October 24, 2014, as amended \nDoD Directive 5144.02, \u201cDoD Chief Information Officer (DoD CIO),\u201d November 21, 2014, as \namended \nDoD Instruction 5015.02, \u201cDoD Records Management Program,\u201d February 24, 2015, as \namended \nDoD Instruction 8500.01, \u201cCybersecurity,\u201d March 14, 2014, as amended \nMilitary-Standard 882E, \u201cDoD Standard Practice for System Safety,\u201d May 11, 2012 \nSecretary of Defense Memorandum, \u201cDisestablishment of the Deputy Chief Management Officer \nand Establishment of the Chief Management Officer,\u201d February 1, 2018 \nUnited States Code, Title 10 \nUnited States Code, Title 44",
     "section_path": [
-      "3"
+      "REFERENCES"
     ],
-    "section_title": "RESPONSIBILITIES AND FUNCTIONS"
+    "section_title": null
+  },
+  {
+    "chunk_id": "1ca6a8cef01e8ae5f0b61e72bcc6d857",
+    "text": "ion 8320.04, \u201cItem Unique Identification (IUID) Standards for Tangible Personal \nProperty,\u201d September 3, 2015, as amended \nExecutive Order 12114, \u201cEnvironmental Effects Abroad of Major Federal Actions,\u201d January 4, \n1979 \nMilitary Standard 882E, \u201cStandard Practice for System Safety,\u201d May 11, 2012 \nOffice of Acquisition, Analytics, and Policy, \u201cDepartment of Defense Earned Value \nManagement System Interpretation Guide (EVMSIG),\u201d March 14, 2019 \n                                                 \n \n \n \n \n1 Available at https://www.acq.osd.mil/jrac/docs/2018-JCIDS.pdf  \nDoDI 5000.88, November 18, 2020 \nREFERENCES 31 \n \nOffice of the Assistant Secretary of Defense for Research and Engineering, \u201cTechnology \nReadiness Assessment (TRA) Guidance,\u201d April 2011, as amended  \nOffice of the Deputy Assistant Secretary of Defense for Systems Engineering, \u201cDepartment of \nDefense Risk, Issue, and Opportunity Management Guide for Defense Acquisition \nPrograms,\u201d January 2017 \nOffice of the Deputy Assistant Secretary of Defense for Systems Engineering, \u201cReliability, \nAvailability, Maintainability, and Cost (RAM-C) Rationale Report Outline Guidance,\u201d \nVersion 1.0, February 28, 2017 \nOffice of the Under Secretary of Defense for Research and Engineering, \u201cDepartment of Defense \nIndependent Technical Risk Assessment Framework for Risk Categorization,\u201d June 2018 \nPublic Law 102-538, \u201cThe National Telecommunications and Information Administration \nOrganization Act,\u201d October 27, 1992 \nPublic Law 114-328, \u201cNational Defense Authorization Act for Fiscal Year 2017,\u201d December 23, \n2016 \nUnited States Code, Title 10 \nUnited States Code, Title 42 \nUnited States Code, Title 47",
+    "section_path": [
+      "REFERENCES"
+    ],
+    "section_title": null
+  },
+  {
+    "chunk_id": "64d52efbb97558dc1601f655d58c10d1",
+    "text": "y, nuclear physical security, chemical and biological \nsecurity, antiterrorism, force protection, and mission assurance policy and is informed by other \nsecurity-related efforts. \n \nHUMINT Executors.  The senior DoD intelligence officials, as designated by the DoD \nComponent heads, who are authorized to conduct HUMINT and related intelligence activities, \ne.g., DIA Deputy Director of HUMINT and the senior intelligence official, as designated by the \nSecretaries of the MILDEPs for the Army, Navy, Air Force, and Marine Corps, and by the \nCCDRs. \n \ninsider threat.  Defined in Reference (m). \n \nISR.  Defined in DoD Dictionary of Military and Associated Terms (Reference (bw)). \n \nMilitary Intelligence.  Collection, analysis, production, and dissemination of information relating \nto any foreign military or military-related situation or activity that is significant to military \npolicy-making or the planning and conduct of military operations and activities. \n \nNational Intelligence.  Defined in Reference (e). \n \nsensitive activities.  Operations, actions, activities, or programs that, if compromised, could have \nenduring adverse effects on U.S. foreign policy, DoD activities, or military operations, or cause \nsignificant embarrassment to the U.S., its allies, or the DoD.  These are generally handled \nthrough special access, compartmented, or other sensitive control mechanisms.   \n \nsensitive compartmented information.  Defined in Reference (bw).",
+    "section_path": [
+      "GLOSSARY"
+    ],
+    "section_title": null
   }
 ]
