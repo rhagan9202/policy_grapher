@@ -168,4 +168,3 @@ def test_the_compose_job_measures_the_lean_stack(workflow):
         f"the compose job's build step is {command!r}, which builds the default "
         "stack, whose images are ~16.6GB — the size gate would fail on every push"
     )
-

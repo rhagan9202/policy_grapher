@@ -11,6 +11,10 @@ the key covers everything that varies the answer. It covers three things:
 - **the section path**, because it is rendered into the prompt and so changes
   what the model was asked.
 - **the adapter and the prompt version**, because both change the asker.
+- **the adapter's variant**, when it has one: the model runtime's version and
+  the decoding mode. Both change what the same model returns for the same
+  prompt, and neither is visible in the adapter id. This is the same rule as
+  the one above, applied to the two things that were silently exempt from it.
 
 A prompt edit is a `PROMPT_VERSION` bump, never an in-place change: an in-place
 edit leaves this cache serving results from a prompt that no longer exists.
@@ -40,11 +44,17 @@ def cache_key(
     section_path: list[str],
     adapter_id: str,
     prompt_version: int,
+    variant: str = "",
 ) -> str:
     content = hashlib.sha256(
         f"{'/'.join(section_path)}\n{chunk_text}".encode()
     ).hexdigest()
-    return f"{adapter_id}|{prompt_version}|{content}"
+    # `variant` is empty for an adapter whose answer is fully determined by its
+    # id — appending nothing then leaves the key byte-identical to the one this
+    # cache was filled under, so widening the key does not throw the cache away.
+    return f"{adapter_id}|{prompt_version}|{variant}|{content}" if variant else (
+        f"{adapter_id}|{prompt_version}|{content}"
+    )
 
 
 class CacheStore(Protocol):
@@ -87,8 +97,9 @@ class GraphCacheStore:
 
 class CachedExtractor:
     """Any extractor, memoised. Satisfies `ObligationExtractor` itself, so it
-    wraps transparently and reports the adapter id of what it wraps — anything
-    keying off the adapter must not see the wrapper instead."""
+    wraps transparently and reports the adapter id and cache variant of what
+    it wraps — anything keying off the adapter must not see the wrapper
+    instead."""
 
     def __init__(
         self,
@@ -103,6 +114,10 @@ class CachedExtractor:
     @property
     def adapter_id(self) -> str:
         return self._inner.adapter_id
+
+    @property
+    def cache_variant(self) -> str:
+        return self._inner.cache_variant
 
     def extract(
         self,
@@ -120,6 +135,7 @@ class CachedExtractor:
             section_path=section_path,
             adapter_id=self._inner.adapter_id,
             prompt_version=self._prompt_version,
+            variant=self._inner.cache_variant,
         )
         # `is not None`, not a truth test: an empty list is the common and
         # correct answer for most passages, and treating it as a miss would

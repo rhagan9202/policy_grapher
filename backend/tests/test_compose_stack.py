@@ -225,3 +225,21 @@ def test_the_lean_worker_does_not_wait_for_a_pull_that_never_runs():
         "the !override dropped the redis dependency too; the worker cannot work "
         "without Redis and must still wait for it"
     )
+
+
+def test_the_model_services_pin_their_image():
+    """`latest` makes the model runtime depend on when it was last pulled.
+
+    STORY-018 pinned neo4j for this reason and architecture.md records it. The
+    reasoning is stronger here: the runtime's version determines sampling and
+    decoding — the machinery that produces every number in FLOORS — so an
+    unpinned runtime means extraction behaviour can change with no commit, no
+    PROMPT_VERSION bump, and nothing to review.
+    """
+    for name in MODEL_SERVICES:
+        image = COMPOSE["services"][name]["image"]
+        assert not image.endswith(":latest"), (
+            f"{name} runs {image!r}; pin it to a version. An unpinned model "
+            "runtime silently invalidates every floor in test_obligation_ratchet.py"
+        )
+        assert ":" in image, f"{name} runs {image!r} with no tag at all, which is :latest"

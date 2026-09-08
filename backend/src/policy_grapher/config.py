@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     # a preference — see ADR-020. Capable non-US models such as Qwen and DeepSeek
     # are ineligible regardless of how they score.
     extractor_model: str = "llama3.1:8b"
+    # "schema" hands Ollama the JSON Schema and gets constrained decoding; "json"
+    # is the legacy mode that only guarantees the output parses. Part of the cache
+    # variant, so switching does not replay answers from the other mode.
+    extractor_decoding: str = "schema"     # "schema" | "json"
     extractor_base_url: str = "http://localhost:11434"
     # Per model call, not per rebuild. 120s was hardcoded in extraction/local.py until
     # sprint 4's walkthrough hit it: a rebuild of DoDD 5000.01 died on chunk 1 of 34

@@ -12,6 +12,9 @@ from policy_grapher.extraction.schema import ExtractedObligation
 class NullExtractor:
     adapter_id = "null"
 
+    # Nothing varies an answer that is always empty.
+    cache_variant = ""
+
     def extract(
         self,
         chunk_text: str,

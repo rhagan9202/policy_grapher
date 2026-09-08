@@ -16,7 +16,7 @@ Each question below has exactly one authoritative answer. Everything else refere
 | What work is queued up? | [Backlog](backlog/backlog.md) |
 | How is the system put together? | [Architecture](specs/architecture.md) |
 | Why was it built that way? | [Decision records](specs/adr/) |
-| What are we doing right now? | [Sprint 6 plan](sprints/sprint-06/plan.md) — unplanned; the [tech-debt surge](planning/roadmap.md#the-tech-debt-surge) closed at sprint 5 and Ready is empty |
+| What are we doing right now? | [Sprint 12 plan](sprints/sprint-12/plan.md) — open: making a change to the extractor show its blast radius |
 | Where does this new document go? | [Conventions](CONVENTIONS.md) |
 
 ## Layout
@@ -27,6 +27,7 @@ docs/
 ├── backlog/     the ordered queue of work, plus epics and story detail
 ├── specs/       how things work: architecture, feature specs, decision records
 ├── sprints/     one folder per sprint: plan, review, retrospective
+├── superpowers/ dated design documents and implementation plans
 └── artifacts/   diagrams, research, notes, exports — supporting material
 ```
 
@@ -35,4 +36,4 @@ docs/
 Docs rot when nobody owns them. The upkeep rules — what to update when, and what to do
 with a document that's gone stale — are in [CONVENTIONS.md](CONVENTIONS.md).
 
-*Last reviewed: 2026-08-21*
+*Last reviewed: 2026-08-31*

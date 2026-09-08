@@ -18,6 +18,14 @@ class ObligationExtractor(Protocol):
 
     adapter_id: str
 
+    cache_variant: str
+    """Anything beyond `adapter_id` that varies this adapter's answer.
+
+    Empty when nothing does. Mandatory rather than optional for the same reason
+    `on_drop` is: a caller that has to ask which adapter it is holding has lost
+    the point of the port.
+    """
+
     def extract(
         self,
         chunk_text: str,
@@ -59,5 +67,6 @@ def build_extractor(settings: Settings) -> ObligationExtractor:
             model=settings.extractor_model,
             timeout_seconds=settings.extractor_timeout_seconds,
             max_output_tokens=settings.extractor_max_output_tokens,
+            decoding=settings.extractor_decoding,
         )
     raise ValueError(f"unknown extractor adapter: {settings.extractor_adapter!r}")

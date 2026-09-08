@@ -71,6 +71,7 @@ pythonpath = ["src"]
 addopts = "-q"
 markers = [
     "integration: requires live Neo4j and Redis containers (Docker must be running)",
+    "slow: reads real fixtures from disk (data/samples PDFs); no external services required",
 ]
 filterwarnings = [
     # starlette's TestClient warns until httpx2 lands; the dependency floors in this

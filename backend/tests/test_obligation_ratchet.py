@@ -160,6 +160,43 @@ US_ORIGIN_EMBEDDING_MODELS = frozenset(
 #
 # Truncated below the observation, never rounded to it — sprint 9 recorded a floor
 # above its own measurement and the gate failed on itself.
+#
+# Re-measured 2026-08-31 (sprint 12, ADR-037), comparing `extractor_decoding`
+# `"json"` (the legacy free-form mode) against `"schema"` (constrained decoding
+# against `ExtractionPayload`'s JSON Schema) — the only variable that moved,
+# same model, same prompt version, same eight-fixture gold set. Two separate
+# processes per mode, per this file's own standing rule that three runs inside
+# one process prove less than they appear to:
+#
+#     json,   process 1: precision 0.862069  recall 0.892857  modality 1.000  25 of 28 gold found
+#     json,   process 2: precision 0.862069  recall 0.892857  modality 1.000  25 of 28 gold found
+#     schema, process 1: precision 0.862069  recall 0.892857  modality 1.000  25 of 28 gold found
+#     schema, process 2: precision 0.862069  recall 0.892857  modality 1.000  25 of 28 gold found
+#
+# All four runs agree bit-for-bit: 25 matched, 29 predicted, 28 gold, in both
+# modes. On this gold set, at temperature 0, the model already emits output the
+# free-form mode's own schema validator accepts, so the constraint changes
+# nothing it was asked to change here — verified directly by calling
+# `LocalExtractor._post_with_retries` for one fixture under each `format`
+# payload and comparing the `response` *text* of the two replies (not the
+# enclosing envelope, which carries per-call fields like `total_duration` that
+# are never expected to match) for full string equality, cross-checked with a
+# SHA-256 hash of each: identical. Separately, that the schema server-side
+# genuinely constrains generation rather than merely accepting the request
+# was confirmed with a hostile schema — narrowing `Modality`'s enum to a
+# single member the passage does not naturally produce forced every returned
+# `modality` to that member while the `statement` text was left untouched.
+# That is a property of this gold set and this server, not a claim that
+# constrained decoding is inert in general: ADR-037 records the full evidence
+# and the reasoning for choosing it as the default anyway.
+#
+# **The floors do not move.** The lower schema-mode observation truncates to
+# precision 0.862 and recall 0.892 — the values already recorded, not higher
+# ones, so there is nothing to ratchet up to. Modality stays at 0.85 rather
+# than the observed 1.000, for the reason already given above: a floor at the
+# ceiling fires on the first single wrong answer, and that argument does not
+# expire because a different decoding mode was measured. Nothing here is a
+# regression either — schema mode did not score below a floor on any leg.
 FLOORS = {
     "local:llama3.1:8b": {"precision": 0.862, "recall": 0.892, "modality_accuracy": 0.85},
 }
@@ -246,6 +283,7 @@ class _InventingExtractor:
     """Reports a duty in every passage, including the one that has none."""
 
     adapter_id = "inventing"
+    cache_variant = ""
 
     def extract(self, chunk_text, *, section_path, section_title=None, on_drop=None):
         return [
@@ -391,6 +429,14 @@ def test_compose_does_not_override_the_default_with_an_ineligible_model():
 
     ADR-020 says the constraint is enforced by a test rather than a convention. It
     was only enforced for one of the two places the value comes from.
+
+    Read off `Settings.model_fields`, not an instantiated `Settings(_env_file=None)`:
+    `_env_file=None` only disables the dotenv source, and pydantic-settings still
+    reads `EXTRACTOR_MODEL` from the process environment regardless. CI's extraction
+    gate step sets exactly that variable so this test's own file measures a real
+    model, which made this assertion compare compose's static default against the
+    gate's override rather than the application default — failing on agreement, not
+    disagreement. The field default is what "the application default" means here.
     """
     import re
 
@@ -405,11 +451,12 @@ def test_compose_does_not_override_the_default_with_an_ineligible_model():
         f"excludes. The allowed set is {sorted(US_ORIGIN_MODELS)}."
     )
 
-    assert set(defaults) == {Settings(_env_file=None).extractor_model}, (
+    application_default = Settings.model_fields["extractor_model"].default
+    assert set(defaults) == {application_default}, (
         f"compose defaults {sorted(set(defaults))} disagree with the application "
-        f"default {Settings(_env_file=None).extractor_model!r}. They must agree, or "
-        "the model a container requests is not the model anything else describes — "
-        "and `ollama-pull` would pull one model while the worker asked for another."
+        f"default {application_default!r}. They must agree, or the model a "
+        "container requests is not the model anything else describes — and "
+        "`ollama-pull` would pull one model while the worker asked for another."
     )
 
 
