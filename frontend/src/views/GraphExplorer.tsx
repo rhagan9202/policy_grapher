@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
+import { Link } from 'react-router-dom'
 import { getGraph } from '../api/client'
 import type { GraphNode, GraphOut } from '../api/types'
 import EmptyState from './EmptyState'
@@ -49,6 +50,13 @@ export default function GraphExplorer() {
   const [selected, setSelected] = useState<GraphNode | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  // Off by default, which is the corpus-first view ADR-002 describes — 23
+  // documents rather than 436, and readable. What was missing is the way back:
+  // `GET /graph` has taken `include_external` since DI-1 and `GraphOptions` has
+  // modelled it since the client was written, and no control ever passed it. The
+  // opening screen drew 5% of the corpus and had no way to say so, because the
+  // API's `truncated` is about the fetch and not about the omission.
+  const [includeExternal, setIncludeExternal] = useState(false)
 
   // ForceGraph2D given no width/height sizes its canvas to window.innerWidth
   // and innerHeight rather than to its container, which pushed the 320px panel
@@ -84,7 +92,10 @@ export default function GraphExplorer() {
   useEffect(() => {
     let cancelled = false
 
-    getGraph(expanded ? { expand: expanded } : {})
+    getGraph({
+      ...(expanded ? { expand: expanded } : {}),
+      ...(includeExternal ? { includeExternal: true } : {}),
+    })
       .then((result) => {
         if (!cancelled) {
           setGraph(result)
@@ -103,7 +114,7 @@ export default function GraphExplorer() {
     return () => {
       cancelled = true
     }
-  }, [expanded])
+  }, [expanded, includeExternal])
 
   const handleNodeClick = useCallback((node: GraphNode) => {
     setSelected(node)
@@ -201,11 +212,11 @@ export default function GraphExplorer() {
   }
 
   return (
-    // The nav bar sits above this view, so 100vh would overflow the page by
-    // its height. min-height 0 lets the flex child shrink instead of forcing
-    // its content's size onto the row.
-    <div style={{ display: 'flex', height: 'calc(100vh - 5rem)', minHeight: 0 }}>
-      <div ref={canvasRef} style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+    // Laid out in styles.css rather than here, so a media query can restack
+    // the panel under the canvas: at 768px a fixed 20rem panel took 42% of the
+    // window and the graph was clipped off both edges.
+    <div className="graph">
+      <div ref={canvasRef} className="graph-canvas">
         <ForceGraph2D
           // The library's ref type is generic over the inferred node and link
           // shapes; ForceGraphHandle names only the two methods used here.
@@ -228,29 +239,82 @@ export default function GraphExplorer() {
         />
       </div>
 
-      <aside
-        style={{
-          width: 320,
-          flexShrink: 0,
-          padding: '1rem',
-          borderLeft: '1px solid #e2e8f0',
-          overflowY: 'auto',
-        }}
-      >
+      <aside className="graph-panel">
         <h1>Policy Grapher</h1>
 
         {graph.total_nodes === 0 && <EmptyState />}
 
-        {graph.truncated && (
-          <p>
-            Showing {graph.returned_nodes} of {graph.total_nodes} nodes.
-          </p>
+        {graph.total_nodes > 0 && (
+          <>
+            <p className="graph-count">
+              {/* `total_nodes` counts what matched the query, not what the corpus
+                  holds — with external references off it answers 23 of 23 over a
+                  graph of 436. So a bare "N of M" is no help here, and the
+                  truncation notice this replaces was worse: it fired on
+                  `truncated`, which the API sets only when it dropped rows from
+                  what it was *asked* for, so the default view reported nothing
+                  missing at all while hiding 95% of the corpus.
+                  What the reader needs is the exclusion named. */}
+              {/* Two independent facts, so two sentences. The cap can bite with
+                  external references either way — a corpus of its own past the
+                  render cap truncates too — and the exclusion applies only while
+                  the toggle is off. */}
+              {graph.truncated ? (
+                <>
+                  Showing {graph.returned_nodes} of {graph.total_nodes} documents —
+                  capped, narrow the view to see the rest.
+                </>
+              ) : (
+                <>
+                  Showing {graph.returned_nodes} document
+                  {graph.returned_nodes === 1 ? '' : 's'} in the corpus.
+                </>
+              )}
+              {!includeExternal && (
+                <> Documents cited but never ingested are hidden.</>
+              )}
+            </p>
+
+            <label className="graph-toggle">
+              <input
+                type="checkbox"
+                checked={includeExternal}
+                onChange={(event) => setIncludeExternal(event.target.checked)}
+              />{' '}
+              Include external references
+            </label>
+
+            <ul className="legend" aria-label="Legend">
+              <li>
+                <span className="swatch swatch-corpus" aria-hidden="true" />
+                In the corpus — ingested, with a page of its own
+              </li>
+              <li>
+                <span className="swatch swatch-external" aria-hidden="true" />
+                Cited but not ingested — the graph holds its name, not its text
+              </li>
+            </ul>
+            <p className="legend-note">
+              {/* The alternative was lowering EXTERNAL_LABEL_ZOOM, which exists
+                  because the external view holds up to 300 names running past
+                  100 characters. Saying why a label is missing costs nothing and
+                  keeps the zoomed-out view readable. */}
+              External names are hidden until you zoom in to read them.
+            </p>
+          </>
         )}
 
         {selected ? (
           <div data-testid="node-detail">
             <h2>{selected.label}</h2>
             <p>{selected.is_external ? 'External reference' : 'Corpus document'}</p>
+            {/* The graph shows what a document is connected to and nothing about
+                what it says. Its text, editions and obligations are one page
+                away, and until now that page was reachable only by going to
+                Documents and finding the same document again by name. */}
+            <p>
+              <Link to={`/documents/${selected.id}`}>Open {selected.label}</Link>
+            </p>
           </div>
         ) : (
           <p>Click a document to see its details and pull in its external references.</p>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import Duplicates from './Duplicates'
 import {
@@ -15,10 +15,44 @@ function messageOf(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback
 }
 
-/** The graph view has capped its render since STORY-015 and says so when it
- *  truncates; the table rendered all 439 rows. Same idiom, same wording: the
- *  filter is the way through, and it already exists. */
-export const TABLE_RENDER_CAP = 200
+/** Rows per page.
+ *
+ *  This was a hard render cap borrowed from the graph (STORY-015): draw the first
+ *  200, say so, and tell the reader to filter. The idiom does not transfer. A
+ *  graph past a few hundred nodes is an unreadable picture and capping it is the
+ *  kindest thing to do; a table is a list, and capping one makes every row after
+ *  the two-hundredth unreachable to anyone who cannot already guess its name. In
+ *  a 448-document corpus sorted by name that was everything past roughly "M".
+ *
+ *  The number is unchanged — 200 rows is still as many as a person can use at
+ *  once, and mounting 448 rows of nested controls is still worth avoiding. What
+ *  changed is that there is now a second page. */
+export const PAGE_SIZE = 200
+
+/** Which column the table is ordered by. `name` is what the API already returns,
+ *  so it is the default and costs no reordering. */
+type SortKey = 'name' | 'cited' | 'editions'
+
+const SORT_LABELS: Record<SortKey, string> = {
+  name: 'Name',
+  cited: 'Cited by',
+  editions: 'Editions',
+}
+
+/** Counts descend on first click and names ascend, because that is the question
+ *  each column is clicked to answer: "which is cited most", "which is first
+ *  alphabetically". */
+const FIRST_DIRECTION: Record<SortKey, 'asc' | 'desc'> = {
+  name: 'asc',
+  cited: 'desc',
+  editions: 'desc',
+}
+
+function sortValue(document: DocumentOut, key: SortKey): string | number {
+  if (key === 'cited') return document.referenced_by.length
+  if (key === 'editions') return document.version_count
+  return document.name.toLowerCase()
+}
 
 export default function DocumentTable() {
   const [documents, setDocuments] = useState<DocumentOut[] | null>(null)
@@ -34,6 +68,14 @@ export default function DocumentTable() {
     setParams(value ? { q: value } : {}, { replace: true })
   const [withText, setWithText] = useState(false)
 
+  const [page, setPage] = useState(0)
+  const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  // How many near-duplicate pairs are still unruled, reported up by the panel
+  // below the table so the line above it can say a decision is waiting without
+  // fetching the same list twice.
+  const [duplicatePairs, setDuplicatePairs] = useState(0)
+
   // Corpus editing (STORY-044). The five client functions behind these three flows
   // have been built and unreachable since STORY-026.
   const [newName, setNewName] = useState('')
@@ -45,21 +87,22 @@ export default function DocumentTable() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [referenceTarget, setReferenceTarget] = useState('')
 
+  // Named rather than inlined in the effect because the duplicates section below
+  // needs it too: merging removes a document, and this is the only thing that
+  // tells the table so.
+  const loadDocuments = useCallback(
+    () =>
+      listDocuments()
+        .then(setDocuments)
+        .catch((cause: unknown) =>
+          setError(messageOf(cause, 'Failed to load documents.')),
+        ),
+    [],
+  )
+
   useEffect(() => {
-    let cancelled = false
-
-    listDocuments()
-      .then((result) => {
-        if (!cancelled) setDocuments(result)
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) setError(messageOf(cause, 'Failed to load documents.'))
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    void loadDocuments()
+  }, [loadDocuments])
 
   const namesBySlug = useMemo(() => {
     const names = new Map<string, string>()
@@ -69,7 +112,7 @@ export default function DocumentTable() {
 
   const visible = useMemo(() => {
     const needle = filter.trim().toLowerCase()
-    return (documents ?? []).filter(
+    const matching = (documents ?? []).filter(
       (d) =>
         // Name **or ID**. The slug is what appears in every citation this product
         // prints, so a reader who has seen a citation has seen a slug — and until
@@ -79,12 +122,45 @@ export default function DocumentTable() {
           d.slug.toLowerCase().includes(needle)) &&
         (!withText || d.version_count > 0),
     )
-  }, [documents, filter, withText])
 
-  // Bounds the render, not the query: `visible` still drives the "Showing N of M"
-  // count and the truncation notice, but only the first TABLE_RENDER_CAP rows are
-  // ever mounted. Same idiom as the graph view — cap, and say so.
-  const shown = useMemo(() => visible.slice(0, TABLE_RENDER_CAP), [visible])
+    // Sorted on a copy: `documents` is state, and Array.prototype.sort mutates.
+    return [...matching].sort((a, b) => {
+      const left = sortValue(a, sortKey)
+      const right = sortValue(b, sortKey)
+      // Names compare as strings, counts as numbers; a plain `<` would order
+      // "10" before "9".
+      const order =
+        typeof left === 'number' && typeof right === 'number'
+          ? left - right
+          : String(left).localeCompare(String(right))
+      // Ties within a count column fall back to the name, so the order does not
+      // wander between renders over the 400-odd documents cited exactly once.
+      const settled = order !== 0 ? order : a.name.localeCompare(b.name)
+      return sortDirection === 'asc' ? settled : -settled
+    })
+  }, [documents, filter, withText, sortKey, sortDirection])
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
+  // Clamped at render rather than reset in an effect. The filter can change from
+  // outside this component — the nav search box navigates here with a `q` — so
+  // there is no single handler that could own the reset, and a `setState` in an
+  // effect body is the cascading render the lint rule forbids.
+  const currentPage = Math.min(page, pageCount - 1)
+  const firstRow = currentPage * PAGE_SIZE
+  const shown = useMemo(
+    () => visible.slice(firstRow, firstRow + PAGE_SIZE),
+    [visible, firstRow],
+  )
+
+  function chooseSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDirection(FIRST_DIRECTION[key])
+    }
+    setPage(0)
+  }
 
   // Applied to local state rather than by refetching: a refetch after every edit
   // makes a 438-document corpus feel broken, and the API's response already says
@@ -163,7 +239,7 @@ export default function DocumentTable() {
   if (!documents) return <p>Loading documents…</p>
 
   const addForm = (
-    <form onSubmit={onCreate} style={{ margin: '1rem 0' }}>
+    <form onSubmit={onCreate} className="add-document">
       <label htmlFor="new-document-name">Name of the document to add</label>{' '}
       <input
         id="new-document-name"
@@ -183,7 +259,7 @@ export default function DocumentTable() {
   // that explains emptiness without offering a way out is only half an answer.
   if (documents.length === 0)
     return (
-      <div style={{ padding: '1rem' }}>
+      <div className="view">
         <h1>Documents</h1>
         <EmptyState />
         {addForm}
@@ -192,42 +268,86 @@ export default function DocumentTable() {
     )
 
   return (
-    <div style={{ padding: '1rem' }}>
+    <div className="view">
       <h1>Documents</h1>
 
-      <Duplicates />
+      {/* The panel itself is below the table. This is what stays at the top —
+          one line, because a maintenance task waiting on two of 438 documents
+          should not be the first 450 pixels of the screen that lists them. */}
+      {duplicatePairs > 0 && (
+        <p className="notice">
+          <a href="#duplicates">
+            {duplicatePairs} near-duplicate name
+            {duplicatePairs === 1 ? '' : 's'} need
+            {duplicatePairs === 1 ? 's' : ''} a decision
+          </a>
+        </p>
+      )}
 
+      <div className="table-controls">
       <input
         type="search"
         aria-label="Filter documents by name or ID"
         placeholder="Filter by name or ID…"
         value={filter}
-        onChange={(event) => setFilter(event.target.value)}
+        onChange={(event) => {
+          setFilter(event.target.value)
+          setPage(0)
+        }}
       />{' '}
       <label>
         <input
           type="checkbox"
           checked={withText}
-          onChange={(event) => setWithText(event.target.checked)}
+          onChange={(event) => {
+            setWithText(event.target.checked)
+            setPage(0)
+          }}
         />{' '}
         Only documents with text
       </label>
+      </div>
 
       {addForm}
       {editError && <div role="alert">{editError}</div>}
 
-      <p>
-        {visible.length > TABLE_RENDER_CAP ? (
-          <>
-            Showing {TABLE_RENDER_CAP} of {visible.length}. Filter to narrow the
-            list and see the rest.
-          </>
-        ) : (
-          <>
-            Showing {visible.length} of {documents.length}
-          </>
+      <div className="table-summary">
+        <p>
+          {visible.length === 0 ? (
+            <>Showing 0 of {documents.length}</>
+          ) : visible.length > PAGE_SIZE ? (
+            <>
+              Showing {firstRow + 1}–{firstRow + shown.length} of {visible.length}
+            </>
+          ) : (
+            <>
+              Showing {visible.length} of {documents.length}
+            </>
+          )}
+        </p>
+
+        {pageCount > 1 && (
+          <p className="pager">
+            <button
+              type="button"
+              onClick={() => setPage(currentPage - 1)}
+              disabled={currentPage === 0}
+            >
+              Previous page
+            </button>{' '}
+            <span>
+              Page {currentPage + 1} of {pageCount}
+            </span>{' '}
+            <button
+              type="button"
+              onClick={() => setPage(currentPage + 1)}
+              disabled={currentPage >= pageCount - 1}
+            >
+              Next page
+            </button>
+          </p>
         )}
-      </p>
+      </div>
 
       {visible.length === 0 ? (
         // STORY-014: it has to say what it looked for. "No documents match that
@@ -239,12 +359,49 @@ export default function DocumentTable() {
           like <code>dodd-5000-01</code>.
         </p>
       ) : (
-        <table>
+        /* Wrapped so a narrow window scrolls the table rather than crushing five
+           columns of nested controls into unreadable slivers. */
+        <div className="table-scroll">
+        <table className="documents">
+          {/* Column widths belong to the table, not to each cell. Without them
+              the browser sizes from content and gives the Actions column as much
+              room as the names. */}
+          <colgroup>
+            <col className="col-name" />
+            <col className="col-count" />
+            <col className="col-count" />
+            <col className="col-references" />
+            <col className="col-actions" />
+          </colgroup>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Cited by</th>
-              <th>Editions</th>
+              {/* `aria-sort` on the header, the control inside it. A `<th>` is
+                  not interactive and a screen reader announces the column's sort
+                  state from the cell, not from the button that changes it. */}
+              {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+                <th
+                  key={key}
+                  aria-sort={
+                    sortKey === key
+                      ? sortDirection === 'asc'
+                        ? 'ascending'
+                        : 'descending'
+                      : 'none'
+                  }
+                >
+                  <button
+                    type="button"
+                    className="sort"
+                    aria-label={`Sort by ${SORT_LABELS[key]}`}
+                    onClick={() => chooseSort(key)}
+                  >
+                    {SORT_LABELS[key]}
+                    <span aria-hidden="true">
+                      {sortKey === key ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
+                    </span>
+                  </button>
+                </th>
+              ))}
               <th>References</th>
               <th>Actions</th>
             </tr>
@@ -269,12 +426,20 @@ export default function DocumentTable() {
                     <button
                       type="button"
                       aria-expanded={expanded === document.slug}
+                      /* The name lives in the accessible label, not in the visible
+                         text. Printing it in both put the document's full name in
+                         every row three times over — "References of Adaptive
+                         Acquisition Framework Documentation Identification (AAFDID)
+                         Tool" as a button caption — which pushed the Name column
+                         itself down to a two-line wrap. Screen readers still hear
+                         which document each control belongs to. */
+                      aria-label={`References of ${document.name}`}
                       onClick={() => {
                         setExpanded(expanded === document.slug ? null : document.slug)
                         setReferenceTarget('')
                       }}
                     >
-                      References of {document.name}
+                      References
                     </button>
                   </div>
 
@@ -333,9 +498,10 @@ export default function DocumentTable() {
                   <button
                     type="button"
                     disabled={busy}
+                    aria-label={`Delete ${document.name}`}
                     onClick={() => setConfirming(document.slug)}
                   >
-                    Delete {document.name}
+                    Delete
                   </button>
 
                   {confirming === document.slug && (
@@ -365,7 +531,16 @@ export default function DocumentTable() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
+
+      {/* Below the corpus it is about. Reconciling two records of one document
+          is real work and it keeps a real section — but it is work about a
+          handful of names, and it used to open a screen whose job is listing
+          438 documents. The line at the top links here. */}
+      <section id="duplicates" className="duplicates">
+        <Duplicates onMerged={loadDocuments} onCount={setDuplicatePairs} />
+      </section>
     </div>
   )
 }

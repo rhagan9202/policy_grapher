@@ -1,6 +1,6 @@
 # Architecture
 
-*Living document — edit in place. Last reviewed: 2026-08-31*
+*Living document — edit in place. Last reviewed: 2026-09-08*
 
 Describes the system as it is today, not as it's planned to be. Planned changes belong in
 the [roadmap](../planning/roadmap.md); the reasoning behind past choices belongs in
@@ -30,7 +30,7 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 | **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the generated `.env` — written by `./scripts/init-env.sh`, never committed ([ADR-010](adr/ADR-010-secrets-leave-the-repository.md)). Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
 | **Redis** (`redis:8-alpine`) | Backs the rebuild queue (STORY-048). No published port — reached only from inside the compose network, by the backend (enqueueing) and the worker (dequeueing). |
 | **Worker** | The same backend image, run as `uv run rq worker ... rebuilds` instead of the API server. Drains the rebuild queue: opens its own Neo4j driver and builds its own extractor and embedder per job, and mounts `./data` read-only because a rebuild re-reads the source PDF from a container-internal path, the same way ingest does. |
-| **Frontend** (React + Vite, port 5173) | Two routes. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`; clicking a node shows its name and whether it is a corpus or external document, and clicking a corpus document pulls in its external neighbours via `?expand={slug}`, while external nodes show detail only. `/documents` renders every document from `GET /documents` as a table — name, how many documents cite it, and outgoing references with slugs resolved to names from the same payload — filtered client-side by name as the user types. Vite dev server proxies `/api` to the backend. |
+| **Frontend** (React + Vite, port 5173) | Seven screens, every one of them named in `routes.tsx` so a screen cannot exist without a way to reach it — Graph, Documents, Ingest, Triage, Review, Ask, Reset — plus a document detail page reached from a row rather than from the navigation, and a catch-all that says an address names no screen rather than rendering the navigation over nothing. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`: corpus documents only by default, with a toggle passing `include_external` for the whole corpus, a legend for the two node colours, and a count that names the exclusion — because `total_nodes` is scoped to the query, so the default view answers "23 of 23" over a graph of 438. Clicking a node names it, says whether it is a corpus or external document, links to its detail page, and — for a corpus document — pulls in its external neighbours via `?expand={slug}`. `/documents` renders `GET /documents` as a table — name, how many documents cite it, editions, and outgoing references with slugs resolved to names from the same payload — filtered and sorted client-side and paged 200 rows at a time, with the near-duplicate reconciliation panel below it. One stylesheet, `src/styles.css`, carries the whole visual layer. Vite dev server proxies `/api` to the backend and injects the bearer token ([ADR-018](adr/ADR-018-the-dev-proxy-forwards-writes.md)). |
 
 Typed fetch wrappers for the frontend-used endpoints live in `src/api/client.ts`.
 Every route the backend serves now has a screen or a caller: DI-1's standing gap — an API client of eleven functions of which the UI called two, and no navigation between the two screens that existed — is closed. `frontend/src/App.tsx` declares routes and navigation from one list, so a screen cannot exist without a link to it, and `App.test.tsx` asserts one link per route. Since STORY-086 that is a test rather than a claim: `test_the_browser_can_reach_every_route_the_server_declares` compares the routers' declared paths against `api/client.ts` and fails naming any route the client has never heard of.
@@ -476,13 +476,15 @@ turns a surprise outage into a planned piece of work.
 - **`ast.literal_eval` on the `References` column.** Safer than `eval`, but it still means
   the ingest path is coupled to a Python-repr-shaped CSV field. A file exported from a
   different tool won't parse.
-- **No pagination anywhere**, by design. `GET /graph` is bounded by the render cap instead,
+- **No pagination in the API**, by design. `GET /graph` is bounded by the render cap instead,
   and reports `truncated` so a partial view is never presented as the whole graph.
   `POST /query` is bounded by its own row cap (`QUERY_ROW_CAP`) and reports `truncated` the
   same way. `GET /documents` is the one that stays unbounded — it returns all 438 documents
   on every call. At DI-1's corpus size that is fine, and it will stop being fine well before
-  the corpus reaches its MVP target. The
-  document table compounds it by rendering every row and filtering in the browser.
+  the corpus reaches its MVP target. The document table pages, sorts and filters that whole
+  payload in the browser (`PAGE_SIZE`, 200 rows a page), so the cost is one large response
+  rather than a large render — and the day the response itself is the problem, the route needs
+  the bound, not the table.
 - **The schema is mid-migration.** DI-2's phase 1 added editions (`DocumentVersion`) and the
   `Authority`/`Entity` labels the Policy Concierge capabilities in the
   [vision](../planning/vision.md) will hang off, but the substance those capabilities need —

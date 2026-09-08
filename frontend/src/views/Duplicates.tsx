@@ -14,7 +14,28 @@ import type { DuplicateCandidate } from '../api/types'
  * `DoDD 5000.02` differ by one character and are different documents — and this
  * project already refuses to let a machine settle what a human should.
  */
-export default function Duplicates() {
+/**
+ * `onMerged` is called when a merge has actually removed a document from the
+ * corpus. This section reloads its own list after every action, which is all it
+ * needs — but it is rendered inside the documents table, and a merge is the one
+ * action here that changes what that table is showing. Without the callback the
+ * table went on rendering the document that had just ceased to exist, offering
+ * a name link that answers 404 and a Delete button for nothing.
+ *
+ * Not called for "these are different": that records a decision about a pair and
+ * leaves both documents where they were, so there is nothing for the table to
+ * re-read.
+ *
+ * `onCount` reports how many pairs are still unruled, every time the list is
+ * loaded. This section sits below the table, so the screen needs a way to say at
+ * the top that a decision is waiting — and this component is the one already
+ * asking the question, so it answers rather than making the parent fetch the
+ * same list a second time.
+ */
+export default function Duplicates({
+  onMerged,
+  onCount,
+}: { onMerged?: () => void; onCount?: (pairs: number) => void } = {}) {
   const [pairs, setPairs] = useState<DuplicateCandidate[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
@@ -25,25 +46,29 @@ export default function Duplicates() {
   const load = useCallback(
     () =>
       listDuplicates()
-        .then(setPairs)
+        .then((found) => {
+          setPairs(found)
+          onCount?.(found.length)
+        })
         .catch((cause: unknown) =>
           setError(
             cause instanceof Error ? cause.message : 'Could not load duplicates.',
           ),
         ),
-    [],
+    [onCount],
   )
 
   useEffect(() => {
     void load()
   }, [load])
 
-  async function act(action: () => Promise<unknown>) {
+  async function act(action: () => Promise<unknown>, removedADocument = false) {
     setPending(true)
     setError(null)
     try {
       await action()
       await load()
+      if (removedADocument) onMerged?.()
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : 'That did not work.')
     } finally {
@@ -91,7 +116,7 @@ export default function Duplicates() {
                   type="button"
                   disabled={pending}
                   onClick={() =>
-                    act(() => mergeDocuments(name, pair.names[1 - i]))
+                    act(() => mergeDocuments(name, pair.names[1 - i]), true)
                   }
                 >
                   Keep “{name}”

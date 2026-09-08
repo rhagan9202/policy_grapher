@@ -59,7 +59,7 @@ function SearchDocuments() {
 function NoSuchScreen() {
   const { pathname } = useLocation()
   return (
-    <div role="status" style={{ padding: '1rem', maxWidth: '40rem' }}>
+    <div role="status" className="view">
       <p>
         <strong>There is no screen at {pathname}.</strong>
       </p>
@@ -96,13 +96,13 @@ export default function App() {
   return (
     <>
       {!reachable && (
-        <div role="alert" style={{ padding: '0.5rem 1rem' }}>
+        <div role="alert">
           The backend is not answering. Every screen below will fail to load until it
           does — this is one cause, not several. Check that the stack is up.
         </div>
       )}
-      <nav aria-label="Main">
-        <ul style={{ display: 'flex', gap: '1rem', listStyle: 'none', padding: '1rem' }}>
+      <nav aria-label="Main" className="app-nav">
+        <ul>
           {ROUTES.map((route) => (
             <li key={route.to}>
               {/* NavLink sets aria-current="page" on the active route itself. */}

@@ -16,7 +16,7 @@ function Citation({ of }: { of: ObligationCitation }) {
 
 function Side({ heading, of }: { heading: string; of: ObligationCitation }) {
   return (
-    <section style={{ flex: 1, minWidth: '18rem' }}>
+    <section className="pane">
       <h3>{heading}</h3>
       <blockquote>{of.statement}</blockquote>
       <Citation of={of} />
@@ -106,7 +106,7 @@ export default function Review() {
   const item = queue?.items[position]
 
   return (
-    <div style={{ padding: '1rem' }}>
+    <div className="view">
       <h1>Review</h1>
       {loadError && <div role="alert">Could not load the review queue: {loadError}</div>}
       {error && <div role="alert">Could not record that: {error}</div>}
@@ -152,7 +152,7 @@ export default function Review() {
             </p>
           )}
 
-          <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
+          <div className="panes">
             <Side heading="Our clause" of={item.source} />
             <Side heading="Implements" of={item.target} />
           </div>

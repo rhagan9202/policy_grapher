@@ -60,13 +60,19 @@ describe('Ask', () => {
     await userEvent.type(screen.getByRole('searchbox'), 'what obliges the Director?')
     await userEvent.click(screen.getByRole('button', { name: /ask/i }))
 
-    // The quotation appears twice on purpose: the answer is composed *from*
-    // the citations, so it shows in the answer and again under Sources
-    // (ADR-017). The citation itself is asserted within the Sources list.
-    expect((await screen.findAllByText(/notify the Comptroller/)).length).toBe(2)
+    // Once, not twice. The answer is composed *from* the citations (ADR-017),
+    // so the passage is already in it verbatim — Sources used to print the same
+    // string a second time, and against the real corpus that turned a ten-passage
+    // answer into twenty screens of identical text. Measured 2026-09-08: the
+    // answer's passage and the Sources blockquote were byte-identical, both
+    // truncated at 601 characters, so the second copy carried nothing.
+    //
+    // ADR-017 requires every answer to carry its citations, and it still does —
+    // what Sources lists is where each passage came from, which is the part the
+    // answer does not already say.
+    expect((await screen.findAllByText(/notify the Comptroller/)).length).toBe(1)
 
     const sources = within(screen.getByRole('list'))
-    expect(sources.getByText(/notify the Comptroller/)).toBeInTheDocument()
     expect(sources.getByText(/DoDI 5000\.88/)).toBeInTheDocument()
     expect(sources.getByText(/3\/3\.2/)).toBeInTheDocument()
     expect(sources.getByText(/12/)).toBeInTheDocument()

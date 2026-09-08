@@ -198,12 +198,20 @@ describe('GraphExplorer', () => {
     expect(await screen.findByText(/showing 300 of 438/i)).toBeInTheDocument()
   })
 
-  it('does not claim truncation when the view is complete', async () => {
+  it('counts the view without claiming it was capped', async () => {
+    // The count is now unconditional and only the *cap* is conditional. This
+    // test used to assert the opposite — no count at all unless `truncated` —
+    // and that is what hid the defect found in the sprint-12 walkthrough: the
+    // default view draws corpus documents only, so the API reports
+    // `truncated: false` over a graph showing 23 of 436. Nothing had been
+    // truncated, by the API's reckoning, and so nothing was said.
     getGraph.mockResolvedValue(corpusView)
     showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
-    expect(screen.queryByText(/showing .* of /i)).not.toBeInTheDocument()
+    expect(screen.getByText(/showing 2 documents in the corpus/i)).toBeInTheDocument()
+    expect(screen.getByText(/cited but never ingested are hidden/i)).toBeInTheDocument()
+    expect(screen.queryByText(/capped/i)).not.toBeInTheDocument()
   })
 
   it('surfaces a fetch failure', async () => {
@@ -382,5 +390,136 @@ describe('GraphExplorer layout', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       /no documents have been ingested yet/i,
     )
+  })
+})
+
+// Found in the sprint-12 walkthrough, against the real corpus. `GET /graph`
+// answers with corpus documents only unless asked otherwise, so the opening
+// screen drew 23 nodes over a graph of 436 — and reported `total_nodes: 23,
+// truncated: false`, which is true of what it fetched and silent about what it
+// left out. The existing "Showing N of M" line could not fire, because by the
+// API's reckoning nothing had been truncated.
+//
+// `includeExternal` has been in `GraphOptions` since the client was written and
+// nothing ever passed it. The only way to see an external document was to click
+// a corpus node and expand it, one at a time.
+describe('GraphExplorer including external references', () => {
+  const wholeCorpus: GraphOut = {
+    nodes: [
+      ...corpusView.nodes,
+      { id: 'public-law-116-92', label: 'Public Law 116-92', is_external: true },
+    ],
+    edges: corpusView.edges,
+    total_nodes: 436,
+    returned_nodes: 300,
+    truncated: true,
+  }
+
+  it('fetches corpus documents alone to begin with', async () => {
+    getGraph.mockResolvedValue(corpusView)
+    showGraphExplorer()
+    await screen.findByTestId('force-graph')
+
+    expect(getGraph).toHaveBeenLastCalledWith({})
+  })
+
+  it('asks for external references when the reader turns them on', async () => {
+    getGraph.mockResolvedValueOnce(corpusView).mockResolvedValue(wholeCorpus)
+    showGraphExplorer()
+    await screen.findByTestId('force-graph')
+
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /include external references/i }),
+    )
+
+    await waitFor(() =>
+      expect(getGraph).toHaveBeenLastCalledWith({ includeExternal: true }),
+    )
+  })
+
+  it('names what the default view leaves out, rather than counting what it kept', async () => {
+    // `total_nodes` is scoped to the query, so with external references off the
+    // API answers "23 of 23" over a corpus of 436 — a true sentence that hides
+    // the omission completely. Naming the exclusion is the only honest form.
+    getGraph.mockResolvedValue(corpusView)
+    showGraphExplorer()
+    await screen.findByTestId('force-graph')
+
+    expect(screen.getByText(/cited but never ingested are hidden/i)).toBeInTheDocument()
+  })
+
+  it('counts against the whole corpus once external references are in', async () => {
+    getGraph.mockResolvedValueOnce(corpusView).mockResolvedValue(wholeCorpus)
+    showGraphExplorer()
+    await screen.findByTestId('force-graph')
+
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /include external references/i }),
+    )
+
+    expect(await screen.findByText(/showing 300 of 436 documents/i)).toBeInTheDocument()
+    expect(screen.getByText(/capped/i)).toBeInTheDocument()
+  })
+
+  it('keeps the toggle on while a node is expanded', async () => {
+    getGraph.mockResolvedValueOnce(corpusView).mockResolvedValue(wholeCorpus)
+    showGraphExplorer()
+    await screen.findByTestId('force-graph')
+
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /include external references/i }),
+    )
+    await waitFor(() => expect(getGraph).toHaveBeenLastCalledWith({ includeExternal: true }))
+
+    await userEvent.click(await screen.findByRole('button', { name: 'DoDI 3115.14' }))
+
+    await waitFor(() =>
+      expect(getGraph).toHaveBeenLastCalledWith({
+        expand: 'dodi-3115-14',
+        includeExternal: true,
+      }),
+    )
+  })
+})
+
+// Blue and grey carry the whole distinction between a document in the corpus and
+// one only cited by it, and nothing on screen said so. Expanding a node made it
+// worse: external labels are suppressed below EXTERNAL_LABEL_ZOOM, so the click
+// the panel invites produced a fan of anonymous grey dots.
+describe('GraphExplorer legend', () => {
+  it('says what the two colours mean, and why some names are missing', async () => {
+    getGraph.mockResolvedValue(corpusView)
+    showGraphExplorer()
+    await screen.findByTestId('force-graph')
+
+    const legend = screen.getByRole('list', { name: /legend/i })
+    expect(legend).toHaveTextContent(/in the corpus/i)
+    expect(legend).toHaveTextContent(/cited but not ingested/i)
+    expect(screen.getByText(/zoom in to read/i)).toBeInTheDocument()
+  })
+})
+
+// The panel named the selected document and stopped. Its detail page — text,
+// editions, obligations, everything the graph cannot show — was reachable only
+// by going to Documents and finding the same document again by name.
+describe('GraphExplorer selection', () => {
+  it('links the selected document to its detail page', async () => {
+    getGraph.mockResolvedValue(expandedView)
+    showGraphExplorer()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'DoDD 5000.01' }))
+
+    const link = await screen.findByRole('link', { name: /open DoDD 5000\.01/i })
+    expect(link).toHaveAttribute('href', '/documents/dodd-5000-01')
+  })
+
+  it('links an external document too, since it has a page of its own', async () => {
+    getGraph.mockResolvedValue(expandedView)
+    showGraphExplorer()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Public Law 116-92' }))
+
+    const link = await screen.findByRole('link', { name: /open Public Law 116-92/i })
+    expect(link).toHaveAttribute('href', '/documents/public-law-116-92')
   })
 })

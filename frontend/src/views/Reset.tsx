@@ -79,7 +79,7 @@ export default function Reset() {
   }
 
   return (
-    <div style={{ padding: '1rem' }}>
+    <div className="view">
       <h1>Reset</h1>
 
       <p>
@@ -97,7 +97,12 @@ export default function Reset() {
 
       {exportError && <div role="alert">Export failed: {exportError}</div>}
 
-      <button type="button" onClick={() => setConfirming(true)} disabled={busy}>
+      <button
+        type="button"
+        className="danger"
+        onClick={() => setConfirming(true)}
+        disabled={busy}
+      >
         Empty the graph
       </button>
 
@@ -151,7 +156,7 @@ export default function Reset() {
             {/* Deliberately not disabled while the phrase is unmatched: a disabled
                 button explains nothing. Pressing it without the phrase deletes
                 nothing and says why, which a disabled control could not do. */}
-            <button type="button" onClick={onReset} disabled={busy}>
+            <button type="button" className="danger" onClick={onReset} disabled={busy}>
               Delete everything
             </button>{' '}
             <button
