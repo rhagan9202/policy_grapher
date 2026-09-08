@@ -1,6 +1,6 @@
 # Backlog
 
-*Living document — edit in place. Last reviewed: 2026-08-26*
+*Living document — edit in place. Last reviewed: 2026-09-08*
 
 Ordered by priority: the top row is the next thing to pick up. See
 [README](README.md) for how items move through this list, and
@@ -146,8 +146,22 @@ work done between the two sprints, and they are documented — see
 PDF extraction design](../superpowers/specs/2026-08-13-story-016-pdf-extraction-design.md) and
 the implementation plans beside them.
 
+STORY-109 and STORY-110 carry `—` for the same reason and a different cause: they were not
+committed work, they came out of an acceptance walkthrough of the running stack on 2026-09-08.
+STORY-109 is two defects of one shape, found by driving the app rather than by reading it —
+a screen that went on rendering what it had fetched on mount after a write had changed it.
+Building an edition's derived layer left the page saying "Finished. 41 chunks" beside "This
+edition has never been built", over obligations it could not see; merging a near-duplicate left
+the table listing the document that had just ceased to exist, with a working-looking name link
+and Delete button behind it. STORY-110 is the layout and reachability work the same walkthrough
+asked for: the first stylesheet this UI has had, a corpus reachable past the two-hundredth row
+([ADR-038](../specs/adr/ADR-038-the-document-table-pages-rather-than-caps.md)), and a graph that
+says which 5% of the corpus it is drawing and offers the rest.
+
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-110 | The UI has a visual layer, and the corpus is reachable through it | — |
+| STORY-109 | A screen stops contradicting itself after a write | — |
 | STORY-105 | Responsibilities coverage has a floor | 11 |
 | STORY-104 | ASSIGNED recognises the role headings DoD actually writes | 11 |
 | STORY-103 | The prompt stops contradicting itself about ASSIGNED | 11 |

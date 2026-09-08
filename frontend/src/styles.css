@@ -1,0 +1,809 @@
+/*
+ * Policy Grapher — the whole of the app's visual layer.
+ *
+ * There was no stylesheet at all until the sprint-12 walkthrough: every screen
+ * rendered in the browser's defaults, which meant Times New Roman and prose set
+ * to whatever the window happened to be — measured at roughly 200 characters a
+ * line on a 1440px display.
+ *
+ * The direction is a dense analyst tool, not a document. The corpus is 438
+ * documents with up to 28 references each; the work is scanning long tables and
+ * comparing citations side by side, so this trades reading comfort for density
+ * and keeps the measure cap for the places that hold real prose.
+ *
+ * The palette is not new. #2563eb and #94a3b8 are what GraphExplorer already
+ * paints corpus and external nodes with, and #0f172a and #475569 are its label
+ * colours — so the legend and the canvas agree by construction rather than by
+ * two people picking blues that nearly match.
+ */
+
+:root {
+  /* Read off GraphExplorer's canvas constants, which are the originals. */
+  --ink: #0f172a;
+  --muted: #475569;
+  --faint: #94a3b8;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --bg: #ffffff;
+  --sunken: #f8fafc;
+  --accent: #2563eb;
+  --accent-ink: #1d4ed8;
+  --danger: #b91c1c;
+
+  --s1: 0.25rem;
+  --s2: 0.5rem;
+  --s3: 0.75rem;
+  --s4: 1rem;
+  --s5: 1.5rem;
+  --s6: 2rem;
+
+  /* Prose only. Tables and the graph are exempt: they are not read in lines. */
+  --measure: 68ch;
+  --radius: 3px;
+
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  /* Slugs, edition ids and chunk ids are identifiers, not words. They are
+     compared character by character — dodd-5000-01 against dodd-5000-02 — which
+     is the one job a monospace face does better. */
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------------- type ---- */
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0 0 var(--s2);
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+h1 {
+  font-size: 1.375rem;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 1.0625rem;
+  margin-top: var(--s5);
+}
+
+h3 {
+  font-size: 0.9375rem;
+  margin-top: var(--s4);
+}
+
+h4 {
+  font-size: 0.8125rem;
+  margin-top: var(--s3);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+p,
+ul,
+ol {
+  margin: 0 0 var(--s3);
+}
+
+/* The cap that was missing. Applied broadly and lifted where a list is laid out
+   rather than read in lines — the legend, the citation list, a document's
+   references, the reference editor in a table cell — each of which sets
+   `max-width: none` for itself, below. A `:not()` chain here would put the same
+   knowledge in two places and go stale the first time a list is added. */
+p,
+blockquote,
+li {
+  max-width: var(--measure);
+}
+
+a {
+  color: var(--accent);
+  text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  color: var(--accent-ink);
+  text-decoration-color: currentColor;
+}
+
+code,
+kbd {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.05em 0.3em;
+}
+
+blockquote {
+  margin: 0 0 var(--s3);
+  padding-left: var(--s3);
+  border-left: 2px solid var(--line-strong);
+  color: var(--muted);
+}
+
+small {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+strong {
+  font-weight: 600;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: var(--s5) 0;
+}
+
+/* ------------------------------------------------------------- the shell -- */
+
+.app-nav {
+  border-bottom: 1px solid var(--line);
+  background: var(--sunken);
+  padding: var(--s2) var(--s4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3) var(--s5);
+}
+
+.app-nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.app-nav a {
+  display: block;
+  padding: var(--s1) var(--s2);
+  border-radius: var(--radius);
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.app-nav a:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent-ink);
+}
+
+/* NavLink sets aria-current on the active route, so the state is read from the
+   DOM rather than tracked a second time in a class. */
+.app-nav a[aria-current="page"] {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+/* Last in the navigation because it is the only destructive screen (routes.tsx);
+   coloured here for the same reason. */
+.app-nav a[href="/reset"]:hover {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--danger);
+}
+
+.app-nav form {
+  margin-left: auto;
+  display: flex;
+  gap: var(--s2);
+}
+
+.view {
+  padding: var(--s5) var(--s4);
+}
+
+/* -------------------------------------------------------------- controls -- */
+
+input,
+select,
+button,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+input[type="text"],
+input[type="search"],
+input:not([type]),
+select,
+textarea {
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+  min-width: 0;
+}
+
+input[type="search"] {
+  min-width: 16rem;
+}
+
+input::placeholder {
+  color: var(--faint);
+}
+
+button {
+  padding: var(--s1) var(--s3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--sunken);
+  border-color: var(--muted);
+}
+
+button:disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--s3);
+  margin: 0 0 var(--s3);
+  max-width: var(--measure);
+}
+
+legend {
+  padding: 0 var(--s2);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* A quality floor, not a flourish: keyboard users need to see where they are,
+   and the browser default outline disappears against these borders. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------- states -- */
+
+[role="alert"] {
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line));
+  border-left-width: 3px;
+  background: color-mix(in srgb, var(--danger) 4%, var(--bg));
+  color: var(--danger);
+  border-radius: var(--radius);
+  padding: var(--s2) var(--s3);
+  margin: 0 0 var(--s3);
+  max-width: var(--measure);
+}
+
+[role="status"] {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  background: var(--sunken);
+  border-radius: var(--radius);
+  padding: var(--s3);
+  margin: 0 0 var(--s3);
+}
+
+/* An empty corpus is the normal opening state (ADR-019), so it is not styled as
+   a fault — the same sunken panel as any other outcome, never the alert red. */
+[role="status"] > :last-child,
+[role="alert"] > :last-child {
+  margin-bottom: 0;
+}
+
+.notice {
+  margin: 0 0 var(--s3);
+}
+
+.notice a {
+  display: inline-block;
+  padding: var(--s1) var(--s3);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  text-decoration: none;
+}
+
+/* ---------------------------------------------------------------- tables -- */
+
+.table-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+
+.table-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: var(--s2);
+  margin-bottom: var(--s2);
+}
+
+.table-summary p {
+  margin: 0;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+/* 448 rows of nested controls do not fit a narrow window, and squeezing the
+   columns makes every one of them unreadable. Scrolling the table keeps the
+   cells at a usable width and keeps the page itself from overflowing. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.875rem;
+}
+
+th,
+td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line);
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--sunken);
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-size: 0.8125rem;
+  padding: 0;
+  white-space: nowrap;
+}
+
+thead th:not(:has(.sort)) {
+  padding: var(--s2) var(--s3);
+}
+
+/* The sort control fills its header cell so the whole cell is the target, and
+   carries no border of its own — a button outline inside every header reads as
+   five buttons stapled to the table rather than as a sortable column. */
+.sort {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: var(--s2) var(--s3);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  font-weight: 600;
+}
+
+.sort:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+
+th[aria-sort="none"] .sort span {
+  color: var(--faint);
+}
+
+th:not([aria-sort="none"]) .sort {
+  color: var(--ink);
+}
+
+tbody tr:hover {
+  background: var(--sunken);
+}
+
+/* The name is what the row is *for* and it is the longest thing in it — some run
+   past 90 characters. Giving it the width stops it wrapping to three lines while
+   a column of identical "Delete" buttons sits in 230px of its own. */
+.documents col.col-name {
+  width: 40%;
+}
+
+.documents col.col-count {
+  width: 5rem;
+}
+
+.documents col.col-references {
+  width: auto;
+}
+
+.documents col.col-actions {
+  width: 7rem;
+}
+
+.documents td:nth-child(2),
+.documents td:nth-child(3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-right: var(--s5);
+}
+
+.documents th:nth-child(2) .sort,
+.documents th:nth-child(3) .sort {
+  text-align: right;
+}
+
+.row-references {
+  margin-top: var(--s2);
+}
+
+.reference-editor {
+  margin-top: var(--s2);
+  padding: var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+
+.reference-editor ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--s2);
+}
+
+.reference-editor li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  max-width: none;
+  padding: var(--s1) 0;
+}
+
+[role="dialog"] {
+  margin-top: var(--s2);
+  padding: var(--s3);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger) 4%, var(--bg));
+}
+
+.add-document {
+  margin: 0 0 var(--s4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+/* ----------------------------------------------- side-by-side citations --- */
+
+/* Triage sets what changed against what it reaches; Review sets the two ends of
+   a proposal. Both are comparisons, so both are columns rather than a stack. */
+.panes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s5);
+  margin-bottom: var(--s3);
+}
+
+.pane {
+  flex: 1;
+  min-width: 18rem;
+}
+
+.stacked {
+  display: flex;
+}
+
+/* -------------------------------------------------- citations, the atom --- */
+
+/*
+ * Everything this product produces resolves to one shape: a document, the
+ * edition it was read from, the section, and the page. Ask prints it, Triage
+ * prints it twice side by side, Review prints it for both ends of a proposal,
+ * and the obligations list prints it under every statement.
+ *
+ * ADR-026 is why the page number is worth this much care — a citation whose page
+ * is wrong sends a compliance reader to the wrong page — and ADR-017 is why the
+ * edition is in it. One treatment everywhere, so it reads as the same object
+ * wherever it appears.
+ */
+.citation,
+cite {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s2);
+  font-style: normal;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.citation > * + *::before,
+cite > * + *::before {
+  content: "·";
+  color: var(--line-strong);
+  margin-right: var(--s2);
+}
+
+.citation-document {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.citation code {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--muted);
+}
+
+.citations {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.citations li {
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--line);
+  max-width: none;
+}
+
+.citations li:last-child {
+  border-bottom: 0;
+}
+
+/* ----------------------------------------------------------------- graph -- */
+
+.graph {
+  display: flex;
+  /* The nav sits above this view, so 100vh would overflow the page by its
+     height. min-height 0 lets the flex child shrink rather than forcing its
+     content's size onto the row. */
+  height: calc(100vh - 4.5rem);
+  min-height: 0;
+}
+
+.graph-canvas {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.graph-panel {
+  width: 20rem;
+  flex-shrink: 0;
+  padding: var(--s4);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.graph-count {
+  color: var(--muted);
+}
+
+.graph-toggle {
+  margin-bottom: var(--s3);
+}
+
+.legend {
+  list-style: none;
+  padding: 0;
+  margin: var(--s4) 0 var(--s2);
+  border-top: 1px solid var(--line);
+  padding-top: var(--s3);
+}
+
+.legend li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  margin-bottom: var(--s2);
+  color: var(--muted);
+  font-size: 0.8125rem;
+  max-width: none;
+}
+
+.swatch {
+  flex-shrink: 0;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  transform: translateY(1px);
+}
+
+/* The same two constants GraphExplorer paints the canvas with. */
+.swatch-corpus {
+  background: var(--accent);
+}
+
+.swatch-external {
+  background: var(--faint);
+}
+
+.legend-note {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+[data-testid="node-detail"] h2 {
+  margin-top: var(--s4);
+}
+
+/* ------------------------------------------------------------ duplicates -- */
+
+.duplicates {
+  margin-top: var(--s6);
+  border-top: 1px solid var(--line);
+  padding-top: var(--s4);
+}
+
+.duplicates article {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--s3);
+  margin-bottom: var(--s3);
+  background: var(--sunken);
+}
+
+.duplicates article p:last-child {
+  margin-bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+/* ------------------------------------------------------------- the text --- */
+
+/* A chunk's heading names its section and its page (ADR-026), which is
+   navigation rather than a title — set as a label, so the document's own words
+   stay the largest thing in the column. */
+article section h3 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-top: var(--s5);
+}
+
+/* ------------------------------------------------------------ responsive -- */
+
+@media (max-width: 900px) {
+  /* The panel was a fixed 20rem beside the canvas at every width, so at 768px it
+     took 42% of the window and the graph was clipped off both edges. */
+  .graph {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .graph-canvas {
+    height: 60vh;
+    min-height: 20rem;
+  }
+
+  .graph-panel {
+    width: auto;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    overflow-y: visible;
+  }
+
+  .app-nav form {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  input[type="search"] {
+    min-width: 0;
+    flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ------------------------------------------------ a document's citations -- */
+
+/* DoDI 5000.02 cites 28 documents and DoDD 5000.01 eighteen. As one column of
+   short names that is a 400px ladder down an otherwise empty page, and it sits
+   between the document's title and its text — so the reader scrolls past a list
+   of links to reach what they came for. Columns fold it into a block that can be
+   read in one glance. */
+.reference-list {
+  columns: 16rem auto;
+  column-gap: var(--s5);
+  max-width: 56rem;
+  list-style-position: inside;
+  padding: 0;
+}
+
+.reference-list li {
+  max-width: none;
+  break-inside: avoid;
+}
+
+/* ---------------------------------------------------------- passage text -- */
+
+/* The answer is composed from the quotations themselves and nothing is allowed
+   to enter it without a passage behind it (ADR-017), so its whitespace is
+   meaningful — a list of quotations, not prose, and `pre-wrap` is load-bearing
+   rather than decorative. Set as quotation, which is what it is: the reader
+   should be able to tell at a glance that these are the corpus's words and not
+   the product's.
+
+   Restructuring the string into separate elements would read better still, and
+   is deliberately not done here — the composition is ADR-017's and belongs to
+   the backend, not to a stylesheet. */
+.answer,
+.chunk-text {
+  white-space: pre-wrap;
+  max-width: var(--measure);
+  line-height: 1.65;
+  padding-left: var(--s3);
+  border-left: 2px solid var(--line);
+}
+
+.chunk-text {
+  border-left-color: var(--line-strong);
+}
+
+/* -------------------------------------------------------------- the edge -- */
+
+/* The only two controls in the product that destroy anything. They were
+   indistinguishable from "Export a copy first" sitting directly above them,
+   which is the one place on this screen a misread is expensive. The confirmation
+   phrase is what actually guards the reset; this is so the reader sees which
+   button they are approaching before they get there. */
+button.danger {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line-strong));
+  color: var(--danger);
+}
+
+button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border-color: var(--danger);
+}

@@ -54,6 +54,33 @@ export default function DocumentDetail() {
   const [runError, setRunError] = useState<string | null>(null)
   const [building, setBuilding] = useState(false)
 
+  // A run that has come to rest rewrites the edition's build record and, with a
+  // real extractor, its obligations. Both are fetched on mount, so without a
+  // reason to fetch them again the page went on rendering what it read when it
+  // opened: at the moment a build finished it said "Finished. 41 chunks" in the
+  // panel above and "This edition has never been built" in the one below, over
+  // an obligations list it could not see. Found in the sprint-12 walkthrough.
+  //
+  // Bumping a counter rather than copying the run's counts into the record by
+  // hand — the record is the server's to write (STORY-082), and a page that
+  // guesses at it is how the two came to disagree in the first place.
+  const [buildsSettled, setBuildsSettled] = useState(0)
+
+  // Which run, in which resting state, has already been fetched for. A ref
+  // because it only suppresses a duplicate fetch; as state it would re-run the
+  // effects it guards, which is the cascading render the lint rule forbids.
+  const settledRun = useRef<string | null>(null)
+
+  // Records a run, and when it has come to rest asks for what it wrote.
+  function applyRun(next: RebuildStatus) {
+    setRun(next)
+    if (next.state !== 'finished' && next.state !== 'failed') return
+    const settled = `${next.run_id}:${next.state}`
+    if (settledRun.current === settled) return
+    settledRun.current = settled
+    setBuildsSettled((count) => count + 1)
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -72,7 +99,7 @@ export default function DocumentDetail() {
     return () => {
       cancelled = true
     }
-  }, [slug])
+  }, [slug, buildsSettled])
 
   // Resolves this document's reference slugs to names — the same names the table
   // (STORY-017's neighbour, two clicks away) already shows. Kept out of the
@@ -148,7 +175,7 @@ export default function DocumentDetail() {
     return () => {
       cancelled = true
     }
-  }, [slug, obligationTarget])
+  }, [slug, obligationTarget, buildsSettled])
 
   // STORY-082. The run id used to live only in this component's state, so
   // reloading the tab stranded a rebuild that was still going — a nuisance when a
@@ -177,7 +204,11 @@ export default function DocumentDetail() {
 
     getRebuild(recordedRunId)
       .then((found) => {
-        if (!cancelled) setRun(found)
+        // A run the page did not start can already have come to rest — the tab
+        // was reloaded, or closed for the eight hours the job is allowed. It
+        // goes through `applyRun` for the same reason a run this page started
+        // does: the record it wrote is newer than the one `versions` holds.
+        if (!cancelled) applyRun(found)
       })
       .catch(() => {
         // RQ no longer knows this job, and the record still says "started". A
@@ -213,7 +244,7 @@ export default function DocumentDetail() {
       pollCount.current += 1
       getRebuild(run.run_id)
         .then((next) => {
-          if (!cancelled) setRun(next)
+          if (!cancelled) applyRun(next)
         })
         .catch((cause: unknown) => {
           if (!cancelled) {
@@ -238,9 +269,14 @@ export default function DocumentDetail() {
     setBuilding(true)
     setRunError(null)
     setRun(null)
+    // The previous run's verdict, cleared before the new one has a verdict of its
+    // own. Left standing it outlived the run it described: an edition whose
+    // stranded run was reported as "did not finish" went on saying so over a
+    // rebuild that had since succeeded.
+    setRunLost(false)
     try {
       const started = await startRebuild(slug, target, candidates)
-      setRun(await getRebuild(started.run_id))
+      applyRun(await getRebuild(started.run_id))
     } catch (cause: unknown) {
       setRunError(cause instanceof Error ? cause.message : 'Could not start the rebuild.')
     } finally {
@@ -278,7 +314,7 @@ export default function DocumentDetail() {
 
   // Only ever show a result that belongs to the edition currently selected.
   return (
-    <div style={{ padding: '1rem' }}>
+    <div className="view">
       <h1>
         {document.name}
         {document.is_external && <span> (external)</span>}
@@ -291,7 +327,7 @@ export default function DocumentDetail() {
       {document.references.length === 0 ? (
         <p>This document cites nothing in the corpus.</p>
       ) : (
-        <ul aria-labelledby="references-heading">
+        <ul className="reference-list" aria-labelledby="references-heading">
           {document.references.map((target) => (
             <li key={target}>
               <Link to={`/documents/${target}`}>{namesBySlug.get(target) ?? target}</Link>
@@ -300,7 +336,12 @@ export default function DocumentDetail() {
         </ul>
       )}
 
-      <h2>Text</h2>
+      {/* "Editions", not "Text": what follows is the edition picker and the
+          builder that derives obligations from an edition. The page carried two
+          `<h2>Text</h2>` headings until the sprint-12 walkthrough — this one over
+          controls, the other over the document body — so navigating by heading
+          gave a reader "Text… Obligations… Text" and no way to tell them apart. */}
+      <h2>Editions</h2>
 
       {versions.length > 0 && (
         <p>
@@ -338,7 +379,7 @@ export default function DocumentDetail() {
               {versions
                 .filter((v) => v.version_id !== (edition ?? versions[versions.length - 1]?.version_id))
                 .map((v) => (
-                  <label key={v.version_id} style={{ display: 'block' }}>
+                  <label key={v.version_id} className="stacked">
                     <input
                       type="checkbox"
                       checked={candidates.includes(v.version_id)}
@@ -591,7 +632,7 @@ export default function DocumentDetail() {
               <h3>
                 {chunk.section_path.join(' / ') || '(preamble)'} — page {chunk.page}
               </h3>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{chunk.text}</p>
+              <p className="chunk-text">{chunk.text}</p>
             </section>
           ))}
         </article>

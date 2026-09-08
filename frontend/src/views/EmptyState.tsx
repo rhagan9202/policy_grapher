@@ -18,7 +18,7 @@ import { Link } from 'react-router-dom'
  */
 export default function EmptyState({ lead }: { lead?: string }) {
   return (
-    <div role="status" style={{ padding: '1rem 0', maxWidth: '40rem' }}>
+    <div role="status">
       <p>
         <strong>{lead ? `${lead} ` : ''}No documents have been ingested yet.</strong>
       </p>

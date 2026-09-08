@@ -42,7 +42,7 @@ export default function Ask() {
   }
 
   return (
-    <div style={{ padding: '1rem' }}>
+    <div className="view">
       <h1>Ask</h1>
 
       {corpusEmpty ? (
@@ -73,26 +73,34 @@ export default function Ask() {
         <article>
           {/* The answer is composed from the citations below it (ADR-017), so
               whitespace is meaningful — it is a list of quotations, not prose. */}
-          <p style={{ whiteSpace: 'pre-wrap' }}>{answer.answer}</p>
+          <p className="answer">{answer.answer}</p>
 
           {answer.citations.length > 0 && (
             <>
               <h2>Sources</h2>
-              <ul>
+              {/* Where each passage came from, in the order the answer quotes
+                  them — not the passages again. The answer is composed from
+                  these citations (ADR-017), so their text is already above,
+                  verbatim and identically truncated; printing it a second time
+                  doubled the length of every answer and told the reader nothing
+                  they had not just read. ADR-017's requirement is that an answer
+                  carry its citations, and this is them. */}
+              <ol className="citations">
                 {answer.citations.map((citation, index) => (
                   <li key={`${citation.document}-${citation.page}-${index}`}>
-                    <blockquote>{citation.quote}</blockquote>
                     {/* The edition is not decoration. A corpus holding both the
                         2003 and 2020 editions of one directive answers out of
                         both, and "DoDD 5000.01 · p. 1" names a passage in each —
                         one of them superseded. */}
-                    <cite>
-                      {citation.document} · {citation.version_id} ·{' '}
-                      {citation.section_path.join('/')} · p. {citation.page}
+                    <cite className="citation">
+                      <span className="citation-document">{citation.document}</span>
+                      <code>{citation.version_id}</code>
+                      <span>{citation.section_path.join('/')}</span>
+                      <span>p. {citation.page}</span>
                     </cite>
                   </li>
                 ))}
-              </ul>
+              </ol>
             </>
           )}
 

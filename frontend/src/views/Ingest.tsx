@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ingest, listSources } from '../api/client'
 import type { IngestResult, SourceFile } from '../api/types'
 
@@ -91,7 +92,7 @@ export default function Ingest() {
   }
 
   return (
-    <div style={{ padding: '1rem' }}>
+    <div className="view">
       <h1>Ingest</h1>
 
       <p>
@@ -206,8 +207,10 @@ export default function Ingest() {
 
               {result.suspected_duplicates.length > 0 && (
                 <>
-                  {/* STORY-003 flags these; nothing merges them (STORY-031). Showing
-                      them is the whole of what the product currently offers. */}
+                  {/* STORY-003 flags these and STORY-031 built the screen that
+                      rules on them. Naming them here and stopping left the reader
+                      holding a finding with nowhere to take it — the control is
+                      one click away and nothing said so. */}
                   <h3>
                     {result.suspected_duplicates.length} suspected duplicate names
                   </h3>
@@ -216,6 +219,13 @@ export default function Ingest() {
                       <li key={group.join('|')}>{group.join(' / ')}</li>
                     ))}
                   </ul>
+                  <p>
+                    Names differing only by punctuation or spacing may be one
+                    document held as two, which divides its references between
+                    them. Rule on each pair under{' '}
+                    <Link to="/documents">Documents</Link>. Nothing is merged
+                    automatically.
+                  </p>
                 </>
               )}
             </>

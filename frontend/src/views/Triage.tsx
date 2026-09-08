@@ -10,7 +10,7 @@ import EmptyState from './EmptyState'
 
 function Citation({ heading, of }: { heading: string; of: TriageCitation }) {
   return (
-    <div style={{ flex: 1, minWidth: '18rem' }}>
+    <div className="pane">
       <h4>{heading}</h4>
       <blockquote>{of.statement}</blockquote>
       <cite>
@@ -118,7 +118,7 @@ export default function Triage() {
   const bothSidesExtracted =
     result !== null && result.from_obligations > 0 && result.to_obligations > 0
   return (
-    <div style={{ padding: '1rem' }}>
+    <div className="view">
       <h1>Triage</h1>
 
       {corpusEmpty ? (
@@ -127,7 +127,7 @@ export default function Triage() {
         /* A manifest records documents but no text (ADR-011), so a corpus
            ingested from CSV alone has 438 documents and nothing to compare.
            Without this the picker renders empty and unexplained. */
-        <div role="status" style={{ padding: '1rem 0', maxWidth: '40rem' }}>
+        <div role="status">
           <p>
             <strong>No document has an ingested edition yet.</strong>
           </p>
@@ -234,7 +234,7 @@ export default function Triage() {
                     {row.score.toFixed(1)}
                   </p>
                   <p>{row.summary}</p>
-                  <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
+                  <div className="panes">
                     <Citation heading="What changed" of={row.higher} />
                     <Citation heading="What it reaches" of={row.ours} />
                   </div>

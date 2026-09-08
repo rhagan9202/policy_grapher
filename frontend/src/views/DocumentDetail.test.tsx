@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -857,5 +857,145 @@ describe('DocumentDetail, stranded rejections', () => {
 
     await screen.findByText(/37 chunks written|chunks rejected/i)
     expect(screen.queryByText(/recorded rejection/i)).not.toBeInTheDocument()
+  })
+})
+
+// Found in the sprint-12 walkthrough, driving the real stack. `versions` was read
+// once on mount, so the build record the run had just written was never re-read:
+// the moment a build finished, the page said "Finished. 41 chunks…" in one panel
+// and "This edition has never been built" in the next. Two statements about one
+// edition, on one screen, contradicting each other — and the obligations the run
+// wrote stayed invisible behind "No obligations recorded for this edition" until
+// someone thought to reload.
+//
+// That is the false negative STORY-082 and ADR-019 exist to prevent, met at the
+// one moment a reader is certain to be looking: the end of a build they started
+// and, with a real extractor, waited hours for.
+describe('DocumentDetail after a build finishes', () => {
+  const unbuilt = { ...versions[1] }
+  const rebuilt = built({
+    build_changed_at: '2026-09-08T18:08:00+00:00',
+    build_counts: { chunks_written: 41, obligations_written: 113 },
+  })
+  const run = {
+    run_id: 'r', version_id: versions[1].version_id, state: 'finished',
+    chunks_done: 41, chunks_total: 41,
+    counts: { chunks_written: 41, obligations_written: 113 },
+    rejections: [], extractor_adapter: 'local', embedder_adapter: 'local',
+    error: null,
+  }
+
+  async function build() {
+    renderAt()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /build derived layer/i }),
+    )
+    await screen.findByText(/finished\. 41 chunks/i)
+  }
+
+  it('stops calling the edition never-built once a run has built it', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions
+      .mockResolvedValueOnce([versions[0], unbuilt])
+      .mockResolvedValue([versions[0], rebuilt])
+    listChunks.mockResolvedValue(chunks)
+    startRebuild.mockResolvedValue({ run_id: 'r' })
+    getRebuild.mockResolvedValue(run)
+
+    await build()
+
+    await waitFor(() =>
+      expect(screen.queryByText(/has never been built/i)).not.toBeInTheDocument(),
+    )
+    expect(screen.getByText(/built 2026-09-08 with extractor/i)).toBeInTheDocument()
+  })
+
+  it('shows the obligations the run just wrote', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions
+      .mockResolvedValueOnce([versions[0], unbuilt])
+      .mockResolvedValue([versions[0], rebuilt])
+    listChunks.mockResolvedValue(chunks)
+    startRebuild.mockResolvedValue({ run_id: 'r' })
+    getRebuild.mockResolvedValue(run)
+    listObligations
+      .mockResolvedValueOnce({ obligations: [], total: 0, returned: 0, truncated: false })
+      .mockResolvedValue({
+        obligations: [
+          {
+            obligation_id: 'o1',
+            // Deliberately not one of the `chunks` texts above: the same words in
+            // both lists match twice and the query fails for a reason that has
+            // nothing to do with what this test is about.
+            statement: 'The program manager will conduct industrial base assessments.',
+            modality: 'will',
+            section_path: ['SECTION 1'],
+            page: 9,
+          },
+        ],
+        total: 1,
+        returned: 1,
+        truncated: false,
+      })
+
+    await build()
+
+    expect(
+      await screen.findByText(/conduct industrial base assessments/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/no obligations recorded for this edition/i),
+    ).not.toBeInTheDocument()
+  })
+
+  // The same staleness one state further on. `runLost` is set when a recorded
+  // run has vanished from the queue, and nothing cleared it — so a rebuild that
+  // then succeeded was still described as the run that did not finish.
+  it('stops reporting a lost run once a later build succeeds', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions
+      .mockResolvedValueOnce([
+        versions[0],
+        built({ build_state: 'started', build_run_id: 'run-gone', build_counts: {} }),
+      ])
+      .mockResolvedValue([versions[0], rebuilt])
+    listChunks.mockResolvedValue(chunks)
+    getRebuild.mockRejectedValueOnce(new Error('no such job'))
+    startRebuild.mockResolvedValue({ run_id: 'r' })
+    getRebuild.mockResolvedValue(run)
+
+    renderAt()
+    expect(await screen.findByText(/did not finish/i)).toBeInTheDocument()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /build derived layer/i }),
+    )
+    await screen.findByText(/finished\. 41 chunks/i)
+
+    await waitFor(() =>
+      expect(screen.queryByText(/did not finish/i)).not.toBeInTheDocument(),
+    )
+  })
+})
+
+// Found in the sprint-12 walkthrough. The outline read H1 → References → Text →
+// Obligations → Text: "Text" twice, and the first one labelled a section that
+// holds no text at all — the edition picker and the derived-layer builder. A
+// reader navigating this page by heading heard "Text… Obligations… Text" and had
+// no way to tell which was which.
+describe('DocumentDetail heading outline', () => {
+  it('names each section once, and names it for what it holds', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+
+    renderAt()
+    await screen.findByRole('heading', { name: /DoDD 5000\.01/ })
+
+    const outline = screen
+      .getAllByRole('heading', { level: 2 })
+      .map((heading) => heading.textContent)
+
+    expect(outline).toEqual(['References', 'Editions', 'Obligations', 'Text'])
   })
 })
