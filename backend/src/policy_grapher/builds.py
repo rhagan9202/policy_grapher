@@ -128,3 +128,36 @@ def read_build(tx: ManagedTransaction, *, version_id: str) -> dict | None:
     found = dict(record)
     found["counts"] = json.loads(found["counts"] or "{}")
     return found
+
+
+# Cleared when something destroys the derived layer this record describes —
+# today, a re-ingest replacing an edition's chunks (ingest.py). Leaving it
+# standing would put "Built 2026-08-30 with extractor local" over an edition
+# holding no obligations, which is STORY-082's three-way ambiguity restored by
+# the back door: the record would name a build whose output no longer exists.
+#
+# Set to NULL rather than deleted, because `build_state IS NULL` is already the
+# encoding for "never built" that `read_build` and the detail screen agree on.
+CLEAR_BUILD = """
+MATCH (v:DocumentVersion {version_id: $version_id})
+SET v.build_run_id            = NULL,
+    v.build_state             = NULL,
+    v.build_started_at        = NULL,
+    v.build_changed_at        = NULL,
+    v.build_extractor_adapter = NULL,
+    v.build_embedder_adapter  = NULL,
+    v.build_counts            = '{}',
+    v.build_error             = NULL
+RETURN count(v) AS cleared
+"""
+
+
+def clear_build(tx: ManagedTransaction, *, version_id: str) -> int:
+    """Forget what the last build of this edition did. Returns rows touched.
+
+    For use when the derived layer that build produced has been thrown away, so
+    that the edition reads as never built — which, having no obligations and
+    freshly re-chunked text, it now effectively is.
+    """
+    record = tx.run(CLEAR_BUILD, {"version_id": version_id}).single()
+    return record["cleared"] if record else 0

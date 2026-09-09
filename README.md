@@ -122,6 +122,13 @@ Review stay empty until one has run, and a rebuild only produces obligations whe
 extraction model is configured — true by default now; on the lean stack, do the setting above
 first.
 
+> **Re-ingesting an edition discards what a rebuild produced for it**
+> ([ADR-039](docs/specs/adr/ADR-039-a-re-ingest-discards-the-derived-layer.md)). Ingest
+> replaces the edition's chunks, and the obligations cite those chunks, so they go with them
+> and the edition returns to never-built. That is roughly an hour of model time for a 38-chunk
+> edition. Ingest each PDF once, then build; if you re-ingest to pick up a chunker fix, plan to
+> rebuild after it.
+
 **From the UI**, which is the shortest path and the one verified end to end on 2026-08-23 from
 a wiped volume against `llama3.1:8b`:
 
