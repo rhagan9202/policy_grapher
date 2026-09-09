@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from rq import Queue
+from rq import Queue, Worker
 from rq.job import JobStatus
 
 from policy_grapher.ingest import ingest_file
@@ -269,3 +269,62 @@ def test_a_run_on_a_live_worker_is_not_called_dead(client_with_auth, redis_conne
     body = client_with_auth.get(f"/rebuilds/{job.id}").json()
 
     assert body["state"] != "failed"
+
+
+@pytest.mark.integration
+def test_a_live_worker_pruned_from_the_global_registry_is_still_alive(
+    client_with_auth, redis_connection
+):
+    """Observed on 2026-09-09, against the running stack, on a real rebuild that
+    was 30 chunks into 41 and still going: the route reported
+
+        state: failed
+        "The worker running this rebuild (02ea157c…) is no longer alive"
+
+    while that worker's container had never restarted, its log showed no error,
+    and its chunk count was still climbing.
+
+    The guard asked `Worker.all(connection=…)`, which reads RQ's **global**
+    `rq:workers` set. RQ keeps two registries — that one and a per-queue
+    `rq:workers:<name>` — and prunes them asymmetrically: `Worker.find_by_key`
+    removes a key whose heartbeat has lapsed from the global set only
+    (`srem(cls.redis_workers_keys, …)`), leaving the per-queue set alone. A
+    worker is added back to the global set at birth and never again, so a single
+    momentary lapse — the heartbeat TTL is ~90s and this route is polled every
+    30s by an open tab — evicts a live worker from it permanently.
+
+    That is the state reproduced here: heartbeat key present, per-queue registry
+    correct, global registry emptied. Reporting this run dead is the worse of the
+    two possible errors, because the screen then invites a second rebuild of an
+    edition already an hour into being built.
+    """
+    _slug, version_id = _ingest(client_with_auth)
+    queue = Queue(SYNC_QUEUE, connection=redis_connection, is_async=True)
+    job = queue.enqueue(rebuild_edition, version_id=version_id)
+
+    # A genuinely registered worker: `register_birth` writes the heartbeat key
+    # and adds it to both registries, which is the real state at 15:50:21.
+    worker = Worker([queue], connection=redis_connection, name="live-worker")
+    worker.register_birth()
+    try:
+        job.worker_name = worker.name
+        job._status = JobStatus.STARTED
+        job.save()
+
+        # Precondition: alive by the only measure that is actually about
+        # liveness — RQ refreshes this key on every heartbeat.
+        assert redis_connection.exists(f"rq:worker:{worker.name}")
+
+        # Exactly what `find_by_key` does after one lapsed heartbeat, and the
+        # state the live stack was found in: gone from the global set, still
+        # correct in the queue's own.
+        redis_connection.srem("rq:workers", f"rq:worker:{worker.name}")
+        assert redis_connection.sismember(
+            f"rq:workers:{SYNC_QUEUE}", f"rq:worker:{worker.name}"
+        )
+
+        body = client_with_auth.get(f"/rebuilds/{job.id}").json()
+
+        assert body["state"] != "failed", body.get("error")
+    finally:
+        worker.register_death()
