@@ -312,3 +312,89 @@ def test_the_queue_reports_a_document_whose_editions_can_be_compared(
 
     assert body["editions_with_obligations"] == 2
     assert body["documents_comparable"] == 1
+
+
+@pytest.mark.integration
+def test_each_side_names_the_edition_it_came_from(queued):
+    """Found in the sprint-12 review walkthrough, on a live queue of 119 pairs.
+
+    Every proposal in it ran between two editions of *one* instrument —
+    `dodd-5000-01@2022-07-28` against `dodd-5000-01@2018-08-31` — and both sides
+    of the screen read `DoDD 5000.01`, because the citation carried the document
+    and not the edition. The reviewer was asked whether one clause implements
+    another and could not tell which of the two was which.
+
+    `Citation`, on `/ask`, has carried `version_id` for exactly this reason: a
+    corpus holding two editions of one directive answers out of both, so a
+    citation naming only the document matches a passage in each of them and
+    settles nothing. That reasoning is stronger here, not weaker — comparing
+    editions is the whole of what this screen does.
+    """
+    item = queued.get("/review/queue").json()["items"][0]
+
+    assert item["source"]["version_id"] == "org"
+    assert item["target"]["version_id"] == "higher"
+
+
+@pytest.mark.integration
+def test_the_queue_says_how_many_proposals_are_waiting(queued):
+    """The queue is capped at 50 and the response said nothing about the rest,
+    so the screen read "Proposal 1 of 50" over 119 undecided pairs — and went on
+    reading it after every verdict, because deciding one only refilled the page
+    from the remainder. A reviewer had no measure of the work and no signal of
+    progress.
+
+    `pending` counts undecided proposals in the graph, not rows returned, so it
+    falls as verdicts are recorded even while the page stays full. Counted on the
+    server for the reason `ReviewQueueOut` already gives about its other counts:
+    two views deriving the same number separately is how they come to disagree.
+    """
+    body = queued.get("/review/queue").json()
+
+    assert body["pending"] == 1
+
+    item = body["items"][0]
+    queued.post(
+        f"/review/{item['source']['obligation_id']}/{item['target']['obligation_id']}",
+        json={"verdict": "approve"},
+    )
+
+    assert queued.get("/review/queue").json()["pending"] == 0
+
+
+@pytest.mark.integration
+def test_pending_counts_what_is_undecided_not_what_fits_on_the_page(client_with_auth):
+    """The number that matters is the backlog, and `limit` must not change it —
+    that *is* the original defect, stated exactly: the screen was reading a page
+    size and calling it a total.
+
+    Two proposals and a limit of one, so `pending` and `len(items)` cannot agree
+    by accident. With a single-proposal fixture every assertion here would hold
+    just as well if `pending` were `len(items)`, which would make this test agree
+    with the bug it exists to catch.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+
+    _seed_version(
+        driver, database, version_id="higher", name="DoDI 5000.88", statement=HIGHER
+    )
+    _seed_version(
+        driver, database, version_id="higher-2", name="DoDI 5000.89", statement=HIGHER
+    )
+    _seed_version(driver, database, version_id="org", name="ORG 1.0", statement=ORG)
+    with driver.session(database=database) as session:
+        assert (
+            session.execute_write(
+                propose_links,
+                org_version_id="org",
+                candidate_version_ids=["higher", "higher-2"],
+                proposer="lexical-v1",
+            )
+            == 2
+        )
+
+    body = client_with_auth.get("/review/queue?limit=1").json()
+
+    assert len(body["items"]) == 1
+    assert body["pending"] == 2

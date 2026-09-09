@@ -36,18 +36,20 @@ WHERE NOT EXISTS {
 }
 --SOURCE-ANCHOR--
 --TARGET-ANCHOR--
-MATCH (source_doc:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(source)
-MATCH (target_doc:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(target)
+MATCH (source_doc:Document)-[:HAS_VERSION]->(source_version:DocumentVersion)-[:MANDATES]->(source)
+MATCH (target_doc:Document)-[:HAS_VERSION]->(target_version:DocumentVersion)-[:MANDATES]->(target)
 RETURN source.obligation_id   AS source_id,
        source.statement       AS source_statement,
        source.modality        AS source_modality,
        source_doc.name        AS source_document,
+       source_version.version_id AS source_version_id,
        source_chunk.section_path AS source_section_path,
        source_chunk.page      AS source_page,
        target.obligation_id   AS target_id,
        target.statement       AS target_statement,
        target.modality        AS target_modality,
        target_doc.name        AS target_document,
+       target_version.version_id AS target_version_id,
        target_chunk.section_path AS target_section_path,
        target_chunk.page      AS target_page,
        r.confidence           AS confidence,
@@ -62,6 +64,19 @@ QUEUE = (
     .replace("--SOURCE-ANCHOR--", primary_anchor("source", "source_chunk"))
     .replace("--TARGET-ANCHOR--", primary_anchor("target", "target_chunk"))
 )
+
+# The queue's own WHERE, counted rather than returned. Deliberately not derived
+# from `len(items)`: that is a page of at most `limit`, and the reviewer needs the
+# backlog. Same anti-join, so the two can never disagree about what "undecided"
+# means.
+PENDING = """
+MATCH (source:Obligation)-[:IMPLEMENTS_PROPOSED]->(target:Obligation)
+WHERE NOT EXISTS {
+    MATCH (d:LinkDecision {source_obligation_id: source.obligation_id,
+                           target_obligation_id: target.obligation_id})
+}
+RETURN count(*) AS pending
+"""
 
 PROPOSAL_EXISTS = """
 MATCH (:Obligation {obligation_id: $source_id})
@@ -106,6 +121,7 @@ def queue(
                 statement=record["source_statement"],
                 modality=record["source_modality"],
                 document=record["source_document"],
+                version_id=record["source_version_id"],
                 section_path=record["source_section_path"],
                 page=record["source_page"],
             ),
@@ -114,6 +130,7 @@ def queue(
                 statement=record["target_statement"],
                 modality=record["target_modality"],
                 document=record["target_document"],
+                version_id=record["target_version_id"],
                 section_path=record["target_section_path"],
                 page=record["target_page"],
             ),
@@ -129,10 +146,16 @@ def queue(
         database_=settings.neo4j_database,
         routing_=RoutingControl.READ,
     )
+    counted, _, _ = driver.execute_query(
+        PENDING,
+        database_=settings.neo4j_database,
+        routing_=RoutingControl.READ,
+    )
     return ReviewQueueOut(
         items=items,
         editions_with_obligations=why[0]["editions_with_obligations"],
         documents_comparable=why[0]["documents_comparable"],
+        pending=counted[0]["pending"],
     )
 
 

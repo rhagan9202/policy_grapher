@@ -24,7 +24,8 @@ const q = (
   items: unknown[],
   editions_with_obligations = 2,
   documents_comparable = 1,
-) => ({ items, editions_with_obligations, documents_comparable })
+  pending = items.length,
+) => ({ items, editions_with_obligations, documents_comparable, pending })
 
 
 // EmptyState links to the Ingest screen, so any view that can render it
@@ -42,6 +43,7 @@ const item: ReviewItem = {
     statement: 'The Program Manager shall document the cybersecurity strategy.',
     modality: 'SHALL',
     document: 'ORG 1.0',
+    version_id: 'org-1-0@2024-01-01',
     section_path: ['2', '2.4'],
     page: 7,
   },
@@ -50,6 +52,7 @@ const item: ReviewItem = {
     statement: 'Components shall document the cybersecurity strategy.',
     modality: 'SHALL',
     document: 'DoDI 5000.88',
+    version_id: 'dodi-5000-88@2020-09-09',
     section_path: ['3', '3.2'],
     page: 12,
   },
@@ -339,5 +342,63 @@ describe('Review, why the queue is empty', () => {
     render(<Review />)
 
     expect(await screen.findByText(/nothing is waiting for review/i)).toBeInTheDocument()
+  })
+})
+
+// Three defects found driving the live queue on 2026-09-09, against 119 real
+// proposals produced by `llama3.1:8b` and `lexical-v1`.
+describe('Review, from the sprint-12 walkthrough', () => {
+  it('names the edition each clause came from', async () => {
+    // Every proposal in the live queue ran between two editions of one
+    // instrument, so both sides of the screen read "DoDD 5000.01" and the
+    // reviewer could not tell which was the 2022 text and which the 2018.
+    // Comparing editions is the whole of what this screen does.
+    getReviewQueue.mockResolvedValue(q([item]))
+    listDocuments.mockResolvedValue([{ slug: 'a' }])
+    showReview()
+
+    expect(await screen.findByText(/org-1-0@2024-01-01/)).toBeInTheDocument()
+    expect(screen.getByText(/dodi-5000-88@2020-09-09/)).toBeInTheDocument()
+  })
+
+  it('says how many proposals are waiting, not how many fit on the page', async () => {
+    // The queue is capped at 50 server-side. "Proposal 1 of 50" over a backlog
+    // of 119 is the graph view's "23 of 23" wearing a different hat: true of
+    // what was fetched, silent about what was left out.
+    getReviewQueue.mockResolvedValue(q([item, { ...item }], 2, 1, 119))
+    listDocuments.mockResolvedValue([{ slug: 'a' }])
+    showReview()
+
+    expect(await screen.findByText(/119 waiting/i)).toBeInTheDocument()
+  })
+
+  it('does not carry a typed reason onto the next proposal', async () => {
+    // `setRationale('')` ran when a verdict was recorded and nowhere else, so
+    // Skip left the previous item's reasoning in the box. Approving the next one
+    // then filed it under the wrong proposal — and a verdict is permanent, and
+    // replayed on every rebuild (ADR-014).
+    const second = { ...item, source: { ...item.source, obligation_id: 'ours-2' } }
+    getReviewQueue.mockResolvedValue(q([item, second]))
+    listDocuments.mockResolvedValue([{ slug: 'a' }])
+    showReview()
+
+    const reason = await screen.findByLabelText(/reason/i)
+    await userEvent.type(reason, 'belongs to the first proposal')
+    await userEvent.click(screen.getByRole('button', { name: /^skip$/i }))
+
+    expect(await screen.findByLabelText(/reason/i)).toHaveValue('')
+  })
+
+  it('does not carry a typed reason backwards either', async () => {
+    const second = { ...item, source: { ...item.source, obligation_id: 'ours-2' } }
+    getReviewQueue.mockResolvedValue(q([item, second]))
+    listDocuments.mockResolvedValue([{ slug: 'a' }])
+    showReview()
+
+    await userEvent.click(await screen.findByRole('button', { name: /^skip$/i }))
+    await userEvent.type(screen.getByLabelText(/reason/i), 'belongs to the second')
+    await userEvent.click(screen.getByRole('button', { name: /^previous$/i }))
+
+    expect(screen.getByLabelText(/reason/i)).toHaveValue('')
   })
 })
