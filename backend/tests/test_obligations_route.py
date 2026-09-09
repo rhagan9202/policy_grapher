@@ -203,3 +203,135 @@ def test_it_caps_what_it_returns_and_still_reports_the_true_total(
     assert body["returned"] == 2
     assert body["truncated"] is True
     assert len(body["obligations"]) == 2
+
+
+# Found on 2026-09-08, driving the containerised stack against a graph that had
+# been rebuilt with a real extractor. The screen said, of one edition:
+#
+#     62 obligations. Showing the first 0.
+#
+# `COUNT_OBLIGATIONS` matches `(:DocumentVersion)-[:MANDATES]->(:Obligation)` and
+# saw 62. `LIST_OBLIGATIONS` additionally binds each obligation's anchoring chunk
+# through `primary_anchor`, whose `CALL` subquery is an inner join — an
+# obligation with no `:ANCHORED_IN` chunk contributes no row, so it returned
+# none. Both queries are correct about what they ask; the graph underneath them
+# was not.
+#
+# The cause is `_write_document`'s `drop_chunks` (ingest.py). It is a
+# `DETACH DELETE`, so it removes each chunk *and every relationship touching it*
+# — including the `:ANCHORED_IN` edges obligations use to cite a passage. The
+# obligations themselves hang off the version by `:MANDATES` and survive the
+# drop, unanchored and unreadable: they cannot be listed, cited, quoted in a
+# Triage row, or shown either side of a Review proposal. `drop_chunks`'s comment
+# reasons carefully about not orphaning *chunks* and does not consider what
+# anchors into them.
+#
+# The counts stay wrong in the reader's favour, which is the dangerous
+# direction: Triage went on reporting `from_obligations: 83, to_obligations: 62`
+# and ranking 133 changes over clauses no screen could ever display.
+@pytest.mark.integration
+def test_reingesting_a_pdf_does_not_orphan_the_obligations_of_its_edition(
+    client_with_auth, driver, database
+):
+    """A re-ingest replaces an edition's chunks. It must not leave that edition's
+    obligations anchored to chunks that no longer exist.
+
+    Re-ingesting is routine and additive by design (ADR-007) — the same file
+    scanned again, a chunker improvement, a second edition arriving — so this is
+    not an exotic path. What makes it silent is that nothing fails: ingest
+    answers 200, the obligation count is unchanged, and only a screen that asks
+    for the obligations themselves discovers there are none to be had.
+    """
+    first = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    assert first.status_code == 200, first.text
+    slug = first.json()["document"]["slug"]
+    version_id = first.json()["version_id"]
+
+    chunks = client_with_auth.get(f"/documents/{slug}/chunks").json()
+    assert chunks, "the fixture PDF must produce at least one chunk"
+    anchor = chunks[0]
+
+    with driver.session(database=database) as session:
+        session.execute_write(
+            write_obligations,
+            version_id=version_id,
+            chunk_id=anchor["chunk_id"],
+            section_path=anchor["section_path"],
+            obligations=[
+                ExtractedObligation(
+                    statement="The program manager shall conduct assessments.",
+                    modality=Modality.SHALL,
+                    actor=None,
+                    deadline=None,
+                    conditions=None,
+                    confidence=0.9,
+                )
+            ],
+        )
+
+    before = client_with_auth.get(
+        f"/documents/{slug}/versions/{version_id}/obligations"
+    ).json()
+    assert before["total"] == 1
+    assert before["returned"] == 1, "precondition: the obligation is readable"
+
+    client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+
+    after = client_with_auth.get(
+        f"/documents/{slug}/versions/{version_id}/obligations"
+    ).json()
+
+    # Whatever the chosen repair — re-anchor, drop the obligations with the
+    # chunks, or refuse the re-ingest — `total` and `returned` must agree. An
+    # edition reporting obligations it cannot produce is the contradiction
+    # ADR-019 forbids, wearing the derived layer's clothes.
+    assert after["returned"] == after["total"], (
+        f"edition reports {after['total']} obligations but can list "
+        f"{after['returned']} — re-ingest orphaned them from their chunks"
+    )
+
+
+@pytest.mark.integration
+def test_reingesting_a_pdf_returns_its_edition_to_never_built(
+    client_with_auth, driver, database
+):
+    """Dropping the derived layer without clearing the build record swaps one
+    contradiction for another.
+
+    STORY-082 records the current or last build on the edition so that an
+    edition holding zero obligations can say *why*. If a re-ingest throws the
+    obligations away and leaves that record standing, the detail screen reads
+    "Built 2026-08-30 with extractor local" directly above "No obligations
+    recorded for this edition" — a build whose output no longer exists,
+    described in the past tense as though it did.
+
+    `build_state IS NULL` is already the encoding for never-built, and after a
+    re-ingest that is what the edition is: freshly chunked text with nothing
+    extracted from it.
+    """
+    first = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+    slug = first.json()["document"]["slug"]
+    version_id = first.json()["version_id"]
+
+    driver.execute_query(
+        "MATCH (v:DocumentVersion {version_id: $vid}) "
+        "SET v.build_state = 'finished', v.build_run_id = 'run-9', "
+        "    v.build_extractor_adapter = 'local', v.build_counts = '{}'",
+        {"vid": version_id},
+        database_=database,
+    )
+    before = client_with_auth.get(f"/documents/{slug}/versions").json()
+    seeded = next(v for v in before if v["version_id"] == version_id)
+    assert seeded["build_state"] == "finished", (
+        "precondition: the edition claims a finished build"
+    )
+
+    client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
+
+    after = client_with_auth.get(f"/documents/{slug}/versions").json()
+    edition = next(v for v in after if v["version_id"] == version_id)
+    assert edition["build_state"] is None, (
+        "a re-ingest threw away what that build produced, so the edition must "
+        f"not still report build_state={edition['build_state']!r}"
+    )
+    assert edition["build_extractor_adapter"] is None

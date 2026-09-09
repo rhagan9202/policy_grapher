@@ -1,6 +1,6 @@
 # Backlog
 
-*Living document — edit in place. Last reviewed: 2026-09-08*
+*Living document — edit in place. Last reviewed: 2026-09-09*
 
 Ordered by priority: the top row is the next thing to pick up. See
 [README](README.md) for how items move through this list, and
@@ -158,8 +158,17 @@ asked for: the first stylesheet this UI has had, a corpus reachable past the two
 ([ADR-038](../specs/adr/ADR-038-the-document-table-pages-rather-than-caps.md)), and a graph that
 says which 5% of the corpus it is drawing and offers the rest.
 
+STORY-111 came out of the first run against the containerised stack, on 2026-09-09, and is the
+worst of the three. Ingest replaced an edition's chunks with a `DETACH DELETE` that also removed
+the `:ANCHORED_IN` edges obligations cite passages through, leaving them attached to the edition
+and readable by nothing — the screen said "62 obligations. Showing the first 0." Nothing failed:
+ingest answered 200 and the count was unchanged. The derived layer now goes with the chunks it is
+built on, in the order `links/rebuild.py` already used, and the build record is cleared with it
+([ADR-039](../specs/adr/ADR-039-a-re-ingest-discards-the-derived-layer.md)).
+
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-111 | A re-ingest stops orphaning the obligations of the edition it rewrites | — |
 | STORY-110 | The UI has a visual layer, and the corpus is reachable through it | — |
 | STORY-109 | A screen stops contradicting itself after a write | — |
 | STORY-105 | Responsibilities coverage has a floor | 11 |

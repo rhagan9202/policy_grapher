@@ -7,11 +7,14 @@ from pathlib import Path
 
 from neo4j import Driver, ManagedTransaction
 
+from policy_grapher.builds import clear_build
+from policy_grapher.changes.diff import drop_changes
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import drop_chunks, write_chunks
 from policy_grapher.documents import allocate_slugs, reconcile_slugs
 from policy_grapher.merges import apply_merges
 from policy_grapher.models import DocumentIngestResult, DocumentRef, IngestResult
+from policy_grapher.obligations import drop_obligations
 from policy_grapher.sources import is_document_source, pdf, resolve_source_path
 from policy_grapher.sources.document import DocumentSourceError, ExtractedDocument
 from policy_grapher.sources.manifest import ParsedCorpus, parse_corpus
@@ -223,6 +226,22 @@ def _write_document(
     # the new ones. `merge_version` already resolved `version` above — bound,
     # not recomputed, since it is the same resolution `chunk_pages` and
     # `write_chunks` need to attach against.
+    #
+    # The derived layer goes first, in the order `links/rebuild.py` established
+    # for the same hazard: changes, then obligations, then chunks. `drop_chunks`
+    # is a DETACH DELETE, so dropping chunks alone destroys the `:ANCHORED_IN`
+    # edges obligations cite passages through, while the obligations themselves
+    # survive on `:MANDATES` — unanchored, and unreadable by every path that
+    # needs a citation. Found on 2026-09-08 against a real rebuilt graph, where
+    # the screen read "62 obligations. Showing the first 0."
+    #
+    # Dropping rather than re-anchoring is the honest answer, not the cheap one:
+    # the text has been re-chunked, so an extraction taken from the old chunks
+    # no longer describes what the edition now holds. The edition returns to
+    # never-built and is rebuilt from the text that is actually there.
+    drop_changes(tx, version_id=version)
+    drop_obligations(tx, version_id=version)
+    clear_build(tx, version_id=version)
     drop_chunks(tx, version_id=version)
     written = write_chunks(
         tx,
