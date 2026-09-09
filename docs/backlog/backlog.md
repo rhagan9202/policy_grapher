@@ -166,8 +166,20 @@ ingest answered 200 and the count was unchanged. The derived layer now goes with
 built on, in the order `links/rebuild.py` already used, and the build record is cleared with it
 ([ADR-039](../specs/adr/ADR-039-a-re-ingest-discards-the-derived-layer.md)).
 
+STORY-112 came out of the same containerised run, an hour later, and is the third defect in a
+row that 770 passing tests could not see. `GET /rebuilds/{run_id}` reported a rebuild as failed
+— *"the worker running this rebuild is no longer alive"* — over a run whose container had never
+restarted and whose chunk count was still climbing; it went on to finish with 75 obligations and
+119 proposals. The guard read RQ's global `rq:workers` set, which RQ prunes asymmetrically, so
+one lapsed heartbeat evicts a live worker from it permanently. Liveness is now read from the
+worker's own heartbeat key
+([ADR-040](../specs/adr/ADR-040-worker-liveness-is-the-heartbeat-not-the-registry.md)). The test
+named `test_a_run_on_a_live_worker_is_not_called_dead` had passed throughout — it only ever
+covered a queued job with no worker at all.
+
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-112 | A running rebuild stops being reported as a dead one | — |
 | STORY-111 | A re-ingest stops orphaning the obligations of the edition it rewrites | — |
 | STORY-110 | The UI has a visual layer, and the corpus is reachable through it | — |
 | STORY-109 | A screen stops contradicting itself after a write | — |

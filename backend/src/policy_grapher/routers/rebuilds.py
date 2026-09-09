@@ -190,9 +190,31 @@ def read_rebuild(
     # job timeout expires. The job records the worker that took it, so asking
     # whether that worker is still alive is the direct question. A job with no
     # worker name has not been taken yet and is not judged.
+    # Asked of the worker's own heartbeat key, not of a registry of workers.
+    #
+    # This used to scan `Worker.all(connection=…)`, which reads RQ's global
+    # `rq:workers` set — and that set is not a reliable answer to "is this worker
+    # alive". RQ keeps two registries, the global one and a per-queue
+    # `rq:workers:<name>`, and prunes them asymmetrically: `Worker.find_by_key`
+    # drops a key whose heartbeat has lapsed from the global set only, leaving
+    # the per-queue set alone. Nothing puts a worker back into the global set
+    # except `register_birth`, so one momentary lapse evicts a live worker from
+    # it for the rest of its life.
+    #
+    # A rebuild is exactly where that lapse is likely and expensive. The
+    # heartbeat TTL while a job runs is about 90 seconds, an open tab polls this
+    # route every 30 (STORY-089), and the run itself takes an hour on CPU — so a
+    # single slow heartbeat under load is enough. Observed 2026-09-09 on a run
+    # 30 chunks into 41: this route reported "the worker … is no longer alive"
+    # while the container had never restarted and the chunk count was still
+    # climbing.
+    #
+    # `find_by_key` returns None when the key is absent, which is the direct
+    # question — RQ refreshes that key on every heartbeat and lets it expire when
+    # the worker stops — and it depends on neither registry being consistent.
     if state == "started" and job.worker_name:
-        alive = {worker.name for worker in Worker.all(connection=queue.connection)}
-        if job.worker_name not in alive:
+        worker_key = Worker.redis_worker_namespace_prefix + job.worker_name
+        if Worker.find_by_key(worker_key, connection=queue.connection) is None:
             state = "failed"
             error = (
                 f"The worker running this rebuild ({job.worker_name}) is no longer "
