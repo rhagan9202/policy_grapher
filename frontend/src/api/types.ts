@@ -138,6 +138,13 @@ export interface ObligationCitation {
   statement: string
   modality: string
   document: string
+  /** Which edition this clause is in. A proposal often runs between two editions
+   *  of one instrument — every one of the 119 in the live queue on 2026-09-09 did
+   *  — and without this both sides of the review screen print the same document
+   *  name, leaving the reviewer unable to tell which is which. Same reasoning as
+   *  `Citation.version_id` on Ask, and it binds harder here: comparing editions
+   *  is the whole of what Review does. */
+  version_id: string
   section_path: string[]
   page: number
 }
@@ -147,6 +154,11 @@ export interface ReviewQueue {
   items: ReviewItem[]
   editions_with_obligations: number
   documents_comparable: number
+  /** Undecided proposals in the graph, not rows in `items`. The queue is capped
+   *  server-side, so the screen read "Proposal 1 of 50" over 119 waiting — and
+   *  kept reading it after every verdict, because deciding one refilled the page
+   *  from the remainder. This is the number that falls as the backlog clears. */
+  pending: number
 }
 
 export interface ReviewItem {

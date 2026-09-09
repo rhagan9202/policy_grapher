@@ -193,12 +193,19 @@ class ObligationCitationOut(BaseModel):
     The citation fields are not decoration: a reviewer asked whether one clause
     implements another cannot answer without knowing which document each comes
     from and where in it to go and read.
+
+    `version_id` is part of that and was missing until the sprint-12 walkthrough.
+    A proposal frequently runs between two editions of one instrument — every one
+    of the 119 in the live queue did — and naming only the document then prints
+    the same string on both sides of the screen. `CitationOut` on `/ask` has
+    carried the edition for the same reason since it was written.
     """
 
     obligation_id: str
     statement: str
     modality: str
     document: str
+    version_id: str
     section_path: list[str]
     page: int
 
@@ -229,6 +236,12 @@ class ReviewQueueOut(BaseModel):
     items: list[ReviewItemOut]
     editions_with_obligations: int
     documents_comparable: int
+    # Undecided proposals in the graph, not rows in `items`. The queue is capped,
+    # so the two differ whenever there is real work: the screen read "Proposal 1
+    # of 50" over 119 waiting, and went on reading it after every verdict because
+    # deciding one refilled the page from the remainder. This is the number that
+    # falls as the backlog is worked through.
+    pending: int
 
 
 class VerdictIn(BaseModel):

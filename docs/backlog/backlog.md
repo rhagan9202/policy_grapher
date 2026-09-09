@@ -177,8 +177,19 @@ worker's own heartbeat key
 named `test_a_run_on_a_live_worker_is_not_called_dead` had passed throughout — it only ever
 covered a queued job with no worker at all.
 
+STORY-113 is three defects found in a walkthrough of the review queue itself, against 119 real
+proposals. Every proposal ran between two editions of one instrument and both sides of the screen
+read `DoDD 5000.01`, because the citation carried the document and not the edition — the reviewer
+could not tell which text was which. The queue is capped at 50 and the response said nothing about
+the rest, so the screen read "Proposal 1 of 50" over 119 waiting and went on reading it after
+every verdict. And a reason typed against one proposal survived Skip, to be filed against whatever
+was approved next — a wrong reason in an audit trail ADR-014 makes permanent. The fourth gap that
+walkthrough found is structural and has a design of its own:
+[pairing is not implementing](../superpowers/specs/2026-09-09-pairing-is-not-implementing-design.md).
+
 | ID | Item | Sprint |
 | --- | --- | --- |
+| STORY-113 | Review says which edition each clause is from, and how much work is left | — |
 | STORY-112 | A running rebuild stops being reported as a dead one | — |
 | STORY-111 | A re-ingest stops orphaning the obligations of the edition it rewrites | — |
 | STORY-110 | The UI has a visual layer, and the corpus is reachable through it | — |

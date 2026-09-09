@@ -3,12 +3,22 @@ import { getReviewQueue, listDocuments, recordVerdict } from '../api/client'
 import EmptyState from './EmptyState'
 import type { ObligationCitation, ReviewItem, ReviewQueue, Verdict } from '../api/types'
 
-/** "DoDI 5000.88 · 3/3.2 · p. 12" — where to go and read the passage. */
+/** "DoDI 5000.88 · dodi-5000-88@2020-09-09 · 3/3.2 · p. 12" — where to go and
+ *  read the passage, and which edition of it.
+ *
+ *  The edition is not decoration here, it is the distinction being reviewed. A
+ *  proposal frequently runs between two editions of one instrument, and without
+ *  it both sides of this screen print the same document name — measured on
+ *  2026-09-09 across all 119 proposals in the live queue. Same treatment as the
+ *  citation on Ask, which has carried the edition from the start. */
 function Citation({ of }: { of: ObligationCitation }) {
   return (
     <p>
-      <cite>
-        {of.document} · {of.section_path.join('/')} · p. {of.page}
+      <cite className="citation">
+        <span className="citation-document">{of.document}</span>
+        <code>{of.version_id}</code>
+        <span>{of.section_path.join('/')}</span>
+        <span>p. {of.page}</span>
       </cite>
     </p>
   )
@@ -37,6 +47,23 @@ export default function Review() {
   // on every rebuild, and "I could not judge this today" is not a judgement.
   const [index, setIndex] = useState(0)
   const [wrapped, setWrapped] = useState(false)
+
+  // Moving to another proposal drops whatever was typed for this one.
+  //
+  // `setRationale('')` ran when a verdict was recorded and nowhere else, so a
+  // reason typed here and then skipped past stayed in the box and was filed
+  // against whichever proposal was approved next. A verdict is permanent and
+  // replayed on every rebuild (ADR-014), so that is a wrong reason in an audit
+  // trail rather than a stray character in a form — and it reads as deliberate,
+  // because someone did type it.
+  //
+  // Cleared in the handlers rather than in an effect on `index`: the navigation
+  // is what invalidates the text, and a `setState` in an effect body is the
+  // cascading render the lint rule forbids.
+  function goTo(next: number) {
+    setIndex(next)
+    setRationale('')
+  }
 
   // Two different failures, two different states. One shared `error` was rendered
   // under a single "Could not record that:" heading, so a queue that failed to
@@ -141,7 +168,15 @@ export default function Review() {
       ) : (
         <article>
           <p>
-            Proposal {position + 1} of {total}. Proposed by {item.proposer} at{' '}
+            {/* `total` is the page, `queue.pending` is the backlog, and the
+                screen has to say which is which. It read "Proposal 1 of 50" over
+                119 undecided pairs and went on reading it after every verdict,
+                because deciding one refilled the page from the remainder — so a
+                reviewer had no measure of the work and no sign of progress. The
+                waiting count falls as the queue is worked through. */}
+            Proposal {position + 1} of {total}
+            {queue && queue.pending > total && <> shown, {queue.pending} waiting</>}.
+            {' '}Proposed by {item.proposer} at{' '}
             {Math.round(item.confidence * 100)}% confidence.
           </p>
 
@@ -184,7 +219,7 @@ export default function Review() {
                   disabled={pending}
                   onClick={() => {
                     setWrapped(false)
-                    setIndex((current) => (current - 1 + total) % total)
+                    goTo((position - 1 + total) % total)
                   }}
                 >
                   Previous
@@ -195,7 +230,7 @@ export default function Review() {
                   onClick={() => {
                     const next = (position + 1) % total
                     setWrapped(next === 0)
-                    setIndex(next)
+                    goTo(next)
                   }}
                 >
                   Skip
