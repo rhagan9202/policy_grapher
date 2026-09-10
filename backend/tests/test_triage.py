@@ -579,3 +579,132 @@ def test_repeating_the_request_does_not_accumulate_changes(triage_client):
         database_=triage_client.app.state.settings.neo4j_database,
     )
     assert records[0]["total"] == 1
+
+
+@pytest.mark.integration
+def test_a_clause_does_not_implement_another_edition_of_its_own_document(
+    changed_higher, clean_graph, database
+):
+    """Found live on 2026-09-09, from a single approval made in the review queue.
+
+    A same-document proposal promotes newer→older, and a `REMOVED` change points
+    `AFFECTS` at the *old* edition's obligation — so the two meet, and this
+    traversal had no document predicate. The result was a row scoring 12.0 — the
+    top of the range `score` returns, `KIND_WEIGHT["REMOVED"]` at 3.0 times a
+    `MODALITY_WEIGHT` of 4.0 — reporting that DoDD 5000.01 implements DoDD
+    5000.01 and that the duty had been removed, with a null `previous_statement`.
+
+    A compliance reader is the audience for that row. `IMPLEMENTS` means our
+    lower-tier clause discharges a higher-tier duty (ADR-015); an edition of an
+    instrument does not discharge its own predecessor, and a document cannot be
+    its own higher tier.
+    """
+    ours_older = _seed_version(
+        clean_graph, database, version_id="higher-v0", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("9.9", "Components shall retain records.",
+                                           Modality.SHALL)],
+    )
+    # The shape the walkthrough produced: a later edition of the same instrument
+    # pointed at an earlier one.
+    _link(
+        clean_graph, database,
+        source=ours_older["Components shall retain records."],
+        target=changed_higher["higher_new"],
+    )
+
+    result = _triage(clean_graph, database)
+
+    assert [r for r in result.rows if r.document == r.higher_document] == []
+
+
+@pytest.mark.integration
+def test_a_change_linked_only_within_its_own_document_counts_as_unlinked(
+    changed_higher, clean_graph, database
+):
+    """The other half, and the one that keeps the table honest.
+
+    Suppressing the row without correcting the count would leave such a change in
+    neither `rows` nor `unlinked_changes` — invisible in both directions, which is
+    worse than the row was. ADR-015 puts `unlinked_changes` there precisely so an
+    empty table cannot read as an all-clear.
+    """
+    ours_older = _seed_version(
+        clean_graph, database, version_id="higher-v0", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("9.9", "Components shall retain records.",
+                                           Modality.SHALL)],
+    )
+    _link(
+        clean_graph, database,
+        source=ours_older["Components shall retain records."],
+        target=changed_higher["higher_new"],
+    )
+
+    result = _triage(clean_graph, database)
+
+    assert len(result.rows) == 0
+    assert result.unlinked_changes == result.total_changes
+
+
+@pytest.mark.integration
+def test_a_cross_document_row_survives_a_same_document_link_on_the_same_change(
+    changed_higher, clean_graph, database
+):
+    """The case the same-document guard could have broken, and which its first
+    two tests did not cover — they seeded byte-identical graphs holding only a
+    same-document link, so neither could tell a guard that suppresses the wrong
+    row from one that suppresses every row.
+
+    A change can carry both kinds of link at once. The cross-document one is the
+    whole point of triage and must still produce its row, and the change must
+    still count as linked.
+    """
+    sibling = _seed_version(
+        clean_graph, database, version_id="higher-v0", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("9.9", "Components shall retain records.",
+                                           Modality.SHALL)],
+    )
+    _link(
+        clean_graph, database,
+        source=sibling["Components shall retain records."],
+        target=changed_higher["higher_new"],
+    )
+    _link(
+        clean_graph, database,
+        source=changed_higher["ours"], target=changed_higher["higher_new"],
+    )
+
+    result = _triage(clean_graph, database)
+
+    assert [r.document for r in result.rows] == ["ORG 1.0"]
+    assert result.unlinked_changes == result.total_changes - 1
+
+
+@pytest.mark.integration
+def test_a_change_whose_citation_cannot_be_built_counts_as_unlinked(
+    changed_higher, clean_graph, database
+):
+    """`linked` has to mean "would produce a row", and the row query needs an
+    anchoring chunk on both sides — `primary_anchor`'s `CALL` subquery is an inner
+    join (`obligations.primary_anchor`). `COUNT_CHANGES` bound no anchor, so an
+    obligation with no `:ANCHORED_IN` chunk yielded no row *and* counted as
+    linked, putting the change in neither `rows` nor `unlinked_changes`.
+
+    That is the shape ADR-039 was written about — `COUNT_OBLIGATIONS` matching on
+    `:MANDATES` while `LIST_OBLIGATIONS` also bound the anchor, so the screen read
+    "62 obligations. Showing the first 0." Two queries, each correct about what it
+    asked, disagreeing about what exists.
+    """
+    _link(
+        clean_graph, database,
+        source=changed_higher["ours"], target=changed_higher["higher_new"],
+    )
+    clean_graph.execute_query(
+        "MATCH (:Obligation {obligation_id: $id})-[r:ANCHORED_IN]->() DELETE r",
+        {"id": changed_higher["ours"]},
+        database_=database,
+    )
+
+    result = _triage(clean_graph, database)
+
+    assert len(result.rows) == 0
+    assert result.unlinked_changes == result.total_changes
