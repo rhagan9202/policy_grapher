@@ -20,10 +20,12 @@ reviewer at the wrong sentence with no indication that it did.
 
 import hashlib
 from collections import defaultdict
+from dataclasses import dataclass
 
 from neo4j import ManagedTransaction
 
 from policy_grapher.extraction.schema import normalize
+from policy_grapher.links.propose import MIN_CONFIDENCE, score_pairing
 
 ADDED = "ADDED"
 REMOVED = "REMOVED"
@@ -105,12 +107,25 @@ PAIRING_CONFIDENCE = 0.75
 PAIRING_MARGIN = 0.05
 
 
+@dataclass(frozen=True)
+class PlanResult:
+    """What one planning run decided, in full: the changes to write, every
+    wording-pass candidate labelled with the first rule that fired for it, and
+    how many reviewer verdicts the plan could not apply."""
+
+    changes: list[dict]
+    candidates: list[dict]
+    pairings_unapplied: int
+
+
 def _pair_by_wording(
     unmatched_old: dict[str, dict],
     unmatched_new: dict[str, dict],
     paired_old: set[str],
     paired_new: set[str],
     changes: list[dict],
+    candidates: list[dict],
+    distinct: set[frozenset[str]],
 ) -> None:
     """Pair what section-based matching left over — ADR-031.
 
@@ -118,20 +133,49 @@ def _pair_by_wording(
     would be a better answer to a question nobody is asking, since a document that
     reworded dozens of clauses into each other's sections is one no pairing rule
     should be confident about anyway.
-    """
-    from policy_grapher.links.propose import score_pair
 
+    Every outcome lands in `candidates` labelled with the first rule that fired,
+    in code order: `auto_paired`, `partner_taken`, `contested`, `below_threshold`.
+    `partner_taken`'s predicate is a strict subset of `contested`'s — the
+    consuming pair scores at least as high and shares an endpoint, so the margin
+    rule would decline the same pair — so the labels record precedence, not
+    disjoint conditions.
+
+    `distinct` holds pairs a reviewer has ruled out. They are skipped before
+    scoring, which keeps them out of `scored`, out of the sub-threshold
+    accumulator, and out of the bound's notion of an endpoint's best: a score
+    the reviewer rejected must not shadow the endpoint's next-best live
+    candidate.
+    """
     scored: list[tuple[float, str, dict, dict]] = []
+    sub_threshold: list[dict] = []
     for before in unmatched_old.values():
         if before["id"] in paired_old:
             continue
         for after in unmatched_new.values():
             if after["id"] in paired_new:
                 continue
-            candidate = score_pair(after["statement"], before["statement"])
-            if candidate is not None and candidate.confidence >= PAIRING_CONFIDENCE:
+            if frozenset((before["id"], after["id"])) in distinct:
+                continue
+            candidate = score_pairing(after["statement"], before["statement"])
+            if candidate is None:
+                continue
+            if candidate.confidence >= PAIRING_CONFIDENCE:
                 scored.append(
                     (candidate.confidence, candidate.rationale, before, after)
+                )
+            elif candidate.confidence >= MIN_CONFIDENCE:
+                # The floor is this module's own, not inherited: the scorer
+                # returns None below MIN_CONFIDENCE today, but recording is
+                # bounded here so a retuned scorer cannot silently widen it.
+                sub_threshold.append(
+                    {
+                        "old_id": before["id"],
+                        "new_id": after["id"],
+                        "confidence": candidate.confidence,
+                        "rationale": candidate.rationale,
+                        "outcome": "below_threshold",
+                    }
                 )
 
     scored.sort(key=lambda row: row[0], reverse=True)
@@ -139,7 +183,9 @@ def _pair_by_wording(
     # The best score each obligation could have achieved with a *different*
     # partner. A pair that only just beats its own runner-up is not a pairing this
     # measure can distinguish, and choosing anyway would be choosing whichever the
-    # dictionary happened to yield first.
+    # dictionary happened to yield first. Scans only `scored`, so everything here
+    # is >= PAIRING_CONFIDENCE — widening that would change which pairs are made,
+    # not merely which are recorded.
     def _best_elsewhere(obligation_id: str, partner_id: str) -> float:
         return max(
             (
@@ -153,6 +199,19 @@ def _pair_by_wording(
 
     for confidence, rationale, before, after in scored:
         if before["id"] in paired_old or after["id"] in paired_new:
+            # An endpoint went to a higher-scoring pair earlier in this loop.
+            # Checked before the margin, and the order is load-bearing: the
+            # consuming pair also satisfies the margin predicate, and this is
+            # the actionable label — an auto_paired winner exists to point at.
+            candidates.append(
+                {
+                    "old_id": before["id"],
+                    "new_id": after["id"],
+                    "confidence": confidence,
+                    "rationale": rationale,
+                    "outcome": "partner_taken",
+                }
+            )
             continue
         contested = max(
             _best_elsewhere(before["id"], after["id"]),
@@ -161,10 +220,28 @@ def _pair_by_wording(
         if confidence - contested < PAIRING_MARGIN:
             # Two candidates within a hair of each other: both stay ADDED/REMOVED
             # and the summary says why, which is ADR-015's answer kept.
+            candidates.append(
+                {
+                    "old_id": before["id"],
+                    "new_id": after["id"],
+                    "confidence": confidence,
+                    "rationale": rationale,
+                    "outcome": "contested",
+                }
+            )
             continue
 
         paired_old.add(before["id"])
         paired_new.add(after["id"])
+        candidates.append(
+            {
+                "old_id": before["id"],
+                "new_id": after["id"],
+                "confidence": confidence,
+                "rationale": rationale,
+                "outcome": "auto_paired",
+            }
+        )
         changes.append(
             {
                 "kind": MODIFIED,
@@ -182,10 +259,45 @@ def _pair_by_wording(
             }
         )
 
+    # The scoring loop is a cross product, so recording everything under the bar
+    # would write thousands of edges per edition pair and bury the one candidate
+    # worth a look under its own long tail. A sub-threshold record is kept iff at
+    # least one of its endpoints finished the greedy loop unpaired AND it is that
+    # endpoint's best sub-threshold candidate or within PAIRING_MARGIN of that
+    # best. Judged after the loop, deliberately: before it, every endpoint is
+    # still unpaired and this filter would keep the lot.
+    best_sub: dict[str, float] = {}
+    for record in sub_threshold:
+        for endpoint in (record["old_id"], record["new_id"]):
+            best_sub[endpoint] = max(
+                best_sub.get(endpoint, 0.0), record["confidence"]
+            )
 
-def _plan_changes(old: dict[str, dict], new: dict[str, dict]) -> list[dict]:
+    for record in sub_threshold:
+        if (
+            record["old_id"] not in paired_old
+            and best_sub[record["old_id"]] - record["confidence"] < PAIRING_MARGIN
+        ) or (
+            record["new_id"] not in paired_new
+            and best_sub[record["new_id"]] - record["confidence"] < PAIRING_MARGIN
+        ):
+            candidates.append(record)
+
+
+def _plan_changes(
+    old: dict[str, dict],
+    new: dict[str, dict],
+    decisions: dict[tuple[str, str], str] | None = None,
+) -> PlanResult:
     """Work out the changes without touching the graph, so the rule is testable
-    on its own and readable in one place."""
+    on its own and readable in one place.
+
+    `decisions` maps (old_obligation_id, new_obligation_id) to a reviewer's
+    verdict, threaded down by `diff_versions` rather than fetched here. The
+    parameter is part of the planning signature from the start; the rules that
+    read it land with the pairing-decision passes, and until then it is
+    accepted and unread — passing None is always safe.
+    """
     unmatched_old = {k: v for k, v in old.items() if k not in new}
     unmatched_new = {k: v for k, v in new.items() if k not in old}
 
@@ -197,6 +309,7 @@ def _plan_changes(old: dict[str, dict], new: dict[str, dict]) -> list[dict]:
         by_section_new[tuple(entry["section_path"])].append(entry)
 
     changes: list[dict] = []
+    candidates: list[dict] = []
     paired_old: set[str] = set()
     paired_new: set[str] = set()
 
@@ -231,7 +344,13 @@ def _plan_changes(old: dict[str, dict], new: dict[str, dict]) -> list[dict]:
     # ADR-015 actually required; "no text similarity" was the mechanism, not the
     # constraint.
     _pair_by_wording(
-        unmatched_old, unmatched_new, paired_old, paired_new, changes
+        unmatched_old,
+        unmatched_new,
+        paired_old,
+        paired_new,
+        changes,
+        candidates,
+        distinct=set(),
     )
 
     def _ambiguous(section: tuple[str, ...]) -> str | None:
@@ -273,7 +392,7 @@ def _plan_changes(old: dict[str, dict], new: dict[str, dict]) -> list[dict]:
             }
         )
 
-    return changes
+    return PlanResult(changes=changes, candidates=candidates, pairings_unapplied=0)
 
 
 def drop_changes(tx: ManagedTransaction, *, version_id: str) -> int:
@@ -305,7 +424,8 @@ def diff_versions(
         {"from_version_id": from_version_id, "to_version_id": to_version_id},
     ).consume()
 
-    changes = _plan_changes(old, new)
+    plan = _plan_changes(old, new)
+    changes = plan.changes
     for change in changes:
         change["change_id"] = change_id(
             from_version_id, to_version_id, change["kind"], change["obligation_id"]

@@ -14,6 +14,7 @@ from policy_grapher.changes.diff import (
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
+from policy_grapher.links.propose import Candidate
 from policy_grapher.obligations import write_obligations
 
 # --- the key the diff matches on ---------------------------------------------
@@ -371,7 +372,7 @@ def test_a_clause_that_moved_section_is_a_modification_not_a_replacement():
     old = _keyed(_entry("o1", ["ENCLOSURE 1"], RENUMBERED_OLD))
     new = _keyed(_entry("n1", ["SECTION 1"], RENUMBERED_NEW))
 
-    changes = _plan_changes(old, new)
+    changes = _plan_changes(old, new).changes
 
     assert [c["kind"] for c in changes] == [MODIFIED]
     assert changes[0]["previous_statement"] == RENUMBERED_OLD
@@ -384,7 +385,7 @@ def test_a_pairing_found_by_wording_carries_its_evidence():
     old = _keyed(_entry("o1", ["ENCLOSURE 1"], RENUMBERED_OLD))
     new = _keyed(_entry("n1", ["SECTION 1"], RENUMBERED_NEW))
 
-    summary = _plan_changes(old, new)[0]["summary"]
+    summary = _plan_changes(old, new).changes[0]["summary"]
 
     assert "acquire" in summary or "wording" in summary.lower()
     assert "ENCLOSURE 1" in summary and "SECTION 1" in summary
@@ -397,7 +398,7 @@ def test_two_unrelated_clauses_are_not_paired():
     old = _keyed(_entry("o1", ["ENCLOSURE 1"], "The Director shall notify the Comptroller of any breach."))
     new = _keyed(_entry("n1", ["SECTION 9"], "Records shall be destroyed at the end of their retention period."))
 
-    changes = _plan_changes(old, new)
+    changes = _plan_changes(old, new).changes
 
     assert sorted(c["kind"] for c in changes) == [ADDED, REMOVED]
 
@@ -408,7 +409,7 @@ def test_section_pairing_still_wins_where_it_applies():
     old = _keyed(_entry("o1", ["SECTION 2"], "Components shall report annually."))
     new = _keyed(_entry("n1", ["SECTION 2"], "Components shall report every year."))
 
-    changes = _plan_changes(old, new)
+    changes = _plan_changes(old, new).changes
 
     assert [c["kind"] for c in changes] == [MODIFIED]
     assert "reworded" in changes[0]["summary"]
@@ -438,7 +439,7 @@ def test_a_near_tie_falls_back_rather_than_picking_the_higher_score():
         ),
     )
 
-    changes = _plan_changes(old, new)
+    changes = _plan_changes(old, new).changes
 
     assert MODIFIED not in [c["kind"] for c in changes], (
         "a near-tie was resolved by score alone; the margin is what stops that"
@@ -455,6 +456,182 @@ def test_an_exact_tie_falls_back_too():
         _entry("n2", ["SECTION 2"], shared.replace("31 March", "30 April")),
     )
 
-    changes = _plan_changes(old, new)
+    changes = _plan_changes(old, new).changes
 
     assert MODIFIED not in [c["kind"] for c in changes]
+
+
+# --- §2: every wording-pass outcome is recorded --------------------------------
+
+
+def _score_table(monkeypatch, table: dict[tuple[str, str], float]) -> None:
+    """Replace the diff's scorer with a lookup table.
+
+    `table` maps (before_statement, after_statement) to a confidence — the
+    old→new reading order the fixtures are written in. Anything absent scores
+    None, exactly as `score_pairing` does for a pair sharing no content words.
+    The table may hold values below MIN_CONFIDENCE on purpose: the real scorer
+    never returns those, and the vacuity test needs a scorer that does.
+    """
+
+    def fake_score_pairing(after_statement: str, before_statement: str):
+        confidence = table.get((before_statement, after_statement))
+        if confidence is None:
+            return None
+        return Candidate(confidence=confidence, rationale="stub rationale")
+
+    monkeypatch.setattr(
+        "policy_grapher.changes.diff.score_pairing", fake_score_pairing
+    )
+
+
+def _outcomes(plan) -> dict[tuple[str, str], str]:
+    return {(c["old_id"], c["new_id"]): c["outcome"] for c in plan.candidates}
+
+
+def test_the_greedy_loop_labels_all_three_outcomes_in_one_run(monkeypatch):
+    """The chain the spec's containment argument is built on: the 0.80 pair
+    loses its partner to the 0.90 pair (partner_taken), and the 0.76 tail is
+    within the margin of the 0.80 rival (contested). The outcome is the first
+    rule that fired, in code order — not four disjoint predicates."""
+    _score_table(
+        monkeypatch,
+        {
+            ("old alpha", "new alpha"): 0.90,
+            ("old beta", "new alpha"): 0.80,
+            ("old beta", "new beta"): 0.76,
+        },
+    )
+    old = _keyed(_entry("o1", ["A"], "old alpha"), _entry("o2", ["B"], "old beta"))
+    new = _keyed(_entry("n1", ["C"], "new alpha"), _entry("n2", ["D"], "new beta"))
+
+    plan = _plan_changes(old, new)
+
+    assert len(plan.candidates) == 3
+    assert _outcomes(plan) == {
+        ("o1", "n1"): "auto_paired",
+        ("o2", "n1"): "partner_taken",
+        ("o2", "n2"): "contested",
+    }
+    assert [c["obligation_id"] for c in plan.changes if c["kind"] == MODIFIED] == [
+        "n1"
+    ]
+    assert plan.pairings_unapplied == 0
+
+
+def test_a_contested_label_needs_no_taken_partner(monkeypatch):
+    """The partner-free fork: 0.80 and 0.78 share one clause, the margin
+    declines both, and nothing was accepted — so `contested` cannot be an
+    artifact of a taken partner. The paired sets must come out untouched."""
+    _score_table(
+        monkeypatch,
+        {
+            ("old alpha", "new alpha"): 0.80,
+            ("old alpha", "new beta"): 0.78,
+        },
+    )
+    old = _keyed(_entry("o1", ["A"], "old alpha"))
+    new = _keyed(_entry("n1", ["B"], "new alpha"), _entry("n2", ["C"], "new beta"))
+
+    plan = _plan_changes(old, new)
+
+    assert _outcomes(plan) == {
+        ("o1", "n1"): "contested",
+        ("o1", "n2"): "contested",
+    }
+    assert MODIFIED not in [c["kind"] for c in plan.changes]
+
+
+def test_a_pair_whose_both_sides_were_taken_is_partner_taken(monkeypatch):
+    """Both endpoints can be consumed — the decline fires when *either* is —
+    so up to two auto_paired winners exist for one declined pair. The queue
+    names each side's taker (Task 10); this pins the state it reads from."""
+    _score_table(
+        monkeypatch,
+        {
+            ("old alpha", "new alpha"): 0.95,
+            ("old beta", "new beta"): 0.91,
+            ("old alpha", "new beta"): 0.85,
+        },
+    )
+    old = _keyed(_entry("o1", ["A"], "old alpha"), _entry("o2", ["B"], "old beta"))
+    new = _keyed(_entry("n1", ["C"], "new alpha"), _entry("n2", ["D"], "new beta"))
+
+    plan = _plan_changes(old, new)
+
+    outcomes = _outcomes(plan)
+    assert outcomes[("o1", "n1")] == "auto_paired"
+    assert outcomes[("o2", "n2")] == "auto_paired"
+    assert outcomes[("o1", "n2")] == "partner_taken"
+
+
+def test_recording_a_sub_threshold_rival_does_not_change_the_pairing(monkeypatch):
+    """The invariant the whole feature hangs on: a 0.74 rival is recorded, and
+    the 0.78 pair still auto-pairs. `_best_elsewhere` has no confidence filter
+    of its own, so widening `scored` down to MIN_CONFIDENCE would flip this
+    pair to contested — that mutant is what this test exists to kill."""
+    _score_table(
+        monkeypatch,
+        {
+            ("old alpha", "new alpha"): 0.78,
+            ("old alpha", "new beta"): 0.74,
+        },
+    )
+    old = _keyed(_entry("o1", ["A"], "old alpha"))
+    new = _keyed(_entry("n1", ["B"], "new alpha"), _entry("n2", ["C"], "new beta"))
+
+    plan = _plan_changes(old, new)
+
+    outcomes = _outcomes(plan)
+    assert outcomes[("o1", "n1")] == "auto_paired"
+    assert outcomes[("o1", "n2")] == "below_threshold"
+    assert MODIFIED in [c["kind"] for c in plan.changes]
+
+
+def test_a_sub_threshold_candidate_survives_only_through_an_unpaired_endpoint(
+    monkeypatch,
+):
+    """The bound, and its timing. o1–n2's 0.60 has both endpoints consumed by
+    the loop, so it is dropped; o1–n3's 0.60 is kept only because n3 finished
+    unpaired and it is n3's best; o2–n3's 0.50 is not within PAIRING_MARGIN of
+    that best. Judged before the loop, every endpoint is still unpaired and
+    all three would survive — which is the mutant."""
+    _score_table(
+        monkeypatch,
+        {
+            ("old alpha", "new alpha"): 0.90,
+            ("old beta", "new beta"): 0.85,
+            ("old alpha", "new beta"): 0.60,
+            ("old alpha", "new gamma"): 0.60,
+            ("old beta", "new gamma"): 0.50,
+        },
+    )
+    old = _keyed(_entry("o1", ["A"], "old alpha"), _entry("o2", ["B"], "old beta"))
+    new = _keyed(
+        _entry("n1", ["C"], "new alpha"),
+        _entry("n2", ["D"], "new beta"),
+        _entry("n3", ["E"], "new gamma"),
+    )
+
+    plan = _plan_changes(old, new)
+
+    outcomes = _outcomes(plan)
+    assert outcomes[("o1", "n1")] == "auto_paired"
+    below = {pair for pair, outcome in outcomes.items() if outcome == "below_threshold"}
+    assert below == {("o1", "n3")}
+
+
+def test_a_pair_below_the_floor_is_not_recorded_even_when_the_scorer_returns_it(
+    monkeypatch,
+):
+    """score_pairing already returns None under MIN_CONFIDENCE, so a fixture
+    that leans on it proves nothing — the spec's vacuity warning. The stub is
+    the deliberately lowered floor: it returns 0.20, and the diff's own guard
+    must refuse to record it."""
+    _score_table(monkeypatch, {("old alpha", "new alpha"): 0.20})
+    old = _keyed(_entry("o1", ["A"], "old alpha"))
+    new = _keyed(_entry("n1", ["B"], "new alpha"))
+
+    plan = _plan_changes(old, new)
+
+    assert plan.candidates == []
