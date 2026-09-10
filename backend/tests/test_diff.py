@@ -1041,3 +1041,95 @@ def test_the_declined_candidates_are_persisted_too_not_just_the_paired_one(
             "outcome": "below_threshold",
         },
     ]
+
+
+# --- decisions threaded into the plan (spec §3) --------------------------------
+#
+# No second scorer stub here: every test below drives Task 3's `_score_table`,
+# defined earlier in this file. Task 3 hoisted `score_pairing` into
+# `changes.diff`'s own namespace, so `changes.diff.score_pairing` is the only
+# seam that rebinds anything — patching `links.propose` would leave the real
+# scorer running behind an inert stub. `_score_table`'s keys are
+# (before_statement, after_statement), old→new, which is the order every table
+# in this section is written in.
+
+
+def test_a_paired_decision_beats_the_section_rule(monkeypatch):
+    """The fixture rev. 4 could not pass. The decision's old clause sits alone
+    in a section with a *different* new clause — exactly what pass 2 pairs
+    unconditionally — and the human's pairing must still win. Pass 2 reads only
+    the by_section grouping, so the verdict has to be applied before that
+    grouping is built; anything later lets a structural heuristic consume a
+    human verdict's obligation and shelve the verdict."""
+    _score_table(monkeypatch, {})
+    old = _keyed(_entry("o1", ["3.2"], "The Director shall notify the Comptroller."))
+    new = _keyed(
+        _entry("n1", ["7.1"], "The Director shall inform the Comptroller in writing."),
+        _entry("n2", ["3.2"], "Records shall be destroyed on schedule."),
+    )
+
+    result = _plan_changes(old, new, {("o1", "n1"): "paired"})
+
+    modified = [c for c in result.changes if c["kind"] == MODIFIED]
+    assert [(c["obligation_id"], c["previous_statement"]) for c in modified] == [
+        ("n1", "The Director shall notify the Comptroller.")
+    ]
+    assert modified[0]["summary"] == (
+        "A reviewer paired these clauses: the newer statement is the older one reworded."
+    )
+    assert sorted(c["kind"] for c in result.changes) == [ADDED, MODIFIED]
+    added = [c for c in result.changes if c["kind"] == ADDED]
+    assert added[0]["obligation_id"] == "n2"
+
+
+def test_a_paired_decision_pairs_what_nothing_scored_across_sections(monkeypatch):
+    """A complete rewording sharing no content words is never scored at all —
+    the silent exclusion the problem section names as the case a human most
+    obviously beats the measure. The verdict must pair it anyway, across
+    differing section paths, at no confidence whatsoever."""
+    _score_table(monkeypatch, {})
+    old = _keyed(_entry("o1", ["ENCLOSURE 2"], "The Director shall notify the Comptroller."))
+    new = _keyed(_entry("n1", ["SECTION 4"], "Records shall be destroyed on schedule."))
+
+    result = _plan_changes(old, new, {("o1", "n1"): "paired"})
+
+    assert [c["kind"] for c in result.changes] == [MODIFIED]
+    assert result.changes[0]["obligation_id"] == "n1"
+    assert result.changes[0]["previous_statement"] == "The Director shall notify the Comptroller."
+    assert result.pairings_unapplied == 0
+
+
+def test_a_decision_keyed_in_the_other_orientation_still_applies(monkeypatch):
+    """The record's canonical direction is older→newer, but this layer binds
+    whatever from/to the caller passed — a reversed Triage run flips which side
+    each id falls on — so a verdict must apply however the ids fall out."""
+    _score_table(monkeypatch, {})
+    old = _keyed(_entry("o1", ["ENCLOSURE 2"], "The Director shall notify the Comptroller."))
+    new = _keyed(_entry("n1", ["SECTION 4"], "Records shall be destroyed on schedule."))
+
+    result = _plan_changes(old, new, {("n1", "o1"): "paired"})
+
+    assert [c["kind"] for c in result.changes] == [MODIFIED]
+    assert result.changes[0]["obligation_id"] == "n1"
+    assert result.pairings_unapplied == 0
+
+
+def test_a_paired_decision_pass_1_preempted_is_counted_not_dropped(monkeypatch):
+    """Pass 1 is the one thing that may pre-empt a verdict: an identical clause
+    persisting in both editions is a fact, not a pairing judgement. The verdict
+    is counted, never dropped or rewritten."""
+    _score_table(monkeypatch, {})
+    persisting = "The Director shall notify the Comptroller."
+    old = _keyed(_entry("o1", ["3.2"], persisting))
+    new = _keyed(
+        _entry("n1", ["3.2"], persisting),
+        _entry("n2", ["SECTION 4"], "Records shall be destroyed on schedule."),
+    )
+
+    decisions = {("o1", "n2"): "paired"}
+    result = _plan_changes(old, new, decisions)
+
+    assert result.pairings_unapplied == 1
+    assert [c["kind"] for c in result.changes] == [ADDED]
+    assert result.changes[0]["obligation_id"] == "n2"
+    assert decisions == {("o1", "n2"): "paired"}

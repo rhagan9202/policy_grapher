@@ -327,14 +327,65 @@ def _plan_changes(
     """Work out the changes without touching the graph, so the rule is testable
     on its own and readable in one place.
 
-    `decisions` maps (old_obligation_id, new_obligation_id) to a reviewer's
-    verdict, threaded down by `diff_versions` rather than fetched here. The
-    parameter is part of the planning signature from the start; the rules that
-    read it land with the pairing-decision passes, and until then it is
-    accepted and unread — passing None is always safe.
+    `decisions` is `{(old_obligation_id, new_obligation_id): verdict}` exactly
+    as `links.pairing.read_pairings` returns it — a plain dict for the same
+    reason `old` and `new` are plain dicts: no `tx` in here.
     """
+    from policy_grapher.links.pairing import PairingVerdict
+
     unmatched_old = {k: v for k, v in old.items() if k not in new}
     unmatched_new = {k: v for k, v in new.items() if k not in old}
+
+    changes: list[dict] = []
+    candidates: list[dict] = []
+    distinct: set[frozenset[str]] = set()
+    pairings_unapplied = 0
+
+    # A reviewer's verdicts, applied while the only structure that exists is
+    # the two unmatched sets. Pass 2 pairs unconditionally and reads only the
+    # by_section grouping built below, so a `paired` verdict applied any later
+    # can be outranked by a structural heuristic — the inversion the design
+    # forbids. Consuming means *deleting* from the unmatched dicts, not
+    # marking: pass 2 never reads the paired sets, and a settled clause must
+    # not count toward a section's ambiguity tally either. Only pass 1 may
+    # pre-empt a verdict — an identical clause persisting in both editions is
+    # a fact, not a pairing judgement — and that pre-emption is counted, never
+    # silent. The keys arrive in the record's canonical older→newer
+    # orientation, but this layer binds whatever from/to the caller passed (a
+    # reversed Triage run flips the sides), so both orientations are tried.
+    # Two live `paired` verdicts sharing an endpoint are refused at the POST
+    # and retired by the migration, so the second-pop case below can only be
+    # pass 1's.
+    by_id_old = {entry["id"]: key for key, entry in unmatched_old.items()}
+    by_id_new = {entry["id"]: key for key, entry in unmatched_new.items()}
+    for (first, second), verdict in (decisions or {}).items():
+        if verdict == PairingVerdict.DISTINCT:
+            continue
+        forward = (by_id_old.get(first), by_id_new.get(second))
+        backward = (by_id_old.get(second), by_id_new.get(first))
+        if forward[0] in unmatched_old and forward[1] in unmatched_new:
+            old_key, new_key = forward
+        elif backward[0] in unmatched_old and backward[1] in unmatched_new:
+            old_key, new_key = backward
+        else:
+            pairings_unapplied += 1
+            continue
+        before = unmatched_old.pop(old_key)
+        after = unmatched_new.pop(new_key)
+        changes.append(
+            {
+                "kind": MODIFIED,
+                "obligation_id": after["id"],
+                "section_path": after["section_path"],
+                "statement": after["statement"],
+                "previous_statement": before["statement"],
+                "modality": after["modality"],
+                "summary": (
+                    "A reviewer paired these clauses: the newer statement is "
+                    "the older one reworded."
+                ),
+            }
+        )
 
     by_section_old = defaultdict(list)
     by_section_new = defaultdict(list)
@@ -343,8 +394,6 @@ def _plan_changes(
     for entry in unmatched_new.values():
         by_section_new[tuple(entry["section_path"])].append(entry)
 
-    changes: list[dict] = []
-    candidates: list[dict] = []
     paired_old: set[str] = set()
     paired_new: set[str] = set()
 
@@ -379,13 +428,7 @@ def _plan_changes(
     # ADR-015 actually required; "no text similarity" was the mechanism, not the
     # constraint.
     _pair_by_wording(
-        unmatched_old,
-        unmatched_new,
-        paired_old,
-        paired_new,
-        changes,
-        candidates,
-        distinct=set(),
+        unmatched_old, unmatched_new, paired_old, paired_new, changes, candidates, distinct
     )
 
     def _ambiguous(section: tuple[str, ...]) -> str | None:
@@ -427,7 +470,9 @@ def _plan_changes(
             }
         )
 
-    return PlanResult(changes=changes, candidates=candidates, pairings_unapplied=0)
+    return PlanResult(
+        changes=changes, candidates=candidates, pairings_unapplied=pairings_unapplied
+    )
 
 
 def drop_changes(tx: ManagedTransaction, *, version_id: str) -> int:
