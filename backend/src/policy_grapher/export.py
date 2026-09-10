@@ -72,15 +72,24 @@ QUERIES: dict[str, str] = {
                link.score    AS score
         ORDER BY source.obligation_id, target.obligation_id
     """,
+    # Property names are the ones `RECORD_DECISION` writes — `key`, `at`,
+    # `rationale` (links/decisions.py). This query used to read `decision_key`
+    # and `decided_at`, which nothing writes: every verdict recorded through
+    # the real path exported with a null key and a null timestamp, and the
+    # rationale was not exported at all. The verdict's value is actor,
+    # rationale and timestamp; losing two of the three is losing the verdict.
+    # `at` is a Cypher datetime; toString gives the ISO form so the route's
+    # JSON encoder never meets a temporal type.
     "decisions": """
         MATCH (decision:LinkDecision)
-        RETURN decision.decision_key         AS decision_key,
+        RETURN decision.key                  AS key,
                decision.source_obligation_id AS source_obligation_id,
                decision.target_obligation_id AS target_obligation_id,
                decision.verdict              AS verdict,
                decision.actor                AS actor,
-               decision.decided_at           AS decided_at
-        ORDER BY decision.decision_key
+               decision.rationale            AS rationale,
+               toString(decision.at)         AS at
+        ORDER BY decision.key
     """,
     "changes": """
         MATCH (change:Change)

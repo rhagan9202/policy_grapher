@@ -13,6 +13,7 @@ import pytest
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
+from policy_grapher.links.decisions import decision_key, record_decision
 from policy_grapher.obligations import write_obligations
 
 CATEGORIES = {
@@ -103,21 +104,33 @@ def test_the_export_carries_the_decisions_a_rebuild_cannot_regenerate(
     client_with_auth,
 ):
     """The thing worth exporting. Extraction is cached and repeatable; a
-    reviewer's verdict is not, and Reset deletes the only copy."""
+    reviewer's verdict is not, and Reset deletes the only copy.
+
+    The decision is recorded through `record_decision`, not CREATEd with
+    literal properties. The first version of this test wrote a node carrying
+    the export query's own column names and asserted them back — which passed
+    while every verdict recorded through the real path exported with a null
+    key, a null timestamp, and no rationale."""
     driver = client_with_auth.app.state.driver
     database = client_with_auth.app.state.settings.neo4j_database
-    driver.execute_query(
-        "CREATE (:LinkDecision {decision_key: 'k1', source_obligation_id: 'a', "
-        "target_obligation_id: 'b', verdict: 'approve', actor: 'reviewer', "
-        "decided_at: '2026-08-25T00:00:00+00:00'})",
-        database_=database,
-    )
+    with driver.session(database=database) as session:
+        session.execute_write(
+            record_decision,
+            source_id="a",
+            target_id="b",
+            verdict="approve",
+            actor="reviewer",
+            rationale="the org clause names the same duty",
+        )
 
     body = client_with_auth.get("/export").json()
 
     assert len(body["decisions"]) == 1
     decision = body["decisions"][0]
-    assert decision["decision_key"] == "k1"
+    assert decision["key"] == decision_key("a", "b")
     assert decision["verdict"] == "approve"
+    assert decision["actor"] == "reviewer"
+    assert decision["rationale"] == "the org clause names the same duty"
+    assert decision["at"], "the timestamp record_decision writes must survive export"
     assert decision["source_obligation_id"] == "a"
     assert decision["target_obligation_id"] == "b"
