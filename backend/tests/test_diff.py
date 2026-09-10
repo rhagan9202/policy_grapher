@@ -812,7 +812,14 @@ def test_rediffing_one_pair_leaves_the_adjacent_pairs_candidates_intact(
     """A middle edition's obligations belong to two pairs. A drop scoped to
     "any candidate edge touching either edition" would delete the neighbouring
     diff's record with this pair's — which is why DROP_CANDIDATES anchors both
-    ends through :MANDATES."""
+    ends through :MANDATES.
+
+    Re-diffed in *both* directions on purpose. Re-diffing only the earlier pair
+    puts the shared edition on the `to` side every time, so a drop that kept its
+    from-side anchor and lost the other would pass while still deleting the
+    neighbour's edge as collateral. The later-pair re-diff puts v2 on the `from`
+    side and makes the second anchor load-bearing too.
+    """
     _seed(
         clean_graph,
         database,
@@ -841,6 +848,12 @@ def test_rediffing_one_pair_leaves_the_adjacent_pairs_candidates_intact(
 
     assert _candidate_edges(clean_graph, database, a="v2", b="v3") == 1
     assert _candidate_edges(clean_graph, database, a="v1", b="v2") == 1
+
+    # The mirror, with the shared edition on the `from` side this time.
+    _diff(clean_graph, database, old="v2", new="v3")
+
+    assert _candidate_edges(clean_graph, database, a="v1", b="v2") == 1
+    assert _candidate_edges(clean_graph, database, a="v2", b="v3") == 1
 
 
 @pytest.mark.integration
@@ -956,4 +969,75 @@ def test_a_persisted_candidate_carries_its_confidence_rationale_and_outcome(
             "rationale": score_pairing(RENUMBERED_NEW, RENUMBERED_OLD).rationale,
             "outcome": "auto_paired",
         }
+    ]
+
+
+@pytest.mark.integration
+def test_the_declined_candidates_are_persisted_too_not_just_the_paired_one(
+    clean_graph, database
+):
+    """The pairs a human is meant to settle are the declined ones, so those are
+    the records that must survive the write — and every other fixture in this
+    block yields exactly one candidate, always `auto_paired`. That leaves three
+    mutants alive: a write filtered to `outcome == "auto_paired"`, a truncated
+    `plan.candidates[:1]`, and `SET r.outcome = 'auto_paired'` as a literal. The
+    first two would silently drop every question the queue exists to ask; the
+    third would tell a reviewer the system had made a pairing it actually
+    declined.
+
+    The fixture is the fallback case `test_a_section_with_two_reworded_
+    obligations_falls_back_and_says_so` already relies on: one section holding
+    two reworded clauses each side, which pairs nothing and declines both at
+    0.67. Equality on the whole ordered list, not on a subset, is what kills all
+    three — a filtered or truncated write changes the list's length, and a
+    literal outcome changes its contents.
+    """
+    notify_auditor = "The Director shall notify the Auditor."
+    report_chief = "The Director shall report to the Chief."
+    _seed(
+        clean_graph,
+        database,
+        version_id="v1",
+        entries=[("3.2", NOTIFY, Modality.SHALL), ("3.2", REPORT, Modality.SHALL)],
+    )
+    _seed(
+        clean_graph,
+        database,
+        version_id="v2",
+        entries=[
+            ("3.2", notify_auditor, Modality.SHALL),
+            ("3.2", report_chief, Modality.SHALL),
+        ],
+    )
+
+    _diff(clean_graph, database)
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (:DocumentVersion {version_id: 'v1'})-[:MANDATES]->(old:Obligation)"
+        "-[r:PAIRING_CANDIDATE]->"
+        "(new:Obligation)<-[:MANDATES]-(:DocumentVersion {version_id: 'v2'}) "
+        "RETURN old.statement AS old_statement, new.statement AS new_statement, "
+        "r.confidence AS confidence, r.rationale AS rationale, r.outcome AS outcome "
+        "ORDER BY old.statement, new.statement",
+        database_=database,
+    )
+
+    # Two of the three distinctive words survive each rewording, so both pairs
+    # land under PAIRING_CONFIDENCE and neither is paired.
+    two_of_three = 0.6666666666666666
+    assert [dict(r) for r in records] == [
+        {
+            "old_statement": NOTIFY,
+            "new_statement": notify_auditor,
+            "confidence": two_of_three,
+            "rationale": score_pairing(notify_auditor, NOTIFY).rationale,
+            "outcome": "below_threshold",
+        },
+        {
+            "old_statement": REPORT,
+            "new_statement": report_chief,
+            "confidence": two_of_three,
+            "rationale": score_pairing(report_chief, REPORT).rationale,
+            "outcome": "below_threshold",
+        },
     ]
