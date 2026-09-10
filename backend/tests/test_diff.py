@@ -907,3 +907,53 @@ def test_drop_candidates_counts_relationships_not_nodes(clean_graph, database):
         "MATCH (o:Obligation) RETURN count(o) AS obligations", database_=database
     )
     assert records[0]["obligations"] == 2
+
+
+@pytest.mark.integration
+def test_a_persisted_candidate_carries_its_confidence_rationale_and_outcome(
+    clean_graph, database
+):
+    """Counting edges cannot see this. Blank the SET clause in WRITE_CANDIDATES
+    and every other test in this file still passes, while every candidate edge
+    in the graph carries a null outcome and no rationale — and Task 10 puts
+    those three in front of a person deciding whether one clause is the other
+    reworded. A question asked with its evidence missing is worse than one not
+    asked.
+
+    Whole-record equality rather than three presence checks: a wrong-but-present
+    value is the failure that matters here, and `is not None` passes on it. The
+    rationale is computed from the scorer rather than pinned as a literal, so it
+    follows the sentences test_links.py owns instead of duplicating them; the
+    confidence is literal because these two statements share all of the shorter
+    one's distinctive wording, and 1.0 is a value a reader can check by eye.
+    """
+    _seed(
+        clean_graph,
+        database,
+        version_id="v1",
+        entries=[("3.2", RENUMBERED_OLD, Modality.SHALL)],
+    )
+    _seed(
+        clean_graph,
+        database,
+        version_id="v2",
+        entries=[("4.1", RENUMBERED_NEW, Modality.WILL)],
+    )
+    _diff(clean_graph, database)
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (:DocumentVersion {version_id: 'v1'})-[:MANDATES]->(:Obligation)"
+        "-[r:PAIRING_CANDIDATE]->"
+        "(:Obligation)<-[:MANDATES]-(:DocumentVersion {version_id: 'v2'}) "
+        "RETURN r.confidence AS confidence, r.rationale AS rationale, "
+        "r.outcome AS outcome",
+        database_=database,
+    )
+
+    assert [dict(r) for r in records] == [
+        {
+            "confidence": 1.0,
+            "rationale": score_pairing(RENUMBERED_NEW, RENUMBERED_OLD).rationale,
+            "outcome": "auto_paired",
+        }
+    ]
