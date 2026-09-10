@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from neo4j import ManagedTransaction
 
 from policy_grapher.extraction.schema import normalize
+from policy_grapher.links.pairing import PairingVerdict, read_pairings
 from policy_grapher.links.propose import MIN_CONFIDENCE, score_pairing
 
 ADDED = "ADDED"
@@ -35,6 +36,18 @@ KINDS = (ADDED, REMOVED, MODIFIED)
 AMBIGUOUS_SECTION = (
     "Section {section} holds more than one obligation that changed, so this is "
     "reported as a removal and an addition rather than a guessed pairing."
+)
+
+# The decline a *person* made, which must never be reported as the one above.
+# A section holding one changed obligation on each side is not ambiguous, and
+# saying it is blames the pairing rule for a reviewer's decision — the reviewer
+# reads their own verdict back as the machine's excuse for not guessing. The
+# wording is this module's own: the spec requires pass 2 to honour `distinct`
+# but does not fix the sentence.
+SETTLED_DISTINCT = (
+    "A reviewer recorded the two clauses that changed in section {section} as "
+    "distinct, so this is reported as a removal and an addition rather than a "
+    "pairing."
 )
 
 READ_OBLIGATIONS = """
@@ -331,8 +344,6 @@ def _plan_changes(
     as `links.pairing.read_pairings` returns it — a plain dict for the same
     reason `old` and `new` are plain dicts: no `tx` in here.
     """
-    from policy_grapher.links.pairing import PairingVerdict
-
     unmatched_old = {k: v for k, v in old.items() if k not in new}
     unmatched_new = {k: v for k, v in new.items() if k not in old}
 
@@ -353,9 +364,24 @@ def _plan_changes(
     # silent. The keys arrive in the record's canonical older→newer
     # orientation, but this layer binds whatever from/to the caller passed (a
     # reversed Triage run flips the sides), so both orientations are tried.
-    # Two live `paired` verdicts sharing an endpoint are refused at the POST
-    # and retired by the migration, so the second-pop case below can only be
-    # pass 1's.
+    #
+    # `pairings_unapplied` therefore means "pass 1 got there first", and that
+    # is the only reason it may ever be non-zero. Two live `paired` verdicts
+    # sharing an endpoint would break that: the first pops the shared clause
+    # and the second's lookup then fails, counting a conflict between two
+    # reviewers as a pass-1 pre-emption. **This code depends on that state not
+    # reaching the graph, and nothing on this branch enforces it yet** — the
+    # POST that refuses it with a 409 is Task 10's, scoped so a middle
+    # edition's clause may still pair into both of its adjacent edition pairs.
+    # Until that lands, the count can overstate.
+    #
+    # `paired` and `distinct` can both name the same two obligations, because
+    # `pairing_key` is directional and the two orientations are two records.
+    # `paired` wins, and wins whichever order the dict yields: the paired arm
+    # never consults `distinct`, and once it pops the two clauses neither pass
+    # 2 nor pass 3 can see them to decline. Stated because it is a resolution,
+    # not an accident — a reader should not have to derive it from iteration
+    # order — and pinned by a test.
     by_id_old = {entry["id"]: key for key, entry in unmatched_old.items()}
     by_id_new = {entry["id"]: key for key, entry in unmatched_new.items()}
     for (first, second), verdict in (decisions or {}).items():
@@ -367,6 +393,18 @@ def _plan_changes(
             # reviewer said *not this one*, so its score must not shadow the
             # endpoint's next-best live candidate.
             distinct.add(frozenset((first, second)))
+            continue
+        if verdict != PairingVerdict.PAIRED:
+            # Matched explicitly rather than reached by falling through the
+            # arm above, which would apply *any* unrecognised string as a
+            # pairing and caption it as a human decision — silently honouring
+            # a verdict nobody wrote, in the more consequential direction.
+            # Ignored here, as `replay_decisions` ignores a `:LinkDecision`
+            # verdict it does not recognise: neither arm claims it, so the
+            # pair simply stays unsettled. Deliberately *not* counted —
+            # `pairings_unapplied` means pass 1 pre-empted a verdict, and a
+            # corrupt row is not that. `record_pairing` validates every write,
+            # so reaching this branch means the graph was written around it.
             continue
         forward = (by_id_old.get(first), by_id_new.get(second))
         backward = (by_id_old.get(second), by_id_new.get(first))
@@ -387,9 +425,16 @@ def _plan_changes(
                 "statement": after["statement"],
                 "previous_statement": before["statement"],
                 "modality": after["modality"],
+                # No "newer"/"older" here: this module binds whatever from/to
+                # the caller passed and says so, `/triage` takes both version
+                # ids from the request, and the `backward` branch above exists
+                # precisely because a reversed run flips the sides. Naming a
+                # chronology this layer cannot derive would put the claim in
+                # front of a reviewer the wrong way round on exactly those
+                # runs. What it can say is that the two are one obligation.
                 "summary": (
-                    "A reviewer paired these clauses: the newer statement is "
-                    "the older one reworded."
+                    "A reviewer paired these clauses: they are one obligation, "
+                    "reworded between these two editions."
                 ),
             }
         )
@@ -403,6 +448,12 @@ def _plan_changes(
 
     paired_old: set[str] = set()
     paired_new: set[str] = set()
+    # Clauses this pass declined because a reviewer ruled them distinct. They
+    # still become ADDED/REMOVED — that is what "not the same clause" means —
+    # but they are not the ambiguity `_ambiguous` describes, and they carry
+    # their own sentence. Before verdicts existed this pass never declined a
+    # one-each-side section, so the false ambiguity is newly reachable.
+    settled_distinct: set[str] = set()
 
     for section, news in by_section_new.items():
         olds = by_section_old.get(section, [])
@@ -413,6 +464,8 @@ def _plan_changes(
                 # pairs on structure alone and would re-pair them; a human
                 # verdict outranks it, so the pair falls through to
                 # ADDED/REMOVED like any other decline.
+                settled_distinct.add(before["id"])
+                settled_distinct.add(after["id"])
                 continue
             paired_old.add(before["id"])
             paired_new.add(after["id"])
@@ -449,6 +502,22 @@ def _plan_changes(
             return AMBIGUOUS_SECTION.format(section="/".join(section))
         return None
 
+    def _decline_summary(entry: dict, section: tuple[str, ...], plain: str) -> str:
+        """Why this clause is its own change rather than half of a pairing.
+
+        The settled check comes first and `_ambiguous` is never consulted for
+        those two clauses, which is the whole fix: their section holds exactly
+        one changed obligation on each side, so the tally reads 2 and would
+        report ambiguity for a pair a person had already decided. No filtering
+        inside `_ambiguous` is needed to achieve that — pass 2 only reaches its
+        `distinct` decline when the section holds those two clauses and nothing
+        else, so there is no third clause in there whose tally they could
+        distort.
+        """
+        if entry["id"] in settled_distinct:
+            return SETTLED_DISTINCT.format(section="/".join(section))
+        return _ambiguous(section) or plain
+
     for entry in unmatched_old.values():
         if entry["id"] in paired_old:
             continue
@@ -461,8 +530,11 @@ def _plan_changes(
                 "statement": entry["statement"],
                 "previous_statement": None,
                 "modality": entry["modality"],
-                "summary": _ambiguous(section)
-                or f"The obligation in section {'/'.join(section)} is gone.",
+                "summary": _decline_summary(
+                    entry,
+                    section,
+                    f"The obligation in section {'/'.join(section)} is gone.",
+                ),
             }
         )
 
@@ -478,8 +550,11 @@ def _plan_changes(
                 "statement": entry["statement"],
                 "previous_statement": None,
                 "modality": entry["modality"],
-                "summary": _ambiguous(section)
-                or f"A new obligation appears in section {'/'.join(section)}.",
+                "summary": _decline_summary(
+                    entry,
+                    section,
+                    f"A new obligation appears in section {'/'.join(section)}.",
+                ),
             }
         )
 
@@ -542,11 +617,7 @@ def diff_versions(
     through :MANDATES to the two named editions, so a middle edition's verdict
     cannot leak into a neighbouring pair's diff, and a verdict recorded on the
     pairing screen applies on the very next diff with no wiring by any caller.
-    Imported inside the function so `changes` never imports `links.pairing` at
-    module level.
     """
-    from policy_grapher.links.pairing import read_pairings
-
     old = _by_key(tx.run(READ_OBLIGATIONS, {"version_id": from_version_id}))
     new = _by_key(tx.run(READ_OBLIGATIONS, {"version_id": to_version_id}))
 

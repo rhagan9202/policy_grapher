@@ -1064,7 +1064,12 @@ def test_a_paired_decision_beats_the_section_rule(monkeypatch):
     _score_table(monkeypatch, {})
     old = _keyed(_entry("o1", ["3.2"], "The Director shall notify the Comptroller."))
     new = _keyed(
-        _entry("n1", ["7.1"], "The Director shall inform the Comptroller in writing."),
+        # WILL, not SHALL: the two sides must differ, or an implementation
+        # taking `modality` off `before` reads identically to one taking it off
+        # `after`. The 2020 DoD re-issue replaced the directive `shall` with
+        # `will` (ADR-025), so a reworded clause changing modality is the
+        # ordinary case, not a contrived one.
+        _entry("n1", ["7.1"], "The Director will inform the Comptroller in writing.", "WILL"),
         _entry("n2", ["3.2"], "Records shall be destroyed on schedule."),
     )
 
@@ -1075,7 +1080,17 @@ def test_a_paired_decision_beats_the_section_rule(monkeypatch):
         ("n1", "The Director shall notify the Comptroller.")
     ]
     assert modified[0]["summary"] == (
-        "A reviewer paired these clauses: the newer statement is the older one reworded."
+        "A reviewer paired these clauses: they are one obligation, "
+        "reworded between these two editions."
+    )
+    # The row must describe the clause a reviewer now has to act on, which is
+    # the one from the `to` edition — both fields taken from `after`, not
+    # `before`. `section_path` is where Triage sends them and `modality` is
+    # what ranks the row, so sourcing either from the wrong side points them at
+    # a section the new edition may not even have.
+    assert (modified[0]["section_path"], modified[0]["modality"]) == (["7.1"], "WILL")
+    assert modified[0]["statement"] == (
+        "The Director will inform the Comptroller in writing."
     )
     assert sorted(c["kind"] for c in result.changes) == [ADDED, MODIFIED]
     added = [c for c in result.changes if c["kind"] == ADDED]
@@ -1157,6 +1172,10 @@ def test_a_distinct_decision_suppresses_the_section_rule(monkeypatch):
     result = _plan_changes(old, new, {("o1", "n1"): "distinct"})
 
     assert sorted(c["kind"] for c in result.changes) == [ADDED, REMOVED]
+    # A verdict this run *honoured* must not be reported as one it could not
+    # apply. `pairings_unapplied` says a reviewer's decision did not land, so a
+    # count incremented here would tell them the opposite of what happened.
+    assert result.pairings_unapplied == 0
 
 
 def test_a_distinct_decision_suppresses_a_wording_pairing(monkeypatch):
@@ -1178,6 +1197,7 @@ def test_a_distinct_decision_suppresses_a_wording_pairing(monkeypatch):
 
     assert sorted(c["kind"] for c in result.changes) == [ADDED, REMOVED]
     assert result.candidates == []
+    assert result.pairings_unapplied == 0
 
 
 def test_a_distinct_sub_threshold_pair_neither_records_nor_shadows(monkeypatch):
@@ -1214,6 +1234,7 @@ def test_a_distinct_sub_threshold_pair_neither_records_nor_shadows(monkeypatch):
     assert recorded[("o1", "n2")]["outcome"] == "below_threshold"
     assert recorded[("o2", "n2")]["outcome"] == "below_threshold"
     assert len(recorded) == 2
+    assert result.pairings_unapplied == 0
 
 
 @pytest.mark.integration
@@ -1304,3 +1325,184 @@ def test_diff_versions_reports_a_verdict_pass_1_preempted(clean_graph, database)
         "MATCH (p:PairingDecision) RETURN p.verdict AS verdict", database_=database
     )
     assert [r["verdict"] for r in records] == ["paired"]
+
+
+# --- §3 review round: what a decline says, and what a verdict must be ----------
+
+
+def test_a_distinct_decline_does_not_blame_the_ambiguity_rule(monkeypatch):
+    """A reviewer must not read their own decision back as the machine's
+    excuse. AMBIGUOUS_SECTION says two things — that the section holds more
+    than one changed obligation, and that the pairing was declined for want of
+    a safe guess — and both are false here: the section holds one on each side,
+    and a person decided. Newly reachable, because before verdicts existed pass
+    2 never declined a one-each-side section."""
+    _score_table(monkeypatch, {})
+    old = _keyed(_entry("o1", ["3.2"], "The Director shall notify the Comptroller."))
+    new = _keyed(_entry("n1", ["3.2"], "The Director shall notify the Auditor."))
+
+    result = _plan_changes(old, new, {("o1", "n1"): "distinct"})
+
+    summaries = [c["summary"] for c in result.changes]
+    assert not any("more than one obligation" in s for s in summaries), summaries
+    settled = (
+        "A reviewer recorded the two clauses that changed in section 3.2 as "
+        "distinct, so this is reported as a removal and an addition rather "
+        "than a pairing."
+    )
+    assert summaries == [settled, settled]
+
+
+def test_a_settled_clause_stops_counting_toward_its_sections_ambiguity(monkeypatch):
+    """The other half of "consuming means deleting". Two unmatched old clauses
+    share a section; a verdict settles one of them. The survivor is then alone
+    and its removal must say so plainly — computing the tally from a
+    pre-decision snapshot leaves passes 2 and 3 behaving identically while
+    telling the reviewer this section was too crowded to pair."""
+    _score_table(monkeypatch, {})
+    old = _keyed(
+        _entry("o1", ["3.2"], "The Director shall notify the Comptroller."),
+        _entry("o2", ["3.2"], "Components shall report annually to the Secretary."),
+    )
+    new = _keyed(_entry("n1", ["9.9"], "Records shall be destroyed on schedule."))
+
+    result = _plan_changes(old, new, {("o1", "n1"): "paired"})
+
+    removed = [c for c in result.changes if c["kind"] == REMOVED]
+    assert [c["obligation_id"] for c in removed] == ["o2"]
+    assert removed[0]["summary"] == "The obligation in section 3.2 is gone."
+
+
+def test_the_settled_sentence_does_not_silence_a_genuinely_ambiguous_section(
+    monkeypatch,
+):
+    """The settled sentence must reach the settled pair and nothing else. A
+    second section really does hold two changed obligations on each side, so
+    the pairing rule really did decline for want of a safe guess, and that must
+    still be said — a fix that suppressed AMBIGUOUS_SECTION wholesale, or
+    marked more clauses settled than the verdict named, would read as green
+    here while hiding the one warning this summary exists to give.
+
+    Deliberately not a third clause inside 3.2: pass 2 reaches its `distinct`
+    decline only when the section holds one changed obligation on each side, so
+    a settled pair never shares its section with anything, and a fixture
+    claiming otherwise would be testing an unreachable state.
+    """
+    _score_table(monkeypatch, {})
+    old = _keyed(
+        _entry("o1", ["3.2"], "The Director shall notify the Comptroller."),
+        _entry("o2", ["4.1"], "Components shall report annually to the Secretary."),
+        _entry("o3", ["4.1"], "The Chief shall maintain the register."),
+    )
+    new = _keyed(
+        _entry("n1", ["3.2"], "The Director shall notify the Auditor."),
+        _entry("n2", ["4.1"], "Components shall report each year to the Secretary."),
+        _entry("n3", ["4.1"], "The Chief shall keep the register."),
+    )
+
+    result = _plan_changes(old, new, {("o1", "n1"): "distinct"})
+
+    by_id = {c["obligation_id"]: c["summary"] for c in result.changes}
+    assert "recorded the two clauses" in by_id["o1"]
+    assert "recorded the two clauses" in by_id["n1"]
+    for oid in ("o2", "o3", "n2", "n3"):
+        assert "more than one obligation" in by_id[oid], oid
+
+
+def test_a_distinct_decision_keyed_in_the_other_orientation_still_suppresses(
+    monkeypatch,
+):
+    """The frozenset's whole purpose, and the one thing Task 3 left uncovered.
+    `read_pairings` returns keys in the record's canonical order, but this layer
+    binds whatever from/to the caller passed, so a reversed Triage run hands the
+    verdict over with the ids the other way round. Keep an ordered tuple and
+    both consumers agree with each other while silently agreeing on the wrong
+    thing — every forward-keyed test in this file still passes."""
+    _score_table(monkeypatch, {})
+    old = _keyed(_entry("o1", ["3.2"], "The Director shall notify the Comptroller."))
+    new = _keyed(_entry("n1", ["3.2"], "The Director shall notify the Auditor."))
+
+    result = _plan_changes(old, new, {("n1", "o1"): "distinct"})
+
+    assert sorted(c["kind"] for c in result.changes) == [ADDED, REMOVED]
+    assert result.pairings_unapplied == 0
+
+
+def test_an_unrecognised_verdict_is_not_applied_as_a_pairing(monkeypatch):
+    """The arm the enum's docstring promised was safe. Falling through to the
+    pairing arm applies any string the graph happens to hold as a `paired`
+    verdict and captions the row as a human decision — putting words in a
+    reviewer's mouth, which is worse than ignoring the row. `record_pairing`
+    guards what it writes, but the diff reads the graph, and the graph is not
+    guarded by that function."""
+    _score_table(monkeypatch, {})
+    old = _keyed(_entry("o1", ["ENCLOSURE 2"], "The Director shall notify the Comptroller."))
+    new = _keyed(_entry("n1", ["SECTION 4"], "Records shall be destroyed on schedule."))
+
+    result = _plan_changes(old, new, {("o1", "n1"): "sort-of"})
+
+    assert sorted(c["kind"] for c in result.changes) == [ADDED, REMOVED]
+    # Not counted either: `pairings_unapplied` means pass 1 pre-empted a
+    # verdict, and a value no writer in this codebase can produce is not that.
+    assert result.pairings_unapplied == 0
+
+
+def test_paired_beats_distinct_on_the_same_two_clauses_either_way_round(monkeypatch):
+    """`pairing_key` is directional, so `paired` and `distinct` on the same two
+    obligations are two records and both can be live. This layer resolves it —
+    `paired` wins — and resolves it order-independently, because the paired arm
+    never consults `distinct` and its pop leaves passes 2 and 3 nothing to
+    decline. Pinned rather than left to dict iteration order."""
+    _score_table(monkeypatch, {})
+    old = _keyed(_entry("o1", ["3.2"], "The Director shall notify the Comptroller."))
+    new = _keyed(_entry("n1", ["3.2"], "The Director shall notify the Auditor."))
+
+    for decisions in (
+        {("o1", "n1"): "paired", ("n1", "o1"): "distinct"},
+        {("n1", "o1"): "distinct", ("o1", "n1"): "paired"},
+    ):
+        result = _plan_changes(old, new, decisions)
+
+        assert [c["kind"] for c in result.changes] == [MODIFIED], decisions
+        assert result.changes[0]["obligation_id"] == "n1", decisions
+        assert result.pairings_unapplied == 0, decisions
+
+
+@pytest.mark.integration
+def test_diff_versions_applies_a_recorded_distinct_decision(clean_graph, database):
+    """`distinct` has no end-to-end coverage otherwise — the cycle 3 test drives
+    `paired` only, so the read → frozenset → pass 2 path is never exercised
+    against a real graph, and neither is the sentence a reviewer actually reads.
+
+    The fixture is `test_a_reworded_obligation_in_the_same_section_is_one_modified`'s,
+    unchanged: one clause each side of section 3.2, which pass 2 pairs
+    unconditionally and reports as a single MODIFIED. The verdict is the only
+    difference here.
+    """
+    from policy_grapher.extraction.schema import obligation_id
+    from policy_grapher.links.pairing import record_pairing
+
+    _seed(clean_graph, database, version_id="v1", entries=[("3.2", NOTIFY, Modality.SHALL)])
+    _seed(clean_graph, database, version_id="v2", entries=[("3.2", REPORT, Modality.SHALL)])
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing,
+            old_id=obligation_id("v1", ["3.2"], NOTIFY),
+            new_id=obligation_id("v2", ["3.2"], REPORT),
+            verdict="distinct",
+            actor="tester",
+            rationale="two duties that happen to share a section",
+        )
+
+    counts = _diff(clean_graph, database)
+
+    assert counts == {"ADDED": 1, "REMOVED": 1, "MODIFIED": 0, "pairings_unapplied": 0}
+    # The persisted sentence, not just the planned one: this is what a reviewer
+    # reads, and reporting their own decision back as the ambiguity rule's
+    # decline is the defect this whole path exists to avoid.
+    settled = (
+        "A reviewer recorded the two clauses that changed in section 3.2 as "
+        "distinct, so this is reported as a removal and an addition rather than "
+        "a pairing."
+    )
+    assert {c["summary"] for c in _changes(clean_graph, database)} == {settled}

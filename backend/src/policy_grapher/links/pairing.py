@@ -27,8 +27,17 @@ from neo4j import ManagedTransaction
 
 class PairingVerdict(StrEnum):
     """Closed on purpose, for `decisions.Verdict`'s reason: the diff branches on
-    this value when applying verdicts, so one it does not recognise would be
-    silently ignored — a settled pair the diff keeps re-asking about."""
+    this value when applying verdicts, and it matches each member explicitly, so
+    one it does not recognise is claimed by neither arm — the pair stays
+    unsettled and the diff keeps re-asking about it.
+
+    That is the *safe* failure, and it is only safe because the branch is
+    explicit. An `else` falling through to the pairing arm would apply an
+    unrecognised verdict as a `paired` one and caption the row as a human
+    decision, which is the same loss in the direction that puts words in a
+    reviewer's mouth. `record_pairing` refuses to write a value outside this
+    enum, so the two guards meet: nothing writes one, and nothing acts on one.
+    """
 
     PAIRED = "paired"
     DISTINCT = "distinct"
