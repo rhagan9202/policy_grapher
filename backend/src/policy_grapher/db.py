@@ -58,6 +58,14 @@ CONSTRAINTS: tuple[str, ...] = (
         "CREATE CONSTRAINT link_decision_key_unique IF NOT EXISTS "
         "FOR (d:LinkDecision) REQUIRE d.key IS UNIQUE"
     ),
+    # :PairingDecision is the same kind of thing for the other question — a
+    # same-document pairing verdict, canonical for the same ADR-014 reason.
+    # Uniqueness on the directional key is what lets a re-verdict update in
+    # place, and the repoint path's collision screening assumes it.
+    (
+        "CREATE CONSTRAINT pairing_decision_key_unique IF NOT EXISTS "
+        "FOR (d:PairingDecision) REQUIRE d.key IS UNIQUE"
+    ),
     (
         "CREATE CONSTRAINT change_id_unique IF NOT EXISTS "
         "FOR (c:Change) REQUIRE c.change_id IS UNIQUE"
