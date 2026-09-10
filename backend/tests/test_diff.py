@@ -9,6 +9,7 @@ from policy_grapher.changes.diff import (
     _plan_changes,
     content_key,
     diff_versions,
+    drop_candidates,
     drop_changes,
 )
 from policy_grapher.chunking import chunk_pages
@@ -124,7 +125,7 @@ def test_an_obligation_only_in_the_new_edition_is_added(clean_graph, database):
 
     counts = _diff(clean_graph, database)
 
-    assert counts == {"ADDED": 1, "REMOVED": 0, "MODIFIED": 0}
+    assert counts == {"ADDED": 1, "REMOVED": 0, "MODIFIED": 0, "pairings_unapplied": 0}
     changes = _changes(clean_graph, database)
     assert changes[0]["kind"] == "ADDED"
     assert changes[0]["statement"] == REPORT
@@ -143,7 +144,7 @@ def test_an_obligation_only_in_the_old_edition_is_removed(clean_graph, database)
 
     counts = _diff(clean_graph, database)
 
-    assert counts == {"ADDED": 0, "REMOVED": 1, "MODIFIED": 0}
+    assert counts == {"ADDED": 0, "REMOVED": 1, "MODIFIED": 0, "pairings_unapplied": 0}
     changes = _changes(clean_graph, database)
     assert changes[0]["kind"] == "REMOVED"
     assert changes[0]["statement"] == REPORT
@@ -159,7 +160,7 @@ def test_an_identical_obligation_produces_no_change(clean_graph, database):
 
     counts = _diff(clean_graph, database)
 
-    assert counts == {"ADDED": 0, "REMOVED": 0, "MODIFIED": 0}
+    assert counts == {"ADDED": 0, "REMOVED": 0, "MODIFIED": 0, "pairings_unapplied": 0}
     assert _changes(clean_graph, database) == []
 
 
@@ -175,7 +176,7 @@ def test_a_reworded_obligation_in_the_same_section_is_one_modified(
 
     counts = _diff(clean_graph, database)
 
-    assert counts == {"ADDED": 0, "REMOVED": 0, "MODIFIED": 1}
+    assert counts == {"ADDED": 0, "REMOVED": 0, "MODIFIED": 1, "pairings_unapplied": 0}
 
 
 @pytest.mark.integration
@@ -255,7 +256,7 @@ def test_a_section_with_two_reworded_obligations_falls_back_and_says_so(
 
     counts = _diff(clean_graph, database)
 
-    assert counts == {"ADDED": 2, "REMOVED": 2, "MODIFIED": 0}
+    assert counts == {"ADDED": 2, "REMOVED": 2, "MODIFIED": 0, "pairings_unapplied": 0}
     summaries = {c["summary"] for c in _changes(clean_graph, database)}
     assert any("more than one obligation" in s for s in summaries), summaries
 
@@ -311,7 +312,7 @@ def test_a_rerun_after_a_change_disappears_removes_the_stale_change(
 
     counts = _diff(clean_graph, database)
 
-    assert counts == {"ADDED": 0, "REMOVED": 0, "MODIFIED": 0}
+    assert counts == {"ADDED": 0, "REMOVED": 0, "MODIFIED": 0, "pairings_unapplied": 0}
     assert _changes(clean_graph, database) == []
 
 
@@ -745,3 +746,164 @@ def test_a_sub_threshold_runner_up_within_the_margin_is_kept(monkeypatch):
         "outcome": "below_threshold",
     }
     assert MODIFIED not in [c["kind"] for c in plan.changes]
+
+
+# --- §2: the diff writes and drops its candidate record ------------------------
+
+
+def _candidate_edges(driver, database, *, a: str, b: str) -> int:
+    """Candidate edges between two editions' obligations, either orientation.
+
+    Undirected on purpose: a reversed Triage run writes its edges the other
+    way, and a directed count would hide exactly the orphans the drop must
+    reach.
+    """
+    records, _, _ = driver.execute_query(
+        "MATCH (:DocumentVersion {version_id: $a})-[:MANDATES]->(:Obligation)"
+        "-[r:PAIRING_CANDIDATE]-"
+        "(:Obligation)<-[:MANDATES]-(:DocumentVersion {version_id: $b}) "
+        "RETURN count(r) AS total",
+        {"a": a, "b": b},
+        database_=database,
+    )
+    return records[0]["total"]
+
+
+@pytest.mark.integration
+def test_rediffing_the_same_pair_leaves_no_stale_candidate(clean_graph, database):
+    """Both endpoints survive here — only the plan changed — so nothing deletes
+    the edge as a side effect (the rebuild path's drop_obligations cannot save
+    us, and drop_changes structurally cannot: a PAIRING_CANDIDATE hangs off no
+    :Change node). Only the pair's own drop can remove it."""
+    _seed(
+        clean_graph,
+        database,
+        version_id="v1",
+        entries=[("3.2", RENUMBERED_OLD, Modality.SHALL)],
+    )
+    _seed(
+        clean_graph,
+        database,
+        version_id="v2",
+        entries=[("4.1", RENUMBERED_NEW, Modality.WILL)],
+    )
+    _diff(clean_graph, database)
+    assert _candidate_edges(clean_graph, database, a="v1", b="v2") == 1
+
+    # A re-extraction of v2 now also finds the old clause verbatim, so pass 1
+    # matches it and the wording pass has nothing left to pair. The auto_paired
+    # edge the first run wrote answers a question the diff no longer asks.
+    _seed(
+        clean_graph,
+        database,
+        version_id="v2",
+        entries=[("3.2", RENUMBERED_OLD, Modality.SHALL)],
+    )
+    counts = _diff(clean_graph, database)
+
+    assert counts["MODIFIED"] == 0
+    assert _candidate_edges(clean_graph, database, a="v1", b="v2") == 0
+
+
+@pytest.mark.integration
+def test_rediffing_one_pair_leaves_the_adjacent_pairs_candidates_intact(
+    clean_graph, database
+):
+    """A middle edition's obligations belong to two pairs. A drop scoped to
+    "any candidate edge touching either edition" would delete the neighbouring
+    diff's record with this pair's — which is why DROP_CANDIDATES anchors both
+    ends through :MANDATES."""
+    _seed(
+        clean_graph,
+        database,
+        version_id="v1",
+        entries=[("3.2", RENUMBERED_OLD, Modality.SHALL)],
+    )
+    _seed(
+        clean_graph,
+        database,
+        version_id="v2",
+        entries=[("4.1", RENUMBERED_NEW, Modality.WILL)],
+    )
+    # v3 carries v2's clause verbatim but renumbered again, so the v2→v3 diff
+    # pairs it by wording at confidence 1.0.
+    _seed(
+        clean_graph,
+        database,
+        version_id="v3",
+        entries=[("5.1", RENUMBERED_NEW, Modality.WILL)],
+    )
+    _diff(clean_graph, database, old="v1", new="v2")
+    _diff(clean_graph, database, old="v2", new="v3")
+    assert _candidate_edges(clean_graph, database, a="v2", b="v3") == 1
+
+    _diff(clean_graph, database, old="v1", new="v2")
+
+    assert _candidate_edges(clean_graph, database, a="v2", b="v3") == 1
+    assert _candidate_edges(clean_graph, database, a="v1", b="v2") == 1
+
+
+@pytest.mark.integration
+def test_a_reversed_runs_edges_are_cleaned_by_the_next_chronological_run(
+    clean_graph, database
+):
+    """Triage accepts arbitrary direction, so a reversed GET writes its edges
+    the other way round. The undirected drop lets the chronological run reach
+    them; a directional match would leave them orphaned forever while deleting
+    only the well-oriented ones."""
+    _seed(
+        clean_graph,
+        database,
+        version_id="v1",
+        entries=[("3.2", RENUMBERED_OLD, Modality.SHALL)],
+    )
+    _seed(
+        clean_graph,
+        database,
+        version_id="v2",
+        entries=[("4.1", RENUMBERED_NEW, Modality.WILL)],
+    )
+    _diff(clean_graph, database, old="v2", new="v1")
+    _diff(clean_graph, database, old="v1", new="v2")
+
+    assert _candidate_edges(clean_graph, database, a="v1", b="v2") == 1
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (:DocumentVersion {version_id: 'v1'})-[:MANDATES]->(:Obligation)"
+        "-[r:PAIRING_CANDIDATE]->"
+        "(:Obligation)<-[:MANDATES]-(:DocumentVersion {version_id: 'v2'}) "
+        "RETURN count(r) AS total",
+        database_=database,
+    )
+    assert records[0]["total"] == 1
+
+
+@pytest.mark.integration
+def test_drop_candidates_counts_relationships_not_nodes(clean_graph, database):
+    """A candidate is an edge between two obligations that stay standing.
+    nodes_deleted here would always be 0 — compare drop_changes, whose unit is
+    the :Change node — and a caller reading it would believe the drop did
+    nothing."""
+    _seed(
+        clean_graph,
+        database,
+        version_id="v1",
+        entries=[("3.2", RENUMBERED_OLD, Modality.SHALL)],
+    )
+    _seed(
+        clean_graph,
+        database,
+        version_id="v2",
+        entries=[("4.1", RENUMBERED_NEW, Modality.WILL)],
+    )
+    _diff(clean_graph, database)
+
+    with clean_graph.session(database=database) as session:
+        dropped = session.execute_write(
+            drop_candidates, from_version_id="v1", to_version_id="v2"
+        )
+
+    assert dropped == 1
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (o:Obligation) RETURN count(o) AS obligations", database_=database
+    )
+    assert records[0]["obligations"] == 2

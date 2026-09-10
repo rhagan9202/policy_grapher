@@ -73,6 +73,37 @@ MERGE (c)-[:TO_VERSION]->(to_version)
 MERGE (c)-[:AFFECTS]->(affected)
 """
 
+# The candidate edge is written from-side→to-side, whatever the caller passed:
+# neither this statement nor `diff_versions` knows chronology — they carry
+# request order, and older→newer is pinned at the pairing route, the one place
+# built on these edges. No version anchors here: obligation ids are unique, and
+# the pairs being written were read from the two named editions in this same
+# transaction.
+WRITE_CANDIDATES = """
+UNWIND $candidates AS candidate
+MATCH (old:Obligation {obligation_id: candidate.old_id})
+MATCH (new:Obligation {obligation_id: candidate.new_id})
+MERGE (old)-[r:PAIRING_CANDIDATE]->(new)
+SET r.confidence = candidate.confidence,
+    r.rationale  = candidate.rationale,
+    r.outcome    = candidate.outcome
+"""
+
+# Undirected on the candidate edge, deliberately: a Triage GET run with the pair
+# reversed writes its edges the other way, and a directional drop would delete
+# only the well-oriented ones while leaving those orphaned forever. Anchored
+# through :MANDATES on *both* ends, because a middle edition's obligations
+# belong to two pairs — "any edge touching either edition" would delete the
+# neighbouring diff's candidates. DROP_PAIR's scoping cannot transfer: it scopes
+# through the :Change node's FROM_VERSION/TO_VERSION, which a bare relationship
+# does not carry.
+DROP_CANDIDATES = """
+MATCH (:DocumentVersion {version_id: $from_version_id})-[:MANDATES]->(:Obligation)
+      -[r:PAIRING_CANDIDATE]-
+      (:Obligation)<-[:MANDATES]-(:DocumentVersion {version_id: $to_version_id})
+DELETE r
+"""
+
 
 def content_key(section_path: list[str], statement: str) -> str:
     """How one clause is recognised across editions.
@@ -410,15 +441,36 @@ def drop_changes(tx: ManagedTransaction, *, version_id: str) -> int:
     return summary.counters.nodes_deleted
 
 
+def drop_candidates(
+    tx: ManagedTransaction, *, from_version_id: str, to_version_id: str
+) -> int:
+    """Remove one edition pair's candidate edges, from either orientation.
+
+    `drop_changes` cannot reach these: it DETACH-deletes `:Change` nodes, and a
+    relationship between two `:Obligation` nodes hangs off no `:Change`. On the
+    rebuild path the edges happen to die with `drop_obligations`' DETACH DELETE
+    — by accident, from a different statement — and not at all on the re-diff
+    path, which is the one this exists for. The count is
+    `relationships_deleted`: nothing here deletes a node.
+    """
+    summary = tx.run(
+        DROP_CANDIDATES,
+        {"from_version_id": from_version_id, "to_version_id": to_version_id},
+    ).consume()
+    return summary.counters.relationships_deleted
+
+
 def diff_versions(
     tx: ManagedTransaction, *, from_version_id: str, to_version_id: str
 ) -> dict[str, int]:
-    """Diff two editions and write the result. Returns counts by kind.
+    """Diff two editions and write the result. Returns counts by kind, plus
+    `pairings_unapplied` — reviewer verdicts the plan could not apply.
 
-    Drops this pair's existing changes first rather than merging over them: a
-    re-extraction can make a change stop existing, and a `:Change` left behind
-    shows a reviewer a change that is no longer real. Ids are deterministic, so
-    the changes that *do* still exist come back identical.
+    Drops this pair's existing changes and candidates first rather than merging
+    over them: a re-extraction can make either stop existing, and a record left
+    behind shows a reviewer a change — or a pairing question — that is no
+    longer real. Ids are deterministic, so what *does* still exist comes back
+    identical.
     """
     old = _by_key(tx.run(READ_OBLIGATIONS, {"version_id": from_version_id}))
     new = _by_key(tx.run(READ_OBLIGATIONS, {"version_id": to_version_id}))
@@ -427,6 +479,9 @@ def diff_versions(
         DROP_PAIR,
         {"from_version_id": from_version_id, "to_version_id": to_version_id},
     ).consume()
+    drop_candidates(
+        tx, from_version_id=from_version_id, to_version_id=to_version_id
+    )
 
     plan = _plan_changes(old, new)
     changes = plan.changes
@@ -445,7 +500,11 @@ def diff_versions(
             },
         ).consume()
 
+    if plan.candidates:
+        tx.run(WRITE_CANDIDATES, {"candidates": plan.candidates}).consume()
+
     counts = dict.fromkeys(KINDS, 0)
     for change in changes:
         counts[change["kind"]] += 1
+    counts["pairings_unapplied"] = plan.pairings_unapplied
     return counts
