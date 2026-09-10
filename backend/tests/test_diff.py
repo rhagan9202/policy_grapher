@@ -1206,3 +1206,42 @@ def test_a_distinct_sub_threshold_pair_neither_records_nor_shadows(monkeypatch):
     assert recorded[("o1", "n2")]["outcome"] == "below_threshold"
     assert recorded[("o2", "n2")]["outcome"] == "below_threshold"
     assert len(recorded) == 2
+
+
+@pytest.mark.integration
+def test_diff_versions_applies_a_recorded_pairing_decision(clean_graph, database):
+    """No wiring by the caller: `diff_versions` reads the decisions itself,
+    scoped through :MANDATES to the two named editions, so a verdict recorded
+    through /pairings takes effect on the very next diff — Triage's or the
+    queue's alike. The two statements share no content words, so nothing here
+    is scored: only the decision can produce the MODIFIED."""
+    from policy_grapher.extraction.schema import obligation_id
+    from policy_grapher.links.pairing import record_pairing
+
+    old_statement = "The Director shall notify the Comptroller of any breach."
+    new_statement = "Records shall be destroyed at the end of their retention period."
+    _seed(
+        clean_graph, database, version_id="v1",
+        entries=[("3.2", old_statement, Modality.SHALL)],
+    )
+    _seed(
+        clean_graph, database, version_id="v2",
+        entries=[("9.9", new_statement, Modality.SHALL)],
+    )
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing,
+            old_id=obligation_id("v1", ["3.2"], old_statement),
+            new_id=obligation_id("v2", ["9.9"], new_statement),
+            verdict="paired",
+            actor="tester",
+            rationale="a complete rewording the measure cannot see",
+        )
+
+    counts = _diff(clean_graph, database)
+
+    assert counts == {"ADDED": 0, "REMOVED": 0, "MODIFIED": 1, "pairings_unapplied": 0}
+    change = _changes(clean_graph, database)[0]
+    assert change["previous_statement"] == old_statement
+    assert change["statement"] == new_statement
+    assert "reviewer paired" in change["summary"]

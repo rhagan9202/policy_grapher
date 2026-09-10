@@ -522,14 +522,22 @@ def diff_versions(
     tx: ManagedTransaction, *, from_version_id: str, to_version_id: str
 ) -> dict[str, int]:
     """Diff two editions and write the result. Returns counts by kind, plus
-    `pairings_unapplied` — reviewer verdicts the plan could not apply.
+    `pairings_unapplied` — `paired` verdicts pass 1 pre-empted on this run.
 
-    Drops this pair's existing changes and candidates first rather than merging
-    over them: a re-extraction can make either stop existing, and a record left
-    behind shows a reviewer a change — or a pairing question — that is no
-    longer real. Ids are deterministic, so what *does* still exist comes back
-    identical.
+    Drops this pair's existing changes and candidates first rather than
+    merging over them: a re-extraction can make either stop existing, and a
+    stale record shows a reviewer something that is no longer real. Ids are
+    deterministic, so what *does* still exist comes back identical.
+
+    The reviewer's pairing decisions are read here and threaded down — scoped
+    through :MANDATES to the two named editions, so a middle edition's verdict
+    cannot leak into a neighbouring pair's diff, and a verdict recorded on the
+    pairing screen applies on the very next diff with no wiring by any caller.
+    Imported inside the function so `changes` never imports `links.pairing` at
+    module level.
     """
+    from policy_grapher.links.pairing import read_pairings
+
     old = _by_key(tx.run(READ_OBLIGATIONS, {"version_id": from_version_id}))
     new = _by_key(tx.run(READ_OBLIGATIONS, {"version_id": to_version_id}))
 
@@ -541,28 +549,29 @@ def diff_versions(
         tx, from_version_id=from_version_id, to_version_id=to_version_id
     )
 
-    plan = _plan_changes(old, new)
-    changes = plan.changes
-    for change in changes:
+    decisions = read_pairings(
+        tx, from_version_id=from_version_id, to_version_id=to_version_id
+    )
+    result = _plan_changes(old, new, decisions)
+    for change in result.changes:
         change["change_id"] = change_id(
             from_version_id, to_version_id, change["kind"], change["obligation_id"]
         )
 
-    if changes:
+    if result.changes:
         tx.run(
             WRITE_CHANGES,
             {
                 "from_version_id": from_version_id,
                 "to_version_id": to_version_id,
-                "changes": changes,
+                "changes": result.changes,
             },
         ).consume()
-
-    if plan.candidates:
-        tx.run(WRITE_CANDIDATES, {"candidates": plan.candidates}).consume()
+    if result.candidates:
+        tx.run(WRITE_CANDIDATES, {"candidates": result.candidates}).consume()
 
     counts = dict.fromkeys(KINDS, 0)
-    for change in changes:
+    for change in result.changes:
         counts[change["kind"]] += 1
-    counts["pairings_unapplied"] = plan.pairings_unapplied
+    counts["pairings_unapplied"] = result.pairings_unapplied
     return counts
