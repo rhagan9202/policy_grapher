@@ -1080,6 +1080,14 @@ def test_a_paired_decision_beats_the_section_rule(monkeypatch):
     assert sorted(c["kind"] for c in result.changes) == [ADDED, MODIFIED]
     added = [c for c in result.changes if c["kind"] == ADDED]
     assert added[0]["obligation_id"] == "n2"
+    # `pairings_unapplied` counts pass 1's pre-emptions and nothing else. This
+    # verdict is one pass 2 would have consumed had it been applied any later,
+    # so a count that widened to include pass-2 consumption would report this
+    # reviewer's decision as dropped when it was in fact honoured — a number
+    # that lies in the direction of blaming the system for the reviewer's work
+    # being ignored. The assertions above pin the changes; only this one pins
+    # the number.
+    assert result.pairings_unapplied == 0
 
 
 def test_a_paired_decision_pairs_what_nothing_scored_across_sections(monkeypatch):
