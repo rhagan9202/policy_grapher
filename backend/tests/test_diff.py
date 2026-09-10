@@ -1133,3 +1133,76 @@ def test_a_paired_decision_pass_1_preempted_is_counted_not_dropped(monkeypatch):
     assert [c["kind"] for c in result.changes] == [ADDED]
     assert result.changes[0]["obligation_id"] == "n2"
     assert decisions == {("o1", "n2"): "paired"}
+
+
+def test_a_distinct_decision_suppresses_the_section_rule(monkeypatch):
+    """Alone in a section, the two clauses are exactly what pass 2 re-pairs on
+    structure — the verdict must stop it, or `distinct` is only honoured where
+    the wording pass happens to be the decliner."""
+    _score_table(monkeypatch, {})
+    old = _keyed(_entry("o1", ["3.2"], "The Director shall notify the Comptroller."))
+    new = _keyed(_entry("n1", ["3.2"], "The Director shall notify the Auditor."))
+
+    control = _plan_changes(old, new)
+    assert [c["kind"] for c in control.changes] == [MODIFIED]
+
+    result = _plan_changes(old, new, {("o1", "n1"): "distinct"})
+
+    assert sorted(c["kind"] for c in result.changes) == [ADDED, REMOVED]
+
+
+def test_a_distinct_decision_suppresses_a_wording_pairing(monkeypatch):
+    """The other decliner. The pair scores well above PAIRING_CONFIDENCE, so
+    without the verdict it auto-pairs — and a settled pair must not come back
+    as a candidate either: the :PairingDecision is the record, and a candidate
+    edge would re-ask a settled question."""
+    old_statement = "The Director shall notify the Comptroller."
+    new_statement = "The Director must notify the Comptroller promptly."
+    _score_table(monkeypatch, {(old_statement, new_statement): 0.9})
+    old = _keyed(_entry("o1", ["ENCLOSURE 2"], old_statement))
+    new = _keyed(_entry("n1", ["SECTION 4"], new_statement))
+
+    control = _plan_changes(old, new)
+    assert [c["kind"] for c in control.changes] == [MODIFIED]
+    assert [c["outcome"] for c in control.candidates] == ["auto_paired"]
+
+    result = _plan_changes(old, new, {("o1", "n1"): "distinct"})
+
+    assert sorted(c["kind"] for c in result.changes) == [ADDED, REMOVED]
+    assert result.candidates == []
+
+
+def test_a_distinct_sub_threshold_pair_neither_records_nor_shadows(monkeypatch):
+    """The reviewer said *not this one*, so its score must not shadow the
+    endpoint's next-best live candidate in the bound. o1's settled 0.60 would
+    otherwise be o1's best and 0.50 falls outside PAIRING_MARGIN of it; n2
+    cannot rescue the record either, because n2's own best is 0.58."""
+    o1_statement = "The Director shall notify the Comptroller."
+    o2_statement = "Components shall report annually to the Secretary."
+    n1_statement = "The Director shall inform the Comptroller."
+    n2_statement = "Reports go to the Secretary each year."
+    _score_table(
+        monkeypatch,
+        {
+            (o1_statement, n1_statement): 0.60,
+            (o1_statement, n2_statement): 0.50,
+            (o2_statement, n2_statement): 0.58,
+        },
+    )
+    old = _keyed(
+        _entry("o1", ["1.1"], o1_statement),
+        _entry("o2", ["2.2"], o2_statement),
+    )
+    new = _keyed(
+        _entry("n1", ["8.1"], n1_statement),
+        _entry("n2", ["9.9"], n2_statement),
+    )
+
+    result = _plan_changes(old, new, {("o1", "n1"): "distinct"})
+
+    assert MODIFIED not in [c["kind"] for c in result.changes]
+    recorded = {(c["old_id"], c["new_id"]): c for c in result.candidates}
+    assert ("o1", "n1") not in recorded
+    assert recorded[("o1", "n2")]["outcome"] == "below_threshold"
+    assert recorded[("o2", "n2")]["outcome"] == "below_threshold"
+    assert len(recorded) == 2

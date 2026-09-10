@@ -360,6 +360,13 @@ def _plan_changes(
     by_id_new = {entry["id"]: key for key, entry in unmatched_new.items()}
     for (first, second), verdict in (decisions or {}).items():
         if verdict == PairingVerdict.DISTINCT:
+            # Orientation-free by construction — a frozenset of the two ids —
+            # so the reversed-run problem the paired arm handles above cannot
+            # arise here. `_pair_by_wording` drops these from `scored`, from
+            # the sub-threshold recording, and from the bound's "best": the
+            # reviewer said *not this one*, so its score must not shadow the
+            # endpoint's next-best live candidate.
+            distinct.add(frozenset((first, second)))
             continue
         forward = (by_id_old.get(first), by_id_new.get(second))
         backward = (by_id_old.get(second), by_id_new.get(first))
@@ -401,6 +408,12 @@ def _plan_changes(
         olds = by_section_old.get(section, [])
         if len(olds) == 1 and len(news) == 1:
             before, after = olds[0], news[0]
+            if frozenset((before["id"], after["id"])) in distinct:
+                # The reviewer said these are not the same clause. This rule
+                # pairs on structure alone and would re-pair them; a human
+                # verdict outranks it, so the pair falls through to
+                # ADDED/REMOVED like any other decline.
+                continue
             paired_old.add(before["id"])
             paired_new.add(after["id"])
             changes.append(
