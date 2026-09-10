@@ -708,3 +708,62 @@ def test_a_change_whose_citation_cannot_be_built_counts_as_unlinked(
 
     assert len(result.rows) == 0
     assert result.unlinked_changes == result.total_changes
+
+
+@pytest.mark.integration
+def test_the_triage_get_reports_a_verdict_it_could_not_apply(client_with_auth):
+    """The false-all-clear guard, extended to the reviewer's own verdicts.
+
+    A `paired` verdict naming a clause pass 1 matches identically in both
+    editions cannot be applied: the clause never reaches the unmatched sets, so
+    there is nothing left for the verdict to pair. The diff counts that
+    pre-emption, and the route has to carry the count out — discarding it leaves
+    a reviewer reading a Triage table that silently ignored a decision they
+    made, which is the defect `unlinked_changes` exists to prevent one layer
+    down. And the verdict itself must survive: a count is a report, not a
+    retraction.
+    """
+    from policy_grapher.links.pairing import record_pairing
+
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    persisting = "Components shall retain records for seven years."
+    old_ids = _seed_version(
+        driver, database, version_id="higher-v1", doc_slug="higher",
+        doc_name="DoDI 5000.88",
+        entries=[("3.2", HIGHER_OLD, Modality.SHALL),
+                 ("9.9", persisting, Modality.SHALL)],
+    )
+    new_ids = _seed_version(
+        driver, database, version_id="higher-v2", doc_slug="higher",
+        doc_name="DoDI 5000.88",
+        entries=[("3.2", HIGHER_NEW, Modality.SHALL),
+                 ("9.9", persisting, Modality.SHALL)],
+    )
+    # 9.9 is word-for-word identical across the two editions, so `content_key`
+    # matches it in pass 1 and the verdict below has nothing left to bind.
+    with driver.session(database=database) as session:
+        session.execute_write(
+            record_pairing,
+            old_id=old_ids[persisting],
+            new_id=new_ids[HIGHER_NEW],
+            verdict="paired",
+            actor="tester",
+            rationale="the retention clause became the annual one",
+        )
+
+    body = client_with_auth.get(
+        "/triage",
+        params={"to_version_id": "higher-v2", "from_version_id": "higher-v1"},
+    ).json()
+
+    assert body["pairings_unapplied"] == 1
+    # The 3.2 rewording is still found by the section rule, so the run did the
+    # ordinary work as well as reporting the verdict it could not apply.
+    assert body["total_changes"] == 1
+    records, _, _ = driver.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.verdict AS verdict", database_=database
+    )
+    assert [r["verdict"] for r in records] == ["paired"], (
+        "an unapplied verdict is reported, never retracted"
+    )

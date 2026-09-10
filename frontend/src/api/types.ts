@@ -203,6 +203,15 @@ export interface TriageOut {
    */
   unlinked_changes: number
   /**
+   * `paired` verdicts the diff behind this request could not apply, because
+   * pass 1 had already matched one of the two clauses as persisting unchanged.
+   * Required, not optional: the pairing queue carries the same count and the
+   * screen reads it, and a field that may be absent is a field a screen can
+   * forget. Not a retraction — the decision is still recorded — but it has to
+   * be shown, for the reason `unlinked_changes` has to be.
+   */
+  pairings_unapplied: number
+  /**
    * An empty `rows` has three causes, and they are not the same finding:
    * nothing is linked (`unlinked_changes`), nothing changed (`total_changes`),
    * or nothing was ever extracted. Only these two can tell the third from the

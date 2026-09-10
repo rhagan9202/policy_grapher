@@ -287,6 +287,14 @@ class TriageOut(BaseModel):
     `unlinked_changes` is what keeps an empty `rows` honest. Without it, "nothing
     you own is affected" and "nothing has been reviewed yet, so this cannot see
     anything" are the same response, and one of them is a false all-clear.
+
+    `pairings_unapplied` extends that discipline to the reviewer's own verdicts.
+    This GET runs the diff, and the diff applies the recorded pairing decisions;
+    a `paired` verdict naming a clause pass 1 has already matched as persisting
+    unchanged has nothing left to bind. Reporting the number is the difference
+    between a reviewer being told their decision did not land and a table that
+    quietly proceeded as though it had. The verdict is untouched on disk — only
+    unapplied on this pair, on this run.
     """
 
     from_version_id: str
@@ -294,6 +302,7 @@ class TriageOut(BaseModel):
     rows: list[TriageRowOut]
     total_changes: int
     unlinked_changes: int
+    pairings_unapplied: int
     # An empty `rows` has three causes, and they are not the same finding:
     # nothing is linked (unlinked_changes), nothing changed (total_changes), or
     # nothing was ever extracted. Only these two can tell the third from the

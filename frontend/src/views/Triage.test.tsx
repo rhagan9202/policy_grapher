@@ -58,6 +58,7 @@ const triage: TriageOut = {
   to_version_id: 'dodi-5000-88@2020-11-18',
   total_changes: 3,
   unlinked_changes: 2,
+  pairings_unapplied: 0,
   from_obligations: 96,
   to_obligations: 115,
   rows: [
