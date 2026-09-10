@@ -1245,3 +1245,54 @@ def test_diff_versions_applies_a_recorded_pairing_decision(clean_graph, database
     assert change["previous_statement"] == old_statement
     assert change["statement"] == new_statement
     assert "reviewer paired" in change["summary"]
+
+
+@pytest.mark.integration
+def test_diff_versions_reports_a_verdict_pass_1_preempted(clean_graph, database):
+    """Where `pairings_unapplied` comes from, pinned on the counts dict itself.
+
+    Every other assertion on this key in this file expects 0, which a
+    `diff_versions` hardcoding 0 satisfies exactly as well as one reading the
+    plan — the whole file passes under that mutant. It takes a run whose count
+    is *not* zero to say the number is sourced, and this is the first task in
+    which one exists. The pairings queue route (a later task) reads this dict
+    rather than the Triage response, so the contract is pinned here, not only
+    at the API boundary.
+
+    9.9 is word-for-word identical across the two editions, so pass 1 matches
+    it and the verdict naming it has nothing left to bind. 3.2 is reworded and
+    alone in its section, so the section rule still does the ordinary work —
+    whole-dict equality is what says the run reported the verdict *and* did the
+    work, rather than falling over on the decision.
+    """
+    from policy_grapher.extraction.schema import obligation_id
+    from policy_grapher.links.pairing import record_pairing
+
+    persisting = "Components shall retain records for seven years."
+    _seed(
+        clean_graph, database, version_id="v1",
+        entries=[("3.2", NOTIFY, Modality.SHALL), ("9.9", persisting, Modality.SHALL)],
+    )
+    _seed(
+        clean_graph, database, version_id="v2",
+        entries=[("3.2", REPORT, Modality.SHALL), ("9.9", persisting, Modality.SHALL)],
+    )
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing,
+            old_id=obligation_id("v1", ["9.9"], persisting),
+            new_id=obligation_id("v2", ["3.2"], REPORT),
+            verdict="paired",
+            actor="tester",
+            rationale="the retention clause became the reporting one",
+        )
+
+    counts = _diff(clean_graph, database)
+
+    assert counts == {"ADDED": 0, "REMOVED": 0, "MODIFIED": 1, "pairings_unapplied": 1}
+    # Reported, never retracted: the count is this run's inability to apply the
+    # verdict, not a change to what the reviewer decided.
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.verdict AS verdict", database_=database
+    )
+    assert [r["verdict"] for r in records] == ["paired"]

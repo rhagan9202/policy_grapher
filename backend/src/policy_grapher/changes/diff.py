@@ -510,6 +510,15 @@ def drop_candidates(
     — by accident, from a different statement — and not at all on the re-diff
     path, which is the one this exists for. The count is
     `relationships_deleted`: nothing here deletes a node.
+
+    That accidental death is wider than this function's scope, and the
+    difference matters to anyone reasoning about the two together: DETACH
+    DELETE takes every edge touching the rebuilt edition's obligations, so
+    rebuilding one edition clears the candidate record of *every* pair that
+    edition belongs to — a middle edition's rebuild wipes the neighbouring
+    pair's candidates as well as its own. This function is deliberately
+    narrower, anchored through :MANDATES on both ends; the neighbouring pair
+    gets its record back only when that pair is diffed again.
     """
     summary = tx.run(
         DROP_CANDIDATES,
