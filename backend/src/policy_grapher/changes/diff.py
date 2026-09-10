@@ -134,12 +134,16 @@ def _pair_by_wording(
     reworded dozens of clauses into each other's sections is one no pairing rule
     should be confident about anyway.
 
-    Every outcome lands in `candidates` labelled with the first rule that fired,
-    in code order: `auto_paired`, `partner_taken`, `contested`, `below_threshold`.
-    `partner_taken`'s predicate is a strict subset of `contested`'s — the
-    consuming pair scores at least as high and shares an endpoint, so the margin
-    rule would decline the same pair — so the labels record precedence, not
-    disjoint conditions.
+    Every outcome lands in `candidates`, labelled with the first rule that fired
+    for it rather than with a predicate of its own. `below_threshold` is settled
+    first, in the scoring loop, before any pairing is attempted; the other three
+    are decided in the greedy loop, which tests `partner_taken`, then
+    `contested`, and labels whatever survives both `auto_paired`. That order is
+    load-bearing rather than incidental: `partner_taken`'s predicate is a strict
+    subset of `contested`'s — the consuming pair scores at least as high and
+    shares an endpoint, so the margin rule would decline the same pair — so a
+    pair answering to both is reported as `partner_taken`, the label that has an
+    `auto_paired` winner to point a reviewer at.
 
     `distinct` holds pairs a reviewer has ruled out. They are skipped before
     scoring, which keeps them out of `scored`, out of the sub-threshold

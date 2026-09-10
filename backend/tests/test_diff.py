@@ -14,7 +14,7 @@ from policy_grapher.changes.diff import (
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
-from policy_grapher.links.propose import Candidate
+from policy_grapher.links.propose import Candidate, score_pair, score_pairing
 from policy_grapher.obligations import write_obligations
 
 # --- the key the diff matches on ---------------------------------------------
@@ -391,6 +391,29 @@ def test_a_pairing_found_by_wording_carries_its_evidence():
     assert "ENCLOSURE 1" in summary and "SECTION 1" in summary
 
 
+def test_a_wording_pairing_asks_the_pairing_question_not_the_implements_one():
+    """Which scorer the diff calls is visible to a person, and only here.
+
+    Both scorers build their rationale from the same `_facts()` head, so every
+    other assertion in this file reads the same either way — swap the import for
+    `score_pair as score_pairing` and nothing else complains, while the summary
+    a reviewer reads reverts to telling them to confirm the org clause
+    discharges the higher duty. That is advice about a relationship nobody is
+    claiming here: this pass asks whether one clause is the other reworded.
+    Computed from the scorers rather than pinned as a literal, so it follows the
+    sentences test_links.py owns instead of duplicating them.
+    """
+    old = _keyed(_entry("o1", ["ENCLOSURE 1"], RENUMBERED_OLD))
+    new = _keyed(_entry("n1", ["SECTION 1"], RENUMBERED_NEW))
+
+    summary = _plan_changes(old, new).changes[0]["summary"]
+
+    assert score_pairing(RENUMBERED_NEW, RENUMBERED_OLD).rationale in summary
+    assert "whether the newer clause is the older one reworded" in summary
+    assert score_pair(RENUMBERED_NEW, RENUMBERED_OLD).rationale not in summary
+    assert "discharges the higher duty" not in summary
+
+
 def test_two_unrelated_clauses_are_not_paired():
     """The risk ADR-031 names: a false pairing reports a MODIFIED that never
     happened, and a reviewer who trusts it reviews a change that does not exist.
@@ -487,6 +510,13 @@ def _score_table(monkeypatch, table: dict[tuple[str, str], float]) -> None:
 
 def _outcomes(plan) -> dict[tuple[str, str], str]:
     return {(c["old_id"], c["new_id"]): c["outcome"] for c in plan.candidates}
+
+
+def _records(plan) -> dict[tuple[str, str], dict]:
+    """Whole candidate records by pair, for the assertions `_outcomes` cannot
+    make: it projects the label away from the confidence and the rationale, and
+    those two are what Task 4 persists and a reviewer reads."""
+    return {(c["old_id"], c["new_id"]): c for c in plan.candidates}
 
 
 def test_the_greedy_loop_labels_all_three_outcomes_in_one_run(monkeypatch):
@@ -635,3 +665,83 @@ def test_a_pair_below_the_floor_is_not_recorded_even_when_the_scorer_returns_it(
     plan = _plan_changes(old, new)
 
     assert plan.candidates == []
+
+
+def test_a_recorded_candidate_carries_the_score_it_was_judged_on(monkeypatch):
+    """A label alone is not a reviewable record. Task 4 persists `confidence`
+    and `rationale` verbatim and Task 10 puts them on a person's screen, so a
+    zeroed confidence or a blank rationale is a wrong number in front of the
+    reviewer, not a cosmetic defect — and `_outcomes` projects both away.
+
+    Whole-record equality, so the key set is pinned too: Task 4's writer reads
+    exactly these five keys. The three exits carry three different confidences
+    on purpose, so a record cannot quietly borrow another row's."""
+    _score_table(
+        monkeypatch,
+        {
+            ("old alpha", "new alpha"): 0.90,
+            ("old beta", "new alpha"): 0.80,
+            ("old beta", "new beta"): 0.76,
+        },
+    )
+    old = _keyed(_entry("o1", ["A"], "old alpha"), _entry("o2", ["B"], "old beta"))
+    new = _keyed(_entry("n1", ["C"], "new alpha"), _entry("n2", ["D"], "new beta"))
+
+    records = _records(_plan_changes(old, new))
+
+    assert records[("o1", "n1")] == {
+        "old_id": "o1",
+        "new_id": "n1",
+        "confidence": 0.90,
+        "rationale": "stub rationale",
+        "outcome": "auto_paired",
+    }
+    assert records[("o2", "n1")] == {
+        "old_id": "o2",
+        "new_id": "n1",
+        "confidence": 0.80,
+        "rationale": "stub rationale",
+        "outcome": "partner_taken",
+    }
+    assert records[("o2", "n2")] == {
+        "old_id": "o2",
+        "new_id": "n2",
+        "confidence": 0.76,
+        "rationale": "stub rationale",
+        "outcome": "contested",
+    }
+
+
+def test_a_sub_threshold_runner_up_within_the_margin_is_kept(monkeypatch):
+    """The other half of the bound: an endpoint's best is kept, and so is
+    anything within PAIRING_MARGIN of it.
+
+    o1–n2 at 0.58 is nobody's best — o1's best is 0.60 and n2's is 0.70 — and it
+    survives only because it is within the margin of o1's best. That is the pair
+    the tolerance exists for: two sub-threshold candidates this close are the
+    case the measure cannot separate, so a person arbitrates, which they cannot
+    do if only the winner was kept. Narrowing the rule to strict bests
+    (`<= 0.0`) drops exactly this record while every other test stays green."""
+    _score_table(
+        monkeypatch,
+        {
+            ("old alpha", "new alpha"): 0.60,
+            ("old alpha", "new beta"): 0.58,
+            ("old beta", "new beta"): 0.70,
+        },
+    )
+    old = _keyed(_entry("o1", ["A"], "old alpha"), _entry("o2", ["B"], "old beta"))
+    new = _keyed(_entry("n1", ["C"], "new alpha"), _entry("n2", ["D"], "new beta"))
+
+    plan = _plan_changes(old, new)
+
+    records = _records(plan)
+    assert set(records) == {("o1", "n1"), ("o1", "n2"), ("o2", "n2")}
+    assert records[("o1", "n2")] == {
+        "old_id": "o1",
+        "new_id": "n2",
+        "confidence": 0.58,
+        "rationale": "stub rationale",
+        "outcome": "below_threshold",
+    }
+    assert MODIFIED not in [c["kind"] for c in plan.changes]
