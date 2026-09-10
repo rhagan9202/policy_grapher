@@ -17,6 +17,7 @@ from policy_grapher.links.propose import (
     designators,
     propose_links,
     score_pair,
+    score_pairing,
 )
 from policy_grapher.obligations import write_obligations
 
@@ -97,6 +98,70 @@ def test_confidence_never_exceeds_one():
     result = score_pair(org, org)
     assert result is not None
     assert result.confidence <= 1.0
+
+
+def test_the_proposal_rationale_wording_is_pinned_verbatim():
+    """This sentence is stored on every `IMPLEMENTS_PROPOSED` edge and shown in
+    the review queue; the pairing split rewrites the *pairing* sentence, not
+    this one. Byte-for-byte on purpose — a looser test would pass a paraphrase
+    that still changes what live proposals say."""
+    result = score_pair(
+        "The Director shall assess cybersecurity risk in accordance with DoDI 5000.88.",
+        "Components must comply with DoDI 5000.88 when assessing cybersecurity risk.",
+    )
+    assert result is not None
+    assert result.rationale == (
+        "Both cite DoDI 5000.88; they share 60% of the shorter clause's "
+        "distinctive wording (cybersecurity, dodi, risk). Confirm the org "
+        "clause actually discharges the higher duty before approving."
+    )
+
+
+def test_score_pairing_and_score_pair_agree_on_the_measure():
+    """One measurement serves both reviewers. The shorter clause here is wholly
+    contained in the longer, which only the min() denominator scores at 1.0 —
+    so this pins the denominator as well as the agreement."""
+    after = (
+        "The Program Manager shall document the cybersecurity strategy for "
+        "each acquisition program."
+    )
+    before = "The Program Manager must document the cybersecurity strategy."
+
+    paired = score_pairing(after, before)
+    proposed = score_pair(after, before)
+
+    assert paired is not None and proposed is not None
+    assert paired.confidence == proposed.confidence
+    assert paired.confidence == 1.0
+
+
+def test_score_pairing_keeps_the_proposers_floor():
+    """Both statements carry content words but share none, which lands on the
+    `MIN_CONFIDENCE` floor rather than the empty-statement branch. Below the
+    floor there is nothing a rationale could honestly say the clauses share."""
+    assert (
+        score_pairing(
+            "The Program Manager must document the cybersecurity strategy.",
+            "Travel vouchers may be submitted electronically.",
+        )
+        is None
+    )
+
+
+def test_the_pairing_rationale_asks_the_pairing_question():
+    """The reviewer on the pairing screen decides whether one clause is the
+    other reworded — not whether anything discharges anything. The implements
+    advisory would tell them to verify a relationship nobody is claiming."""
+    result = score_pairing(
+        "The Director shall assess cybersecurity risk in accordance with DoDI 5000.88.",
+        "Components must comply with DoDI 5000.88 when assessing cybersecurity risk.",
+    )
+    assert result is not None
+    assert "DoDI 5000.88" in result.rationale
+    assert "cybersecurity" in result.rationale
+    assert "reworded" in result.rationale
+    assert "discharges" not in result.rationale
+    assert "approving" not in result.rationale
 
 
 # --- proposing into the graph ------------------------------------------------
