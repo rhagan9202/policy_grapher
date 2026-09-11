@@ -227,7 +227,10 @@ class ReviewQueueOut(BaseModel):
     in only one document — a proposal runs between two documents now that
     same-document pairs belong to the diff, so nothing could be proposed yet.
     `documents_with_obligations` counts distinct documents holding at least
-    one obligation in any edition; a proposal is possible iff it is 2 or more.
+    one obligation in any edition; a proposal is impossible below 2. Necessary
+    and not sufficient: two documents whose obligations share no distinctive
+    vocabulary clear this count and still propose nothing, because the
+    proposer's floor is a separate condition this number says nothing about.
     Its predecessor, `documents_comparable`, counted documents with two
     obligation-holding editions — exactly the configuration that can no longer
     yield a proposal, so the old count had become the false all-clear

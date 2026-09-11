@@ -90,8 +90,10 @@ RETURN count(*) AS total
 # "caught up" from "nothing could be here yet" is no longer editions of one
 # document — `propose_links` skips same-document pairs, so two editions of one
 # instrument can never yield a proposal again — but documents: a proposal is
-# possible iff at least two distinct documents hold an obligation in any
-# edition.
+# impossible below two distinct documents holding an obligation in any edition.
+# Only impossible-below, not possible-at: two documents with no distinctive
+# vocabulary in common are counted here and still propose nothing, because the
+# proposer's floor decides that and this query cannot see it.
 WHY_EMPTY = """
 OPTIONAL MATCH (v:DocumentVersion)-[:MANDATES]->(:Obligation)
 WITH count(DISTINCT v) AS editions_with_obligations

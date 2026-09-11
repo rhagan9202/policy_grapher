@@ -155,11 +155,14 @@ export interface ReviewQueue {
   editions_with_obligations: number
   /** Distinct documents holding at least one obligation in any edition. A
    *  proposal runs between two documents now that same-document pairs belong
-   *  to the diff, so the queue can only fill once this reaches 2. The old
-   *  `documents_comparable` counted documents with two obligation-holding
-   *  editions — exactly the configuration that can no longer yield a
-   *  proposal, so keeping it would keep the false all-clear it existed to
-   *  prevent. */
+   *  to the diff, so the queue can only fill once this reaches 2 — necessary
+   *  and not sufficient, since two documents sharing no distinctive wording
+   *  clear this and still propose nothing. Branch on `< 2`, which is the
+   *  direction that holds; reading 2 as "there should be proposals by now"
+   *  does not. The old `documents_comparable` counted documents with two
+   *  obligation-holding editions — exactly the configuration that can no
+   *  longer yield a proposal, so keeping it would keep the false all-clear it
+   *  existed to prevent. */
   documents_with_obligations: number
   /** Undecided proposals in the graph, not rows in `items`. The queue is capped
    *  server-side, so the screen read "Proposal 1 of 50" over 119 waiting — and

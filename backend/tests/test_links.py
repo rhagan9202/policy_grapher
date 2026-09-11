@@ -297,11 +297,18 @@ def test_an_obligation_is_never_proposed_against_itself(clean_graph, database):
     """Naming a version as its own candidate must not link every clause to itself.
 
     Counted, not shaped. The assertion used to read "no row has source ==
-    target", which an empty result satisfies — and this result is now always
-    empty, because a version has exactly one parent :Document, so the
-    cross-document skip reaches every pair in this fixture before the
-    self-comparison does. A row-shaped assertion over nothing passes with both
-    skips deleted; a count of zero does not.
+    target", which an empty result satisfies vacuously — and this result is now
+    always empty: a version has exactly one parent :Document, so every pair in
+    this fixture is also a same-document pair and the document check covers all
+    of them, whichever check the loop reaches first.
+
+    Two mutants tell the forms apart, both run. Deleting the document check
+    alone leaves the two cross-statement pairs, which the row form passed
+    because neither row is self-directed and the count catches at 2. Deleting
+    both leaves 4, which both forms catch. Deleting the self-comparison alone
+    is caught by neither — the document check empties the result either way —
+    and no test here can close that, which is why `propose.py` says at the line
+    itself what keeps it.
     """
     _seed_version(clean_graph, database, version_id="org", statements=[ORG, HIGHER])
 

@@ -89,11 +89,15 @@ def start_rebuild(
     The body is optional; an empty POST is a rebuild with no proposals.
 
     **A candidate in the same document as this edition yields nothing.**
-    `propose_links` skips any pair whose two obligations share a `:Document`:
-    between two editions of one instrument the question is whether the newer
-    clause is the older one reworded, which is the diff's, not whether one
-    discharges the other. Naming a sibling edition is accepted — it exists, so
-    the 404 check above passes — and the rebuild reports `proposed: 0`.
+    Proposals skip any pair whose two obligations share a document: between two
+    editions of one instrument the question is whether the newer clause is the
+    older one reworded, which the diff answers, not whether one discharges the
+    other. A sibling edition is still a valid candidate — it exists, so the
+    candidate-exists check this route performs is satisfied — it simply
+    contributes nothing. A rebuild whose candidates are *all* sibling editions
+    therefore reports `proposed: 0`; one that also names another document's
+    edition reports whatever that edition produced, and nothing distinguishes
+    the sibling's zero contribution within that total.
 
     **Known limitation.** Rebuilding edition V `DETACH DELETE`s V's obligations,
     and that takes with it any `IMPLEMENTS_PROPOSED` edge pointing *at* V that a
