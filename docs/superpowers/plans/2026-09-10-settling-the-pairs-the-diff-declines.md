@@ -20,6 +20,15 @@
 - **`IMPLEMENTS` becomes cross-document only**: `propose_links` skips same-document pairs, `record_decision` refuses them, the migration retires the legacy ones.
 - **Sub-threshold recording is bounded and post-loop**: a candidate scored in `[MIN_CONFIDENCE, PAIRING_CONFIDENCE)` is kept iff at least one endpoint finished the greedy loop unpaired AND it is that endpoint's best sub-threshold candidate or within `PAIRING_MARGIN` (0.05) of that best. `distinct`-settled pairs are excluded from recording and from "best".
 - **Every new test is mutation-checked** before it is believed (sprint DoD, `docs/sprints/sprint-12/plan.md:96`): after it passes, deliberately break the code it guards and confirm it fails. Each task's steps name the mutation.
+- **`--collect-only` is NOT evidence a test runs.** Collection never executes a fixture body, so a
+  broken fixture collects cleanly and errors only when the test runs. Task 10 hit this: all nine of
+  its tests errored in the shared fixture while the briefed collection check passed throughout. Where
+  a step uses `--collect-only` as the in-sandbox check, treat it as proof the module imports and the
+  test names exist — nothing more. Run the tests for real against the pinned database.
+- **Fixture statements must contain their modality word.** `ExtractedObligation` rejects a modality
+  the statement does not use, and three briefs (Tasks 4, 9, 10) shipped fixtures that fail this at
+  seed time. Derive the modality from the statement, or match them by hand, before assuming a red run
+  means the code is wrong.
 - **Environment caveat:** integration tests (`@pytest.mark.integration`) need Docker/testcontainers, which this sandbox cannot reach (the `docker` binary is invisible from the Flatpak namespace). For integration tests: write them TDD-style, verify they **collect** (`--collect-only`) and that their unit-level logic is mutation-checked where possible; the full integration suite is a merge gate run where Docker exists. Run unit tests with `cd backend && .venv/bin/pytest tests/<file> -k "not integration" -q` (or the named test). Lint with `cd backend && .venv/bin/ruff check <files>`.
 - **Commit style** follows the repo: `feat:`/`fix:`/`docs:` prefix, lower-case summary written as a sentence about behaviour (see `git log --oneline`). Commit after each green step-cycle.
 - **Comment style**: comments state constraints the code cannot show, in the repo's discursive voice; never "why my change is correct" narration.
