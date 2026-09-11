@@ -155,12 +155,13 @@ export default function Review() {
             proposal to be made between. Build an edition's derived layer with a
             real extraction model configured.
           </p>
-        ) : queue.documents_comparable === 0 ? (
+        ) : queue.documents_with_obligations < 2 ? (
           <p>
             <strong>The queue cannot be filled yet.</strong> Obligations exist, but
-            no document has two editions holding them — and a proposal links a
-            clause in one edition to a clause in another, so it needs both sides.
-            Build a second edition of a document that already has one.
+            only one document holds any — and a proposal links a clause in one
+            document to a clause in another, so it needs both sides. Ingest a
+            second document and build an edition of it; comparing this
+            document's own editions is the pairing screen's question.
           </p>
         ) : (
           <p>Nothing is waiting for review.</p>
