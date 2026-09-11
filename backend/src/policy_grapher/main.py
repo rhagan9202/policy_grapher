@@ -10,6 +10,7 @@ from policy_grapher.embedding import build_embedder
 from policy_grapher.extraction import build_extractor
 from policy_grapher.ingest import ingest_file
 from policy_grapher.jobs.queue import build_queue
+from policy_grapher.migrate import migrate_pairing_decisions
 from policy_grapher.models import IngestResult
 from policy_grapher.routers import (
     admin,
@@ -62,6 +63,12 @@ async def lifespan(app: FastAPI):
     driver = create_driver(settings)
     driver.verify_connectivity()
     apply_schema(driver, settings.neo4j_database)
+    # After apply_schema on purpose: the migration MERGEs on
+    # :PairingDecision.key and needs pairing_decision_key_unique in place
+    # before its first write. Idempotent, so every boot runs it; only a boot
+    # that finds legacy same-document decisions or proposals does any work.
+    migrated = migrate_pairing_decisions(driver, settings.neo4j_database)
+    logger.info("Pairing decision migration: %s", migrated)
     # Built here for its side effect of validating the configuration: an unknown
     # EXTRACTOR_ADAPTER raises, and boot is where that is cheap to notice. Nothing
     # drives extraction yet — phase 4's rebuild is the caller — so the instance is

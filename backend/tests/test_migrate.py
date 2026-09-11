@@ -9,7 +9,9 @@ the split — which is exactly what a migration is for.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
+from policy_grapher import main
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import (
@@ -405,3 +407,39 @@ def test_a_second_run_returns_all_zeros(clean_graph, database):
     again = migrate_pairing_decisions(clean_graph, database)
 
     assert again == ZEROS
+
+
+@pytest.mark.integration
+def test_startup_runs_the_migration(client_with_graph):
+    """The vehicle. A migration nobody schedules is a deletion that never
+    happens; this one rides every boot, after apply_schema, because the
+    conversion MERGEs against pairing_decision_key_unique. Idempotence (proved
+    above) is what makes running it on every boot safe."""
+    driver = client_with_graph.app.state.driver
+    database = client_with_graph.app.state.settings.neo4j_database
+
+    (older_id,) = _seed_edition(
+        driver, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    (newer_id,) = _seed_edition(
+        driver, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING],
+    )
+    _legacy_decision(driver, database, source_id=newer_id, target_id=older_id)
+
+    # A second lifespan against the same settings: the fixture's client booted
+    # before the legacy decision existed, so a fresh boot must find and
+    # convert it. The inner client's driver is its own and closes with it;
+    # `driver` above belongs to the fixture's lifespan and stays open.
+    with TestClient(main.app):
+        pass
+
+    records, _, _ = driver.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS live", database_=database
+    )
+    assert records[0]["live"] == 0
+    records, _, _ = driver.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.verdict AS verdict", database_=database
+    )
+    assert [r["verdict"] for r in records] == ["paired"]
