@@ -39,6 +39,7 @@ ZEROS = {
     "converted": 0,
     "retired_same_edition": 0,
     "retired_conflicting": 0,
+    "retired_unknown_verdict": 0,
     "implements_deleted": 0,
     "proposals_deleted": 0,
 }
@@ -329,6 +330,69 @@ def test_a_same_edition_approval_is_retired_with_its_edge_gone(clean_graph, data
 
 
 @pytest.mark.integration
+def test_an_unrecognised_verdict_is_retired_rather_than_raised(clean_graph, database):
+    """A verdict neither vocabulary knows is corruption, and the migration
+    still has to finish. Raising would be the usual choice and is the wrong one
+    here: this runs at every boot, so one corrupt node would make the
+    application unstartable for everyone — including whoever needs it running
+    to investigate, since there is no admin route, no screen and no export to
+    reach from outside a process that will not start.
+
+    It belongs with the other two unconvertible classes rather than in a
+    category of its own that halts the run: the migration must work from
+    whatever it finds, and anything it cannot map is retired, counted and
+    reported instead of guessed at. Retiring is also strictly safer than
+    leaving it — `PROMOTE` matches `approve` alone, so this verdict promotes
+    nothing today, but the retirement puts it out of that match permanently and
+    into a count a human can see."""
+    (older_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    (newer_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING],
+    )
+    _legacy_decision(
+        clean_graph, database, source_id=newer_id, target_id=older_id,
+        verdict="maybe",
+    )
+
+    counts = migrate_pairing_decisions(clean_graph, database)
+
+    assert counts["retired_unknown_verdict"] == 1
+    assert counts["converted"] == 0
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:RetiredLinkDecision) RETURN d.retired_reason AS reason, "
+        "d.verdict AS verdict, d.actor AS actor, d.rationale AS rationale, "
+        "d.key AS key, d.source_obligation_id AS source, "
+        "d.target_obligation_id AS target",
+        database_=database,
+    )
+    assert len(records) == 1
+    assert records[0]["reason"] == "unknown_verdict"
+    # The unmappable value is kept verbatim, not normalised to something the
+    # vocabulary does recognise: it is the only evidence of what went wrong.
+    assert records[0]["verdict"] == "maybe"
+    assert records[0]["actor"] == "walkthrough"
+    assert records[0]["rationale"] == "recorded before the split"
+    assert records[0]["key"] == decision_key(newer_id, older_id)
+    assert (records[0]["source"], records[0]["target"]) == (newer_id, older_id)
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN count(p) AS total", database_=database
+    )
+    assert records[0]["total"] == 0, "an unmappable verdict must not be guessed at"
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 0
+
+    # Idempotent like the other two classes: the retired node stops matching
+    # the read that found it, so the next boot reports nothing to do.
+    assert migrate_pairing_decisions(clean_graph, database) == ZEROS
+
+
+@pytest.mark.integration
 def test_same_document_proposals_are_deleted_and_cross_document_ones_kept(
     clean_graph, database
 ):
@@ -443,3 +507,41 @@ def test_startup_runs_the_migration(client_with_graph):
         "MATCH (p:PairingDecision) RETURN p.verdict AS verdict", database_=database
     )
     assert [r["verdict"] for r in records] == ["paired"]
+
+
+@pytest.mark.integration
+def test_a_boot_survives_an_unrecognised_verdict(client_with_graph):
+    """The blast radius, pinned at the vehicle rather than at the function.
+
+    `lifespan` calls the migration, so anything the migration raises comes back
+    out of `TestClient.__enter__` — which is why entering the context manager at
+    all is this test's assertion, and why it errors rather than fails if the
+    migration ever goes back to raising. One corrupt decision node must not cost
+    everybody the application."""
+    driver = client_with_graph.app.state.driver
+    database = client_with_graph.app.state.settings.neo4j_database
+
+    (older_id,) = _seed_edition(
+        driver, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    (newer_id,) = _seed_edition(
+        driver, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING],
+    )
+    _legacy_decision(
+        driver, database, source_id=newer_id, target_id=older_id, verdict="maybe",
+    )
+
+    with TestClient(main.app):
+        pass
+
+    records, _, _ = driver.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS live", database_=database
+    )
+    assert records[0]["live"] == 0
+    records, _, _ = driver.execute_query(
+        "MATCH (d:RetiredLinkDecision) RETURN d.retired_reason AS reason",
+        database_=database,
+    )
+    assert [r["reason"] for r in records] == ["unknown_verdict"]

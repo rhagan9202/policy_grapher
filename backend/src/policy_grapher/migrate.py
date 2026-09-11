@@ -118,8 +118,9 @@ DELETE r
 """
 
 # `record_decision` closed the verdict vocabulary long before this module
-# existed, so an unknown verdict here is corruption and a KeyError is the
-# right noise.
+# existed, so a value outside this mapping is corruption. It is retired rather
+# than raised on — see the `unknown_verdict` branch below for why the usual
+# loud failure is the wrong one at this particular call site.
 _VERDICT = {
     "approve": PairingVerdict.PAIRED.value,
     "reject": PairingVerdict.DISTINCT.value,
@@ -130,12 +131,29 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
     rows = list(tx.run(SAME_DOCUMENT_DECISIONS))
 
     same_edition: list[str] = []
+    unknown_verdict: list[str] = []
     convertible: list[dict] = []
     for row in rows:
         if row["source_version"] == row["target_version"]:
             # Answers neither vocabulary's question and cannot be oriented:
-            # two clauses of one edition have no older or newer side.
+            # two clauses of one edition have no older or newer side. Checked
+            # before the verdict because it is the stronger fact: a
+            # same-edition decision was never going to have its verdict
+            # mapped, whatever that verdict says.
             same_edition.append(row["key"])
+            continue
+        if row["verdict"] not in _VERDICT:
+            # A value `record_decision` could not have written, so the node is
+            # corrupt — and raising here would be the wrong loud failure. This
+            # module runs inside `lifespan`, so an exception makes the whole
+            # application unstartable over one node, and everything that could
+            # diagnose or rescue the graph — the admin routes, the export the
+            # Reset screen calls the only copy — is behind the process that
+            # will not start. Retired with the other classes it cannot map
+            # instead: counted, logged at boot, and permanently out of
+            # `PROMOTE`'s match rather than merely outside it by luck of the
+            # `verdict: 'approve'` filter.
+            unknown_verdict.append(row["key"])
             continue
         source_order = (
             row["source_effective"],
@@ -214,6 +232,14 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
         retired_same_edition = result.single()["retired"]
         implements_deleted += result.consume().counters.relationships_deleted
 
+    retired_unknown_verdict = 0
+    if unknown_verdict:
+        result = tx.run(
+            RETIRE, {"keys": unknown_verdict, "reason": "unknown_verdict"}
+        )
+        retired_unknown_verdict = result.single()["retired"]
+        implements_deleted += result.consume().counters.relationships_deleted
+
     retired_conflicting = 0
     if conflicting_keys:
         result = tx.run(
@@ -239,6 +265,7 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
         "converted": converted,
         "retired_same_edition": retired_same_edition,
         "retired_conflicting": retired_conflicting,
+        "retired_unknown_verdict": retired_unknown_verdict,
         "implements_deleted": implements_deleted,
         "proposals_deleted": proposals_deleted,
     }
@@ -256,6 +283,10 @@ def migrate_pairing_decisions(driver: Driver, database: str) -> dict[str, int]:
     - `retired_same_edition` — decisions between two clauses of one edition.
     - `retired_conflicting` — approvals sharing an endpoint within one edition
       pair; the reviewer re-records the survivor through the pairings route.
+    - `retired_unknown_verdict` — decisions carrying a verdict no vocabulary
+      recognises. Non-zero means corruption and is worth investigating, but it
+      does not stop the run: raising inside `lifespan` would cost the whole
+      application over one node.
     - `implements_deleted` — promoted same-document edges removed with their
       decisions.
     - `proposals_deleted` — same-document `IMPLEMENTS_PROPOSED` edges removed.
