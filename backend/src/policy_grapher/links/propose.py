@@ -185,6 +185,17 @@ def propose_links(
         for higher in theirs:
             # A version named as its own candidate would otherwise link every
             # clause to itself at confidence 1.0 and swamp the queue.
+            #
+            # Subsumed by the document check below, and no test can kill this
+            # line: a :DocumentVersion has exactly one parent :Document, so
+            # every self-pair is also a same-document pair and the check below
+            # reaches it either way. Kept because the two guard different
+            # failures and only coincidentally agree today — that one decides
+            # which documents may be linked at all, this one that a clause is
+            # not evidence for itself. Narrowing the document rule, which is
+            # the kind of change this design makes, brings the self-pair back
+            # at confidence 1.0 and puts it at the top of a reviewer's queue
+            # with nothing to catch it.
             if org["id"] == higher["id"]:
                 continue
             # Two editions of one instrument are the pairing question — is the
