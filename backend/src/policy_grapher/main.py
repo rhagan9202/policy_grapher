@@ -69,6 +69,25 @@ async def lifespan(app: FastAPI):
     # that finds legacy same-document decisions or proposals does any work.
     migrated = migrate_pairing_decisions(driver, settings.neo4j_database)
     logger.info("Pairing decision migration: %s", migrated)
+    # Its own record, at WARNING, because this one count is not like the seven
+    # beside it. They report work done and go quiet once there is none; this is
+    # a census of what the migration could not read, so it prints every boot
+    # for as long as the condition lasts. Inside the INFO dict that makes it
+    # indistinguishable from noise — a line the reader learns to skip — and a
+    # number nobody reads is the same as not reporting it. The sentence is here
+    # rather than only in the docstring for the same reason: an operator is
+    # standing in a log, not in the source.
+    unreadable = migrated["decisions_missing_documents"]
+    if unreadable:
+        logger.warning(
+            "Pairing decision migration: %d link decision(s) could not be "
+            "classified, because their obligations no longer resolve to a "
+            "document. Nothing was changed for them, so the graph may still "
+            "hold same-document IMPLEMENTS edges this migration could not "
+            "reach. Repairing that means document deletion cascading to its "
+            "obligations, which is a separate concern.",
+            unreadable,
+        )
     # Built here for its side effect of validating the configuration: an unknown
     # EXTRACTOR_ADAPTER raises, and boot is where that is cheap to notice. Nothing
     # drives extraction yet — phase 4's rebuild is the caller — so the instance is

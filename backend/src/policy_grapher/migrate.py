@@ -386,9 +386,11 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
         .counters.relationships_deleted
     )
 
-    # Read last, after every retirement: a decision retired above no longer
-    # wears `:LinkDecision` and so cannot be counted here as well. Anything this
-    # reports is a decision no screen above could even see.
+    # Disjoint from everything above by construction, not by ordering: a
+    # decision is retired only if `SAME_DOCUMENT_DECISIONS` found it, which
+    # requires both obligations to resolve through one `:Document`, and this
+    # counts only those where at least one does not. So it is always a census
+    # of what the run could not see, never a second count of what it just did.
     missing_documents = tx.run(DECISIONS_MISSING_DOCUMENTS).single()["missing"]
 
     return {
@@ -432,9 +434,15 @@ def migrate_pairing_decisions(driver: Driver, database: str) -> dict[str, int]:
     - `proposals_deleted` — same-document `IMPLEMENTS_PROPOSED` edges removed.
     - `decisions_missing_documents` — decisions this run could not classify at
       all, because their obligations no longer resolve to a `:Document`.
-      Reported, never touched. **Non-zero means the graph holds same-document
-      `IMPLEMENTS` edges this migration could not reach**, so it is the one
-      count whose zero is load-bearing for the others' completeness.
+      Reported, never touched. **Non-zero means the graph may still hold
+      same-document `IMPLEMENTS` edges this migration could not reach**, so it
+      is the one count whose zero is load-bearing for the others' completeness,
+      and `main.lifespan` logs it at WARNING rather than leaving it in the
+      dict. Narrower than "every decision this run could not reach": both this
+      and `SAME_DOCUMENT_DECISIONS` require both obligations to *exist*, so a
+      decision whose obligation nodes are gone entirely is counted by neither.
+      That class is `unpromotable`/`rejections_stranded`, which the repoint
+      path owns; this census covers the outlived-document case only.
 
     A second run returns zeros: nothing a run converts or retires still
     matches the queries that found it. `decisions_missing_documents` is the

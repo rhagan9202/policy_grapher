@@ -8,6 +8,8 @@ it, so the state these tests build can only exist as an inheritance from before
 the split — which is exactly what a migration is for.
 """
 
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -761,6 +763,15 @@ def test_decisions_whose_obligations_lost_their_document_are_counted_not_touched
     )
     assert records[0]["total"] == 0
 
+    # A census, not a unit of work. The other counts go quiet once their work is
+    # done; this one reports the same number every boot, because nothing here
+    # repairs what it found. A census that quietly drifted would be worse than
+    # one that never existed, so the second run is pinned rather than assumed.
+    assert migrate_pairing_decisions(clean_graph, database) == {
+        **ZEROS,
+        "decisions_missing_documents": 1,
+    }
+
 
 @pytest.mark.integration
 def test_same_document_proposals_are_deleted_and_cross_document_ones_kept(
@@ -915,3 +926,100 @@ def test_a_boot_survives_an_unrecognised_verdict(client_with_graph):
         database_=database,
     )
     assert [r["reason"] for r in records] == ["unknown_verdict"]
+
+
+@pytest.mark.integration
+def test_a_boot_warns_about_the_decisions_it_could_not_classify(
+    client_with_graph, caplog
+):
+    """Ruling 2 is only worth anything if somebody reads it, and an operator
+    reads a boot log rather than a docstring.
+
+    Inside the INFO dict this count is one of eight, indistinguishable from the
+    seven that report work done — and because it is a census rather than a
+    repair it prints every boot forever and never clears, which teaches the
+    reader to skip the line. So it gets its own record, at WARNING, carrying
+    what the number means and what would repair it. This project has already
+    shipped two counts that reached a caller and were rendered nowhere; a
+    number nobody will read is the same as not reporting it."""
+    driver = client_with_graph.app.state.driver
+    database = client_with_graph.app.state.settings.neo4j_database
+
+    (first_id,) = _seed_edition(
+        driver, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    (second_id,) = _seed_edition(
+        driver, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING],
+    )
+    _legacy_decision(driver, database, source_id=second_id, target_id=first_id)
+    delete_document(driver, database, "doc")
+
+    caplog.clear()
+    with (
+        caplog.at_level(logging.INFO, logger="policy_grapher.main"),
+        TestClient(main.app),
+    ):
+        pass
+
+    warnings = [
+        record
+        for record in caplog.records
+        if record.name == "policy_grapher.main"
+        and record.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1, "the census needs a record of its own, not a dict key"
+    message = warnings[0].getMessage()
+    assert "1" in message
+    # What the number means, and that the repair is somebody else's — both in
+    # the line itself, because the docstring explaining it is not where an
+    # operator is standing.
+    assert "could not be classified" in message
+    assert "no longer resolve to a document" in message
+    assert "Nothing was changed" in message
+
+
+@pytest.mark.integration
+def test_a_boot_with_nothing_unclassifiable_logs_no_warning(
+    client_with_graph, caplog
+):
+    """The other half, and the one that keeps the warning worth reading: a
+    boot that found nothing it could not see must say nothing. A warning that
+    fired unconditionally would be back to the noise the separate record exists
+    to escape, and every assertion in the test above would still pass."""
+    driver = client_with_graph.app.state.driver
+    database = client_with_graph.app.state.settings.neo4j_database
+
+    (older_id,) = _seed_edition(
+        driver, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    (newer_id,) = _seed_edition(
+        driver, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING],
+    )
+    _legacy_decision(driver, database, source_id=newer_id, target_id=older_id)
+
+    caplog.clear()
+    with (
+        caplog.at_level(logging.INFO, logger="policy_grapher.main"),
+        TestClient(main.app),
+    ):
+        pass
+
+    warnings = [
+        record
+        for record in caplog.records
+        if record.name == "policy_grapher.main"
+        and record.levelno == logging.WARNING
+    ]
+    assert warnings == []
+    # The work-done counters still go out at INFO, unchanged: this boot really
+    # did convert something, and that belongs in the dict rather than in a
+    # warning.
+    assert any(
+        "Pairing decision migration" in record.getMessage()
+        for record in caplog.records
+        if record.name == "policy_grapher.main"
+    )
