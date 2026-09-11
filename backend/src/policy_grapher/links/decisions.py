@@ -67,10 +67,9 @@ RETURN count(d) AS suppressed
 # replay was complete.
 #
 # Approvals only. A stranded *rejection* is counted by `REJECTIONS_STRANDED`
-# below, which STORY-076 added for exactly that gap — ADR-027's consequences
-# still say it is counted nowhere, and that half of the ADR is the stale one.
-# Widening this query would need a different name either way: "unpromotable" is
-# about promotion, and a rejection was never going to promote anything.
+# below, which STORY-076 added for exactly that gap. Widening this query instead
+# would need a different name: "unpromotable" is about promotion, and a
+# rejection was never going to promote anything.
 UNPROMOTABLE = """
 MATCH (d:LinkDecision {verdict: 'approve'})
 WHERE NOT EXISTS { MATCH (:Obligation {obligation_id: d.source_obligation_id}) }
@@ -255,10 +254,8 @@ def repoint_decisions(
     `pairing_decision_key_unique`): a colliding write would violate it and roll
     the caller's whole transaction back. An unrepaired decision is still
     counted, in all three flavours: an approval by `replay_decisions` as
-    `unpromotable`, a rejection by it as `rejections_stranded`, a pairing of
-    either verdict by `count_stranded_pairings`. (ADR-027's consequences say a
-    stranded rejection is counted nowhere. That was true when it was written and
-    STORY-076 fixed it; the ADR's text is the stale half.)
+    `unpromotable`, a rejection by it as `rejections_stranded` (STORY-076), a
+    pairing of either verdict by `count_stranded_pairings`.
     """
     fields = {
         "label": schema.label,

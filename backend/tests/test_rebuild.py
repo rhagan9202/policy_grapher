@@ -839,6 +839,25 @@ def test_a_rebuild_counts_the_pairing_side_of_the_repair(
     with clean_graph.session(database=database) as session:
         # Rides the rekey: its old side is a real obligation of the edition
         # about to be rebuilt, so the statement-keyed maps must carry it.
+        #
+        # These ids carry a second load, and not an obvious one. Reusing the
+        # approved pair makes this `:PairingDecision` and alice's
+        # `:LinkDecision` name the same two obligations, and `decision_key` and
+        # `pairing_key` have byte-identical bodies — so the two decisions hold
+        # the *same key string*, before the rekey and after it. This is the only
+        # test anywhere that has both of the rebuild's repoint passes doing real
+        # work in one transaction, with a key in common: exactly the situation
+        # the label scope on the three repoint queries exists for. Pointing this
+        # decision at some other obligation to tidy the fixture deletes a
+        # scenario rather than renaming a variable.
+        #
+        # If you must: `rejected[0]` is not the escape route. `reviewed_graph`'s
+        # two proposals share a source obligation, so `approved[0] ==
+        # rejected[0]` and only the targets differ; de-colliding means reaching
+        # for an org obligation neither proposal names. The label-scope property
+        # itself does not depend on this fixture — it is pinned directly, on a
+        # two-node graph, by test_links.py's
+        # `test_a_key_an_unrelated_link_decision_holds_does_not_strand_a_pairing`.
         session.execute_write(
             record_pairing,
             old_id=approved[0], new_id=approved[1],
