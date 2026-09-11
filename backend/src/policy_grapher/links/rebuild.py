@@ -168,11 +168,25 @@ def _write_rebuild(
     )
 
     replayed = replay_decisions(tx)
-    # The rebuild-side loss for the pairing vocabulary — the analogue of
-    # `unpromotable`, counted beside the replay for the same reason: a rebuild
-    # reporting only its happy counts would look complete in exactly the case
-    # where a human verdict had quietly stopped being representable. The
-    # diff-side count, `pairings_unapplied`, is a different event with a
+    # The rebuild-side loss for the pairing vocabulary, counted beside the
+    # replay for the replay's reason: a rebuild reporting only its happy counts
+    # would look complete in exactly the case where a human verdict had quietly
+    # stopped being representable.
+    #
+    # One count where the link side has two, and that is a decision rather than
+    # an omission. `unpromotable` and `rejections_stranded` are split because
+    # those two losses differ in what happens next: a stranded approval leaves a
+    # link missing and the reviewer meets the proposal again, a stranded
+    # rejection leaves a suppression nobody applies and the proposal returns
+    # with nothing saying it was already refused. Both pairing verdicts lose
+    # identically — the obligation the verdict named is gone, so the question it
+    # answered no longer exists and the reviewer is asked afresh about whatever
+    # replaced the clause. `count_stranded_pairings` therefore filters no
+    # verdict, and this number covers `paired` and `distinct` alike: it is the
+    # analogue of `unpromotable` and `rejections_stranded` together, not of
+    # either one. Splitting it would name two halves of one event.
+    #
+    # The diff-side count, `pairings_unapplied`, is a different event with a
     # different cause and lives with the diff (spec §3).
     pairings_stranded = count_stranded_pairings(tx)
     return {

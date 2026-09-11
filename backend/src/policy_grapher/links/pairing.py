@@ -92,8 +92,14 @@ RETURN d.old_obligation_id AS old_id,
 # A verdict whose obligation a re-extraction no longer produces. The decision
 # stays — it is a fact a human established — but the diff cannot apply it, and
 # a rebuild reporting only what it applied would look complete while a human
-# decision had quietly stopped being represented. The true analogue of
-# `decisions.UNPROMOTABLE`, counted beside it in the rebuild.
+# decision had quietly stopped being represented.
+#
+# Both verdicts, deliberately — this filters none, where `decisions.UNPROMOTABLE`
+# filters `approve` and `REJECTIONS_STRANDED` mirrors it for `reject`. That
+# split exists because those two losses differ in consequence; a stranded
+# `paired` and a stranded `distinct` do not. Either way the clause the verdict
+# named is gone, so the pair is re-asked from scratch. One count here is the
+# analogue of that pair of counts together, not of `UNPROMOTABLE` alone.
 STRANDED = """
 MATCH (d:PairingDecision)
 WHERE NOT EXISTS { MATCH (:Obligation {obligation_id: d.old_obligation_id}) }

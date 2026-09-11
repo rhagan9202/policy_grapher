@@ -66,10 +66,11 @@ RETURN count(d) AS suppressed
 # cannot express it, and a caller has to be told rather than left to assume the
 # replay was complete.
 #
-# Approvals only. A stranded *rejection* is counted by nothing, here or anywhere
-# — see ADR-027's consequences and STORY-076. Widening this would need a
-# different name: "unpromotable" is about promotion, and a rejection was never
-# going to promote anything.
+# Approvals only. A stranded *rejection* is counted by `REJECTIONS_STRANDED`
+# below, which STORY-076 added for exactly that gap — ADR-027's consequences
+# still say it is counted nowhere, and that half of the ADR is the stale one.
+# Widening this query would need a different name either way: "unpromotable" is
+# about promotion, and a rejection was never going to promote anything.
 UNPROMOTABLE = """
 MATCH (d:LinkDecision {verdict: 'approve'})
 WHERE NOT EXISTS { MATCH (:Obligation {obligation_id: d.source_obligation_id}) }
@@ -121,12 +122,37 @@ class DecisionSchema:
     target_prop: str
     key_of: Callable[[str, str], str]
 
+    def __post_init__(self) -> None:
+        # Enforced, not merely documented. These three fields are interpolated
+        # into Cypher as text, so a schema built from anything a caller
+        # controls — `DecisionSchema(label=body["label"], ...)` type-checks — is
+        # an injection into the one query path that rewrites human verdicts.
+        # Refusing here, while the value is still a Python string, is what lets
+        # the templates below claim safety as a property of this type rather
+        # than as an observation about the two instances that exist today.
+        #
+        # `isidentifier` is stricter than Cypher, which will accept anything
+        # inside backticks. Deliberately: no label or property name in this
+        # schema needs to be anything but a plain identifier, and the narrower
+        # rule is the one that cannot be talked around.
+        for field, value in (
+            ("label", self.label),
+            ("source_prop", self.source_prop),
+            ("target_prop", self.target_prop),
+        ):
+            if not isinstance(value, str) or not value.isidentifier():
+                raise ValueError(
+                    f"{field} {value!r} is not a plain identifier. It is "
+                    f"interpolated into Cypher, which cannot parameterise a "
+                    f"label or a property name."
+                )
+
 
 # .format templates, not query parameters: Cypher cannot parameterise a label or
-# a property name. The interpolated values come only from the two schemas this
-# repository defines — LINK_SCHEMA below and PAIRING_SCHEMA in links/pairing.py
-# — so no user input ever reaches a format field. Cypher's own map braces are
-# doubled so str.format leaves them alone.
+# a property name. Every interpolated value is a `DecisionSchema` field, and
+# `DecisionSchema.__post_init__` refuses anything but a plain identifier, so a
+# format field cannot carry a fragment of a statement however the schema was
+# built. Cypher's own map braces are doubled so str.format leaves them alone.
 READ_DECISIONS_FOR = """
 UNWIND $ids AS id
 MATCH (d:{label})
@@ -179,9 +205,11 @@ def decision_key(source_id: str, target_id: str) -> str:
     return hashlib.sha256(f"{source_id}|{target_id}".encode()).hexdigest()[:32]
 
 
-# The default, and the refactor's regression gate: under this schema
-# `repoint_decisions` reproduces the pre-parameterisation behaviour exactly,
-# which is what lets every existing repoint test pass unchanged.
+# `repoint_decisions`' default, and the only schema its callers name implicitly:
+# every `:LinkDecision` repair in this codebase and its tests goes through the
+# function without a `schema=` argument. So this instance is what holds link
+# behaviour fixed — change a value here and the implements vocabulary's repair
+# changes with it, at no call site and in no test signature.
 LINK_SCHEMA = DecisionSchema(
     label="LinkDecision",
     source_prop="source_obligation_id",
@@ -225,10 +253,12 @@ def repoint_decisions(
     outcome this must not have, and the screen protects whichever uniqueness
     constraint holds the schema's label (`link_decision_key_unique`,
     `pairing_decision_key_unique`): a colliding write would violate it and roll
-    the caller's whole transaction back. An unrepaired approval is still
-    counted by `replay_decisions` as `unpromotable`, an unrepaired pairing by
-    `count_stranded_pairings`. (A stranded *rejection* is counted nowhere; see
-    ADR-027's consequences.)
+    the caller's whole transaction back. An unrepaired decision is still
+    counted, in all three flavours: an approval by `replay_decisions` as
+    `unpromotable`, a rejection by it as `rejections_stranded`, a pairing of
+    either verdict by `count_stranded_pairings`. (ADR-027's consequences say a
+    stranded rejection is counted nowhere. That was true when it was written and
+    STORY-076 fixed it; the ADR's text is the stale half.)
     """
     fields = {
         "label": schema.label,

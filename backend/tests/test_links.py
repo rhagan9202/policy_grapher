@@ -4,6 +4,8 @@ from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.links.decisions import (
+    LINK_SCHEMA,
+    DecisionSchema,
     decision_key,
     record_decision,
     replay_decisions,
@@ -967,3 +969,146 @@ def test_two_pairing_repoints_that_would_collide_do_not_abort_the_batch(
     stranded = [r for r in records if r["key"] != pairing_key("new-x", "target")]
     assert stranded[0]["old"] in {"old-a", "old-b"}
     assert stranded[0]["key"] == pairing_key(stranded[0]["old"], "target")
+
+
+@pytest.mark.integration
+def test_a_pairing_repoint_that_would_collide_leaves_the_existing_verdict_alone(
+    clean_graph, database
+):
+    """The *other* collision mode, and the one `EXISTING_KEYS` screens: not two
+    moves racing inside one batch, but one move landing on a `:PairingDecision`
+    that was already there before the batch began.
+
+    Both modes end in the same violated constraint and the same rolled-back
+    rebuild, and they are screened by two different pieces of code — the
+    pre-batch read here, the growing `taken` set there — so covering one proves
+    nothing about the other. Under a label hardcoded back to `:LinkDecision`,
+    `EXISTING_KEYS` reads an empty set and this move is accepted onto a key
+    another human verdict already holds.
+    """
+    from policy_grapher.links.decisions import repoint_decisions
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing, old_id="old-a", new_id="old-b",
+            verdict="paired", actor="reviewer", rationale="stale",
+        )
+        session.execute_write(
+            record_pairing, old_id="new-a", new_id="new-b",
+            verdict="distinct", actor="reviewer", rationale="current",
+        )
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={"old-a": "statement one", "old-b": "statement two"},
+            after={"statement one": "new-a", "statement two": "new-b"},
+            schema=PAIRING_SCHEMA,
+        )
+
+    assert repointed == 0
+
+    # Both verdicts intact, the stale one left exactly where it was for
+    # `count_stranded_pairings` to report. Asserting the whole pair rather than
+    # only the winner: a repair that deleted the loser, or overwrote the
+    # winner's verdict with it, would satisfy a check on either one alone.
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.old_obligation_id AS old, "
+        "p.new_obligation_id AS new, p.verdict AS verdict, p.key AS key "
+        "ORDER BY p.old_obligation_id",
+        database_=database,
+    )
+    assert [(r["old"], r["new"], r["verdict"]) for r in records] == [
+        ("new-a", "new-b", "distinct"),
+        ("old-a", "old-b", "paired"),
+    ]
+    assert [r["key"] for r in records] == [
+        pairing_key("new-a", "new-b"),
+        pairing_key("old-a", "old-b"),
+    ]
+
+
+def _tagged_key(source_id: str, target_id: str) -> str:
+    """A key function no real schema would use, so a repoint that calls a
+    production key function instead of the schema's own is visible in the key
+    it stores."""
+    return f"tagged|{source_id}|{target_id}"
+
+
+@pytest.mark.integration
+def test_the_schemas_own_key_function_is_the_one_that_gets_used(
+    clean_graph, database
+):
+    """`key_of` is one of `DecisionSchema`'s four contracted fields, and it is
+    the only one nothing else can pin, because the two real key functions have
+    byte-identical bodies: `decision_key` and `pairing_key` both sha256
+    `f"{a}|{b}"`. A `repoint_decisions` that ignored `schema.key_of` and called
+    either one directly computes the same string in every other test in this
+    file, so the parameterisation would be accidentally redundant rather than
+    observably correct. This schema's key function is distinguishable from both.
+    """
+    from policy_grapher.links.decisions import repoint_decisions
+
+    tagged = DecisionSchema(
+        label="PairingDecision",
+        source_prop="old_obligation_id",
+        target_prop="new_obligation_id",
+        key_of=_tagged_key,
+    )
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing,
+            old_id="old-old-id", new_id="old-new-id",
+            verdict="paired", actor="reviewer", rationale="the reworded duty",
+        )
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={
+                "old-old-id": "the director shall report",
+                "old-new-id": "the director reports",
+            },
+            after={
+                "the director shall report": "new-old-id",
+                "the director reports": "new-new-id",
+            },
+            schema=tagged,
+        )
+
+    assert repointed == 1
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.key AS key", database_=database
+    )
+    assert records[0]["key"] == "tagged|new-old-id|new-new-id"
+    assert records[0]["key"] != pairing_key("new-old-id", "new-new-id")
+
+
+def test_a_schema_refuses_a_label_or_property_that_is_not_an_identifier():
+    """The three name fields are interpolated into Cypher as text, because
+    Neo4j cannot parameterise a label or a property name. Refusing at
+    construction is what makes the safety claim above those templates a property
+    of the type rather than an observation about the two instances that happen
+    to exist: `DecisionSchema(label=body["label"], ...)` would otherwise
+    type-check and inject. The failure has to land here, where the value is
+    still a Python string, not at query time where it is already statement text.
+    """
+    injections = [
+        {"label": "LinkDecision) DETACH DELETE (d"},
+        {"label": "Link Decision"},
+        {"label": ""},
+        {"source_prop": "source_obligation_id} REMOVE d:LinkDecision //"},
+        {"target_prop": "target obligation id"},
+    ]
+    for override in injections:
+        fields = {
+            "label": "LinkDecision",
+            "source_prop": "source_obligation_id",
+            "target_prop": "target_obligation_id",
+            "key_of": decision_key,
+            **override,
+        }
+        with pytest.raises(ValueError, match="identifier"):
+            DecisionSchema(**fields)
+
+    # And the rule must not be one the real schemas cannot satisfy.
+    assert LINK_SCHEMA.label == "LinkDecision"
+    assert PAIRING_SCHEMA.label == "PairingDecision"
