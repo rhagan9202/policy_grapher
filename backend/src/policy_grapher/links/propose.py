@@ -141,9 +141,11 @@ def score_pairing(after_statement: str, before_statement: str) -> Candidate | No
 
 
 READ_OBLIGATIONS = """
-MATCH (v:DocumentVersion)-[:MANDATES]->(o:Obligation)
+MATCH (d:Document)-[:HAS_VERSION]->(v:DocumentVersion)-[:MANDATES]->(o:Obligation)
 WHERE v.version_id IN $version_ids
-RETURN o.obligation_id AS id, o.statement AS statement
+RETURN o.obligation_id AS id,
+       o.statement     AS statement,
+       d.slug          AS document_slug
 """
 
 WRITE_PROPOSALS = """
@@ -169,6 +171,9 @@ def propose_links(
 
     Writes `IMPLEMENTS_PROPOSED` and nothing else. `IMPLEMENTS` has exactly one
     writer — `decisions.replay_decisions` — and this is deliberately not it.
+    Pairs whose obligations share a document are not proposed at all: between
+    two editions of one instrument the question is pairing, not implementation,
+    and the diff asks it.
     """
     ours = list(tx.run(READ_OBLIGATIONS, {"version_ids": [org_version_id]}))
     theirs = list(tx.run(READ_OBLIGATIONS, {"version_ids": candidate_version_ids}))
@@ -181,6 +186,14 @@ def propose_links(
             # A version named as its own candidate would otherwise link every
             # clause to itself at confidence 1.0 and swamp the queue.
             if org["id"] == higher["id"]:
+                continue
+            # Two editions of one instrument are the pairing question — is the
+            # newer clause the older one reworded? — and that question has its
+            # own decision node and its own queue. An IMPLEMENTS between them
+            # asserts that a document discharges its own predecessor, which is
+            # the claim the sprint-12 walkthrough found scored at the top of
+            # Triage.
+            if org["document_slug"] == higher["document_slug"]:
                 continue
             candidate = score_pair(org["statement"], higher["statement"])
             if candidate is None:

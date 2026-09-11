@@ -2,11 +2,7 @@ import pytest
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
-from policy_grapher.extraction.schema import (
-    ExtractedObligation,
-    Modality,
-    obligation_id,
-)
+from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.links.decisions import (
     decision_key,
     record_decision,
@@ -298,27 +294,32 @@ def test_an_obligation_with_no_counterpart_yields_no_proposal(clean_graph, datab
 
 @pytest.mark.integration
 def test_an_obligation_is_never_proposed_against_itself(clean_graph, database):
-    """Naming a version as its own candidate must not link every clause to itself."""
-    section_path = _seed_version(
-        clean_graph, database, version_id="org", statements=[ORG, HIGHER]
-    )
+    """Naming a version as its own candidate must not link every clause to itself.
+
+    Counted, not shaped. The assertion used to read "no row has source ==
+    target", which an empty result satisfies — and this result is now always
+    empty, because a version has exactly one parent :Document, so the
+    cross-document skip reaches every pair in this fixture before the
+    self-comparison does. A row-shaped assertion over nothing passes with both
+    skips deleted; a count of zero does not.
+    """
+    _seed_version(clean_graph, database, version_id="org", statements=[ORG, HIGHER])
 
     with clean_graph.session(database=database) as session:
-        session.execute_write(
+        written = session.execute_write(
             propose_links,
             org_version_id="org",
             candidate_version_ids=["org"],
             proposer="lexical-v1",
         )
 
-    self_id = obligation_id("org", section_path, ORG)
+    assert written == 0
     records, _, _ = clean_graph.execute_query(
         "MATCH (a:Obligation)-[:IMPLEMENTS_PROPOSED]->(b:Obligation) "
         "RETURN a.obligation_id AS source, b.obligation_id AS target",
         database_=database,
     )
-    assert all(r["source"] != r["target"] for r in records)
-    assert all(r["source"] != self_id or r["target"] != self_id for r in records)
+    assert records == []
 
 
 # --- decisions and promotion -------------------------------------------------
@@ -756,3 +757,99 @@ def test_a_rejection_the_replay_can_still_apply_is_not_stranded(
 
     assert result["rejections_stranded"] == 0
     assert result["suppressed"] >= 1
+
+
+# --- IMPLEMENTS is cross-document only (pairing design §1) ---------------------
+
+
+def _seed_second_edition(driver, database, *, of, version_id, statements):
+    """A second edition of a document `_seed_version` already created.
+
+    `_seed_version` keys one document per version id, so the same-document
+    shape — two editions under one :Document — has to be built here.
+    """
+    driver.execute_query(
+        "MATCH (d:Document {slug: $slug}) "
+        "MERGE (d)-[:HAS_VERSION]->(:DocumentVersion {version_id: $vid, "
+        "checksum: $vid, source_uri: 'file:///x.pdf'})",
+        {"slug": of, "vid": version_id},
+        database_=database,
+    )
+    chunk = chunk_pages(["1.1. DUTIES.\nBody.\n"], version_id=version_id)[-1]
+    obligations = [
+        ExtractedObligation(
+            statement=s,
+            modality=Modality.MUST,
+            actor=None,
+            deadline=None,
+            conditions=None,
+            confidence=0.9,
+        )
+        for s in statements
+    ]
+    with driver.session(database=database) as session:
+        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+        session.execute_write(
+            write_obligations,
+            version_id=version_id,
+            chunk_id=chunk.chunk_id,
+            section_path=chunk.section_path,
+            obligations=obligations,
+        )
+
+
+@pytest.mark.integration
+def test_a_pair_inside_one_document_is_never_proposed(clean_graph, database):
+    """Two editions of one instrument are the pairing question, not the
+    implements one — an edition does not discharge its predecessor. These two
+    statements produce a proposal across two documents elsewhere in this file,
+    so a written count of zero here can only be the document skip."""
+    _seed_version(clean_graph, database, version_id="org", statements=[ORG])
+    _seed_second_edition(
+        clean_graph, database, of="org", version_id="org@2024", statements=[HIGHER]
+    )
+
+    with clean_graph.session(database=database) as session:
+        written = session.execute_write(
+            propose_links,
+            org_version_id="org",
+            candidate_version_ids=["org@2024"],
+            proposer="lexical-v1",
+        )
+
+    assert written == 0
+    records, _, _ = clean_graph.execute_query(
+        "MATCH ()-[r:IMPLEMENTS_PROPOSED]->() RETURN count(r) AS total",
+        database_=database,
+    )
+    assert records[0]["total"] == 0
+
+
+@pytest.mark.integration
+def test_the_cross_document_pair_is_still_proposed_beside_a_skipped_one(
+    clean_graph, database
+):
+    """The skip must not be a clause too wide. The same statement is offered
+    from a sibling edition and from another document; exactly the
+    cross-document pair survives."""
+    _seed_version(clean_graph, database, version_id="org", statements=[ORG])
+    _seed_second_edition(
+        clean_graph, database, of="org", version_id="org@2024", statements=[HIGHER]
+    )
+    _seed_version(clean_graph, database, version_id="higher", statements=[HIGHER])
+
+    with clean_graph.session(database=database) as session:
+        written = session.execute_write(
+            propose_links,
+            org_version_id="org",
+            candidate_version_ids=["org@2024", "higher"],
+            proposer="lexical-v1",
+        )
+
+    assert written == 1
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (:Obligation)-[:IMPLEMENTS_PROPOSED]->(t:Obligation)"
+        "<-[:MANDATES]-(v:DocumentVersion) RETURN v.version_id AS version",
+        database_=database,
+    )
+    assert [r["version"] for r in records] == ["higher"]
