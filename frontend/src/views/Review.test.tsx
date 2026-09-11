@@ -339,6 +339,13 @@ describe('Review, why the queue is empty', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText(/build a second edition/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/nothing is waiting/i)).not.toBeInTheDocument()
+    // Two corpora reach this state and the instruction has to fit both: one
+    // document, and several where only one has an extracted edition. "Ingest a
+    // second document" on its own tells the second reader to fetch a document
+    // they already have.
+    expect(
+      screen.getByText(/build and extract an edition of a second document/i),
+    ).toBeInTheDocument()
   })
 
   it('still says the queue is clear when it genuinely is', async () => {
