@@ -464,7 +464,38 @@ its own disposition:
   two-live-`paired`-verdicts state §6's 409 exists to refuse, minted by a writer the 409 does not
   guard. **Neither converts**: both are retired with `retired_reason: 'conflicting_pairing'` and
   counted, and the reviewer re-records the one they mean through §6, which enforces the conflict
-  rule. A migration choosing the winner would be the design deciding what only a person may. The justification for translating the verdict at all: a same-document `IMPLEMENTS`
+  rule. A migration choosing the winner would be the design deciding what only a person may.
+
+**Written during implementation, because two Criticals proved the paragraph above was not
+enough.** Conflict cannot be detected by shared endpoints alone. Two decisions on ONE pair in
+opposite orientations — `approve` one way, `reject` the other — map to the same canonical pair and
+therefore the same key, and a screen that only inspects candidates already mapped to `paired`
+never sees the rejection. Both then merge onto one node and the later write wins, with the source
+query imposing no order, so *which human wins is undefined*. Separately, a conversion whose key is
+already held by a live `:PairingDecision` — including one recorded through the normal route —
+overwrites its verdict, actor, rationale and timestamp silently.
+
+So the migration screens on the KEY, in both directions, exactly as `repoint_decisions` does: a
+pre-batch check against keys already in the graph (retire, `retired_reason: 'pairing_exists'`,
+never overwrite a verdict it did not make) and an in-batch check so two conversions cannot claim
+one key (every member of the group retires as conflicting). Screening on keys rather than
+endpoints is load-bearing in both directions: a legitimate `paired` on (X, Y) beside a `distinct`
+on (X, Z) shares an endpoint and must still convert. Seeding the endpoint census from existing
+`:PairingDecision`s also makes the conflict rule hold ACROSS runs — the migration runs at every
+boot, so a rule enforced only within one run is not a rule.
+
+Two further counts follow. A corrupt verdict retires as `unknown_verdict` rather than raising:
+this runs at every boot, so raising makes one bad node unstartable for everyone, with no admin
+route to reach and no export to take because the export sits behind the app that will not start.
+And decisions whose obligations outlived their document — a state `DELETE /documents/{slug}`
+produces, since it leaves obligations behind — are counted as `decisions_missing_documents` and
+otherwise untouched: without documents they cannot be classified as same- or cross-document, and
+retiring a legitimate implements verdict would be its own data loss. That count's zero is what
+makes the others' completeness meaningful; non-zero means same-document `IMPLEMENTS` edges this
+migration cannot reach, and the repair is document deletion cascading to obligations, which is a
+separate story.
+
+The justification for translating the verdict at all: a same-document `IMPLEMENTS`
 question was only ever the pairing question in disguise — an edition does not discharge its
 predecessor — so the migration recovers the judgement the reviewer actually made rather than
 rewriting it.
