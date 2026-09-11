@@ -112,8 +112,10 @@ comment must not be reused.
 documents it as what separates "caught up" from "nothing could be here yet". After §1 that is
 exactly the configuration which can no longer yield a proposal, so it becomes the false all-clear
 STORY-090 added it to prevent. The replacement must be computable, so here it is: **count distinct
-documents holding at least one obligation in any edition; a proposal is possible iff that count
-is ≥ 2.** The field is renamed with its meaning — `documents_comparable` described the
+documents holding at least one obligation in any edition; a proposal is impossible below 2.**
+Necessary and not sufficient: two documents that hold obligations may still yield nothing, because
+`score_pair` must clear `MIN_CONFIDENCE` and the caller must name the candidate editions. The
+screen branches on the direction that holds. The field is renamed with its meaning — `documents_comparable` described the
 edition-to-edition question this design retires. Six sites, because the field is user-facing and
 mirrored: `WHY_EMPTY` itself, the `models.py:221-244` docstring, the frontend type declaration
 (`types.ts:156` — renamed on one side only, TypeScript still compiles against the stale

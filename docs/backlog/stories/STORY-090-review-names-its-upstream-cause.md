@@ -10,8 +10,11 @@ upstream could have produced a proposal, so that an empty screen is not read as 
 ## Context
 
 Review says "Nothing is waiting for review." It says that in two very different situations: every
-proposal has been decided, and no proposal could exist at all because no pair of editions both
-hold obligations. On 2026-08-26 the live graph was in the second state — one edition with 114
+proposal has been decided, and no proposal could exist at all because fewer than two documents
+hold obligations. (That cause is stated as redefined; when this story was written the rule was
+"no pair of editions both hold obligations", which the cross-document-only change retired — two
+editions of one document can no longer yield a proposal. The 2026-08-26 diagnosis below is
+unaffected.) On 2026-08-26 the live graph was in the second state — one edition with 114
 obligations, three with none — and the screen read as the first.
 
 This is the exact shape [ADR-015](../../specs/adr/ADR-015-changes-are-detected-and-ranked.md) and
