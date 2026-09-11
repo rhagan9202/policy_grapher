@@ -222,20 +222,25 @@ class ReviewQueueOut(BaseModel):
     """The queue, and enough to say why it is empty when it is — STORY-090.
 
     "Nothing is waiting for review" is true of three different situations and
-    tells a reader only one of them: that they are caught up. It is equally true
-    when nothing has been extracted anywhere, and when obligations exist but no
-    document has two editions holding them, so no proposal could be made between
-    anything. The live graph was in that middle state on 2026-08-26 — one edition
-    with 114 obligations, three with none — and the screen read as an all-clear.
+    tells a reader only one of them: that they are caught up. It is equally
+    true when nothing has been extracted anywhere, and when obligations exist
+    in only one document — a proposal runs between two documents now that
+    same-document pairs belong to the diff, so nothing could be proposed yet.
+    `documents_with_obligations` counts distinct documents holding at least
+    one obligation in any edition; a proposal is possible iff it is 2 or more.
+    Its predecessor, `documents_comparable`, counted documents with two
+    obligation-holding editions — exactly the configuration that can no longer
+    yield a proposal, so the old count had become the false all-clear
+    STORY-090 added it to prevent.
 
-    Counted here rather than derived on the screen so that two views cannot drift
-    into answering the same question differently, which is the failure mode
-    STORY-067 left open on Triage and this repeats.
+    Counted here rather than derived on the screen so that two views cannot
+    drift into answering the same question differently, which is the failure
+    mode STORY-067 left open on Triage and this repeats.
     """
 
     items: list[ReviewItemOut]
     editions_with_obligations: int
-    documents_comparable: int
+    documents_with_obligations: int
     # Undecided proposals in the graph, not rows in `items`. The queue is capped,
     # so the two differ whenever there is real work: the screen read "Proposal 1
     # of 50" over 119 waiting, and went on reading it after every verdict because

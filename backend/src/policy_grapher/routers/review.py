@@ -86,17 +86,18 @@ RETURN count(*) AS total
 """
 
 
-# An edition counts only if it actually mandates something; a document is
-# comparable only if two of its editions do. Those are the two facts that separate
-# "caught up" from "nothing could be here yet".
+# An edition counts only if it actually mandates something. What separates
+# "caught up" from "nothing could be here yet" is no longer editions of one
+# document — `propose_links` skips same-document pairs, so two editions of one
+# instrument can never yield a proposal again — but documents: a proposal is
+# possible iff at least two distinct documents hold an obligation in any
+# edition.
 WHY_EMPTY = """
 OPTIONAL MATCH (v:DocumentVersion)-[:MANDATES]->(:Obligation)
 WITH count(DISTINCT v) AS editions_with_obligations
-OPTIONAL MATCH (d:Document)-[:HAS_VERSION]->(ev:DocumentVersion)-[:MANDATES]->(:Obligation)
-WITH editions_with_obligations, d, count(DISTINCT ev) AS per_document
-WITH editions_with_obligations,
-     count(DISTINCT CASE WHEN per_document > 1 THEN d END) AS documents_comparable
-RETURN editions_with_obligations, documents_comparable
+OPTIONAL MATCH (d:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(:Obligation)
+RETURN editions_with_obligations,
+       count(DISTINCT d) AS documents_with_obligations
 """
 
 
@@ -154,7 +155,7 @@ def queue(
     return ReviewQueueOut(
         items=items,
         editions_with_obligations=why[0]["editions_with_obligations"],
-        documents_comparable=why[0]["documents_comparable"],
+        documents_with_obligations=why[0]["documents_with_obligations"],
         pending=counted[0]["pending"],
     )
 
