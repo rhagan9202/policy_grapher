@@ -18,6 +18,7 @@ from policy_grapher.chunking import Chunk, chunk_pages
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.ingest import ingest_file
 from policy_grapher.links.decisions import record_decision
+from policy_grapher.links.pairing import record_pairing
 from policy_grapher.links.rebuild import (
     ExtractionFailed,
     MissingSourceError,
@@ -814,3 +815,67 @@ def test_a_references_section_opened_as_its_own_heading_is_skipped():
     )
 
     assert states_no_duty(chunk) == "references section"
+
+
+@pytest.mark.integration
+def test_a_rebuild_counts_the_pairing_side_of_the_repair(
+    reviewed_graph, clean_graph, database, monkeypatch
+):
+    """The rebuild repairs and reports both canonical shapes. A `:PairingDecision`
+    whose obligation the rekey moved is repointed from the same before/after
+    statement maps as the `:LinkDecision`s, and one whose obligations no longer
+    exist at all is `pairing_decisions_stranded` — the analogue of
+    `unpromotable`, counted beside the replay, and a different event from the
+    diff-side `pairings_unapplied` (spec §3, §5).
+
+    The repair path reads no document structure — only ids and statements — so
+    the fixture borrows the approved pair's real ids for the decision that must
+    ride the rekey. Membership semantics are the routes' business, not this
+    machinery's.
+    """
+    org = reviewed_graph["org"]
+    approved = reviewed_graph["approved"]
+
+    with clean_graph.session(database=database) as session:
+        # Rides the rekey: its old side is a real obligation of the edition
+        # about to be rebuilt, so the statement-keyed maps must carry it.
+        session.execute_write(
+            record_pairing,
+            old_id=approved[0], new_id=approved[1],
+            verdict="paired", actor="carol", rationale="reworded",
+        )
+        # Already stranded: neither obligation has ever existed, so no map can
+        # repair it and the count must say so.
+        session.execute_write(
+            record_pairing,
+            old_id="never-extracted-a", new_id="never-extracted-b",
+            verdict="paired", actor="carol", rationale="stranded",
+        )
+
+    original_section_heading = chunking.section_heading
+
+    def rekeyed_section_heading(line: str) -> str | None:
+        heading = original_section_heading(line)
+        return f"{heading}-REKEYED" if heading is not None else None
+
+    monkeypatch.setattr(chunking, "section_heading", rekeyed_section_heading)
+
+    report = rebuild_derived(
+        clean_graph,
+        database,
+        version_id=org,
+        extractor=reviewed_graph["extractor"],
+        candidate_version_ids=[reviewed_graph["higher"]],
+        proposer="lexical-v1",
+    )
+
+    assert report["pairing_decisions_repointed"] == 1
+    assert report["pairing_decisions_stranded"] == 1
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision {actor: 'carol', rationale: 'reworded'}) "
+        "RETURN p.old_obligation_id AS old, p.new_obligation_id AS new",
+        database_=database,
+    )
+    assert records[0]["old"] != approved[0], "the pairing decision was not repointed"
+    assert records[0]["new"] == approved[1], "the untouched edition must not move"

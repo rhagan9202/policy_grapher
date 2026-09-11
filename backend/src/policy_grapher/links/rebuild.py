@@ -40,6 +40,7 @@ from policy_grapher.links.decisions import (
     replay_decisions,
     repoint_decisions,
 )
+from policy_grapher.links.pairing import PAIRING_SCHEMA, count_stranded_pairings
 from policy_grapher.links.propose import propose_links
 from policy_grapher.obligations import drop_obligations, write_obligations
 from policy_grapher.sources import pdf
@@ -159,8 +160,21 @@ def _write_rebuild(
         if seen[normalize(statement)] == 1
     }
     repointed = repoint_decisions(tx, before=before, after=after)
+    # The same before/after maps serve both canonical shapes: a re-key strands
+    # a pairing verdict exactly as it strands a link verdict, and the statement
+    # is the same handle for both (ADR-027, spec §5).
+    pairings_repointed = repoint_decisions(
+        tx, before=before, after=after, schema=PAIRING_SCHEMA
+    )
 
     replayed = replay_decisions(tx)
+    # The rebuild-side loss for the pairing vocabulary — the analogue of
+    # `unpromotable`, counted beside the replay for the same reason: a rebuild
+    # reporting only its happy counts would look complete in exactly the case
+    # where a human verdict had quietly stopped being representable. The
+    # diff-side count, `pairings_unapplied`, is a different event with a
+    # different cause and lives with the diff (spec §3).
+    pairings_stranded = count_stranded_pairings(tx)
     return {
         "changes_dropped": changes_dropped,
         "chunks_dropped": chunks_dropped,
@@ -169,6 +183,8 @@ def _write_rebuild(
         "obligations_written": obligations_written,
         "proposed": proposed,
         "decisions_repointed": repointed,
+        "pairing_decisions_repointed": pairings_repointed,
+        "pairing_decisions_stranded": pairings_stranded,
         **replayed,
     }
 
