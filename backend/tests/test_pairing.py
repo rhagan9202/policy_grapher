@@ -4,6 +4,7 @@ import pytest
 from neo4j import RoutingControl
 
 from policy_grapher.links.pairing import (
+    CrossDocumentPair,
     count_stranded_pairings,
     pairing_key,
     read_pairings,
@@ -38,22 +39,26 @@ def test_an_unknown_verdict_is_refused_before_anything_is_written():
 # --- recording and reading against a real graph -------------------------------
 
 
-def _seed_edition(driver, database, *, version_id, obligation_ids):
+def _seed_edition(driver, database, *, version_id, obligation_ids, slug="doc"):
     """An edition MANDATES-ing obligations under caller-chosen ids.
 
     Seeded directly rather than through chunking and extraction: these tests
     are about the `:MANDATES` topology the reads scope through, and the ids are
     the fixture's vocabulary — deriving them from statements would only obscure
     which obligation each assertion names.
+
+    `slug` defaults so that every edition here belongs to one document, which is
+    what the pairing question is asked within; only the cross-document refusal's
+    tests pass a second one.
     """
     driver.execute_query(
-        "MERGE (d:Document {slug: 'doc', name: 'DOC'}) "
+        "MERGE (d:Document {slug: $slug, name: $slug}) "
         "MERGE (d)-[:HAS_VERSION]->(v:DocumentVersion {version_id: $vid, "
         "checksum: $vid, source_uri: 'file:///d.pdf'}) "
         "WITH v UNWIND $ids AS id "
         "MERGE (o:Obligation {obligation_id: id}) "
         "MERGE (v)-[:MANDATES]->(o)",
-        {"vid": version_id, "ids": obligation_ids},
+        {"vid": version_id, "ids": obligation_ids, "slug": slug},
         database_=database,
     )
 
@@ -136,8 +141,9 @@ def test_a_neighbouring_pairs_verdict_does_not_leak_into_this_read(
     _seed_edition(clean_graph, database, version_id="e2022", obligation_ids=["c1"])
     _record(clean_graph, database, old="a1", new="b1", verdict="paired")
     _record(clean_graph, database, old="b1", new="c1", verdict="distinct")
-    # Recordable at this layer (only the route checks membership), so the read
-    # has to be the thing that keeps it out of both adjacent pairs' diffs.
+    # Recordable at this layer — `record_pairing` refuses only a pair drawn from
+    # two documents, and these two clauses share one — so the read has to be the
+    # thing that keeps it out of both adjacent pairs' diffs.
     _record(clean_graph, database, old="a1", new="a2", verdict="distinct")
 
     first = _read(clean_graph, database, from_version_id="e2018", to_version_id="e2020")
@@ -195,6 +201,93 @@ def test_a_pairing_whose_obligation_is_gone_is_counted_stranded(
 
     assert before == 0
     assert after == 1
+
+
+# --- the cross-document refusal -----------------------------------------------
+
+
+@pytest.mark.integration
+def test_a_cross_document_pair_is_refused_by_record_pairing(clean_graph, database):
+    """"Is the newer clause the older one reworded?" is a question about one
+    instrument's editions. Between two instruments the question is
+    implementation, and its verdict belongs on a `:LinkDecision` — a
+    `:PairingDecision` recorded here would be read back by `read_pairings`
+    whenever a diff happened to name both editions, and applied as a rewording
+    of a clause in another document.
+
+    The refusal lives in the recorder and not only in the route for
+    `record_decision`'s reason: a rule one caller enforces is a rule only that
+    caller obeys.
+    """
+    _seed_edition(
+        clean_graph, database, version_id="a@2018", obligation_ids=["ours"], slug="a"
+    )
+    _seed_edition(
+        clean_graph, database, version_id="b@2020", obligation_ids=["theirs"], slug="b"
+    )
+
+    with pytest.raises(CrossDocumentPair, match="implements") as refusal:
+        _record(clean_graph, database, old="ours", new="theirs", verdict="paired")
+
+    # Both slugs, quoted. Unquoted, "a" and "b" are satisfied by the refusal's
+    # own prose — every phrasing of it contains both letters somewhere — so the
+    # assertion would pin nothing at all. The ids in the message are content
+    # hashes in production, so naming the two instruments is what makes the
+    # refusal actionable.
+    assert "'a'" in str(refusal.value)
+    assert "'b'" in str(refusal.value)
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:PairingDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 0
+
+
+@pytest.mark.integration
+def test_a_pairing_on_ids_the_graph_cannot_resolve_still_records(
+    clean_graph, database
+):
+    """A `:PairingDecision` outlives its obligations by design — that is what
+    `repoint_decisions` repairs and `count_stranded_pairings` counts — so a
+    verdict stranded by a re-extraction must stay recordable and re-recordable.
+
+    This is the assertion that fixes the *direction* of the guard. A refusal
+    phrased "I cannot see one document holding both" rather than "I can see two
+    documents and they differ" passes the test above and fails here, and the
+    difference is every stranded verdict in the graph becoming unwritable.
+    """
+    _record(clean_graph, database, old="gone-a", new="gone-b", verdict="paired")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:PairingDecision) RETURN d.verdict AS verdict", database_=database
+    )
+    assert [record["verdict"] for record in records] == ["paired"]
+
+
+@pytest.mark.integration
+def test_a_pairing_with_only_one_side_resolvable_still_records(
+    clean_graph, database
+):
+    """Half-stranded, which is the shape a re-extraction actually produces: one
+    clause of the pair is reproduced under a new id and the other is not, which
+    is why `STRANDED` joins its two absence checks with `OR` and not `AND`.
+
+    Not covered by the both-gone case above, and the difference is a whole
+    implementation: a guard phrased "the obligations I can see belong to one
+    document" admits the both-gone pair — it sees none — and refuses this one,
+    because the single surviving side belongs to exactly one document. Both
+    orientations, so a guard anchored on only the old or only the new side is
+    caught too.
+    """
+    _seed_edition(clean_graph, database, version_id="e2018", obligation_ids=["alive"])
+
+    _record(clean_graph, database, old="alive", new="gone", verdict="paired")
+    _record(clean_graph, database, old="gone", new="alive", verdict="distinct")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:PairingDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 2
 
 
 @pytest.mark.integration

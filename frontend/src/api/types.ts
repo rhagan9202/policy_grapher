@@ -181,6 +181,56 @@ export interface ReviewItem {
 
 export type Verdict = 'approve' | 'reject'
 
+/** What a reviewer may say about two clauses of one instrument.
+ *
+ *  Not `Verdict`'s vocabulary, deliberately. `approve`/`reject` answers "does our
+ *  clause discharge that duty?"; this answers "is the newer clause the older one
+ *  reworded?" — a different question, a different canonical node, and a shared
+ *  word would let one screen's copy drift into describing the other's. */
+export type PairingVerdict = 'paired' | 'distinct'
+
+/** One pair the diff had an opinion about, and the opinion.
+ *
+ *  `outcome` is the first rule that fired, in the diff's code order —
+ *  `auto_paired`, `partner_taken`, `contested`, `below_threshold` — not four
+ *  disjoint conditions: `partner_taken` is contained in `contested`, and the
+ *  labels record precedence. `taken_by` names zero to two obligations that
+ *  already consumed an end of this pair, which is what makes `partner_taken`
+ *  the actionable label rather than merely the narrower one. */
+export interface PairingCandidate {
+  old: ObligationCitation
+  new: ObligationCitation
+  confidence: number
+  rationale: string
+  outcome: string
+  taken_by: string[]
+}
+
+/** A pair a person has already ruled on. Carries ids rather than statements: it
+ *  is listed so a verdict stays reversible, and a settled pair is deliberately
+ *  not re-recorded as a candidate — a candidate edge re-asking a settled question
+ *  would put it straight back in the queue. */
+export interface PairingSettled {
+  old_id: string
+  new_id: string
+  verdict: string
+  actor: string
+}
+
+export interface PairingQueue {
+  items: PairingCandidate[]
+  settled: PairingSettled[]
+  /** Recorded pairings this diff could not apply, because pass 1 matched one of
+   *  the clauses — it exists unchanged in both editions, so the "reworded" claim
+   *  has nothing to attach to. Counted, never dropped: the decision is still
+   *  recorded and the screen has to say it did not take effect. */
+  pairings_unapplied: number
+  /** Candidates in the graph, not rows in `items`. The queue is capped
+   *  server-side, and the review queue read "Proposal 1 of 50" over 119 waiting
+   *  because nothing distinguished the page from the backlog. */
+  pending: number
+}
+
 export interface TriageCitation {
   obligation_id: string
   statement: string

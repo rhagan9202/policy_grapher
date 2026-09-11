@@ -6,6 +6,7 @@ import {
   deleteDocument,
   getDocument,
   getGraph,
+  getPairingQueue,
   getHealth,
   ask,
   getTriage,
@@ -13,6 +14,7 @@ import {
   listDocuments,
   getRebuild,
   recordVerdict,
+  recordPairing,
   runQuery,
   startRebuild,
 } from './client'
@@ -296,5 +298,81 @@ describe('rebuild', () => {
 
     expect(fetchMock.mock.calls[0][0]).toBe('/api/rebuilds/r1')
     expect(status.state).toBe('finished')
+  })
+})
+
+// A pairing verdict is canonical in the way a review verdict is — a thing a
+// person did, which no rebuild may discard — so it carries the same obligation
+// the review verdict does: the ADR-018 header the dev proxy injects the bearer
+// token for. Posted without it the request 401s and nothing is recorded.
+describe('pairings', () => {
+  it('asks for one edition pair, naming both ends', async () => {
+    const fetchMock = mockJson({
+      items: [], settled: [], pairings_unapplied: 0, pending: 0,
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getPairingQueue('dodd-5000-01@2018-08-31', 'dodd-5000-01@2022-07-28')
+
+    const url = fetchMock.mock.calls[0][0] as string
+    expect(url).toContain('/api/pairings/queue?')
+    // Both ends, and not merely one: the route 400s a from/to that is not
+    // older→newer, so a call that dropped an end would be a queue asking the
+    // wrong question rather than a request that failed.
+    expect(url).toContain('from_version_id=dodd-5000-01%402018-08-31')
+    expect(url).toContain('to_version_id=dodd-5000-01%402022-07-28')
+    expect(url).not.toContain('limit=')
+  })
+
+  it('passes a limit when the caller sets one', async () => {
+    const fetchMock = mockJson({
+      items: [], settled: [], pairings_unapplied: 0, pending: 0,
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getPairingQueue('a', 'b', 25)
+
+    expect(fetchMock.mock.calls[0][0] as string).toContain('limit=25')
+  })
+
+  it('posts a verdict older-first, with the dev-proxy header', async () => {
+    const fetchMock = mockJson({
+      old_id: 'old-1', new_id: 'new-1', verdict: 'paired', actor: 'tester',
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const settled = await recordPairing('old-1', 'new-1', 'paired', 'Same duty, reworded.')
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/pairings/old-1/new-1')
+    expect(init.method).toBe('POST')
+    expect(init.headers).toMatchObject({ 'x-policy-grapher-ui': '1' })
+    expect(JSON.parse(init.body)).toEqual({
+      verdict: 'paired',
+      rationale: 'Same duty, reworded.',
+    })
+    expect(settled.verdict).toBe('paired')
+  })
+
+  it('escapes obligation ids into the verdict path', async () => {
+    // An obligation id is a hex digest today, but the path is built from data
+    // and `recordVerdict` learned this the same way.
+    const fetchMock = mockJson({ old_id: 'a/b', new_id: 'c d', verdict: 'distinct', actor: 't' })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await recordPairing('a/b', 'c d', 'distinct')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/pairings/a%2Fb/c%20d')
+  })
+
+  it('throws ApiError on the reversed-pair 400 rather than resolving empty', async () => {
+    // An empty queue reads as "nothing to pair between these editions", which is
+    // the one answer a reversed request must not be able to produce.
+    vi.stubGlobal(
+      'fetch',
+      mockJson({ detail: 'from_version_id must be the older edition.' }, 400),
+    )
+
+    await expect(getPairingQueue('newer', 'older')).rejects.toBeInstanceOf(ApiError)
   })
 })

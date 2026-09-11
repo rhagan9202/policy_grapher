@@ -265,6 +265,70 @@ class VerdictIn(BaseModel):
     rationale: str = ""
 
 
+class PairingCandidateOut(BaseModel):
+    """One pair of clauses the wording pass ruled on, and how it ruled.
+
+    Both sides are full citations for `ObligationCitationOut`'s reason: the
+    question is whether the newer clause is the older one reworded, and a
+    reviewer cannot answer without reading both in place. `outcome` is the
+    first rule that fired in the diff, in code order — `auto_paired`,
+    `partner_taken`, `contested`, `below_threshold` — a precedence chain, not
+    four disjoint conditions: every partner-taken pair also satisfies the
+    margin predicate. `taken_by` names the auto-paired winners' other ends,
+    zero to two of them, because a pair is declined when *either* endpoint was
+    already consumed and the screen must say by what.
+    """
+
+    old: ObligationCitationOut
+    new: ObligationCitationOut
+    confidence: float
+    rationale: str
+    outcome: str
+    taken_by: list[str]
+
+
+class PairingSettledOut(BaseModel):
+    """A pair a person has already ruled on, kept reachable so the verdict can
+    be undone. Ids alone, deliberately: this list exists to mark rows settled
+    and route a reversal, not to be read — the citations live on the
+    candidates."""
+
+    old_id: str
+    new_id: str
+    verdict: str
+    actor: str
+
+
+class PairingQueueOut(BaseModel):
+    """The pairing queue: what the diff decided, what a person settled, and
+    what it could not apply.
+
+    `pending` is undecided candidates in the graph, not rows in `items` — the
+    review queue's own pattern, for its reason: the page is capped, and the
+    number that falls as the backlog is worked through is the graph count.
+    `pairings_unapplied` counts `paired` verdicts the diff could not apply
+    because pass 1 matched the clause identically in both editions — counted,
+    never dropped, so a shelved human verdict is at least visible.
+    """
+
+    items: list[PairingCandidateOut]
+    settled: list[PairingSettledOut]
+    pairings_unapplied: int
+    pending: int
+
+
+class PairingVerdictIn(BaseModel):
+    """A reviewer's pairing verdict.
+
+    Carries no `actor`, for `VerdictIn`'s reason: the actor is the
+    authenticated principal and nothing else, and a client-supplied one would
+    make the audit trail worthless.
+    """
+
+    verdict: str
+    rationale: str = ""
+
+
 class TriageCitationOut(BaseModel):
     """One side of a triage row, sourced. Nothing in a triage response is
     unattributed: a row naming a policy without saying which passage of it is

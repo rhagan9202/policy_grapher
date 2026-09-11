@@ -13,10 +13,15 @@ A pairing verdict takes effect inside the diff, which reads it through
 and dropped in `changes/diff.py`.
 
 Direction is older→newer, but that is not a property this module can promise:
-`record_pairing` stores whatever ids it is given, and the key is a directional
-hash of them. The one route that records verdicts orders the pair itself before
-calling in — the obligation ids determine their editions, and the editions
-order — so the promise is pinned at the route, not here.
+`record_pairing` stores the ids in the order it is given them, and the key is a
+directional hash of them. The one route that records verdicts orders the pair
+itself before calling in — the obligation ids determine their editions, and the
+editions order — so the promise is pinned at the route, not here.
+
+What this module *does* refuse is a pair drawn from two different documents,
+mirroring `record_decision`'s same-document refusal: neither question is
+answerable in the other's vocabulary, and a rule the route alone enforced would
+be a rule only one caller obeys.
 """
 
 import hashlib
@@ -44,6 +49,25 @@ class PairingVerdict(StrEnum):
     PAIRED = "paired"
     DISTINCT = "distinct"
 
+
+# Positive evidence that the two clauses are drawn from two different
+# documents, read in the transaction the verdict would land in. Phrased as
+# "I can see two documents and they differ", never as "I cannot see one
+# document" — the second refuses every pair whose obligations a re-extraction
+# has stranded, and a `:PairingDecision` outlives its obligations by design
+# (`repoint_decisions` repairs them, `count_stranded_pairings` counts them), so
+# that phrasing would make a stranded verdict unrecordable and un-reversible.
+# `record_decision`'s SAME_DOCUMENT is the mirror of this and is deliberately
+# built the same way round.
+CROSS_DOCUMENT = """
+MATCH (old_doc:Document)-[:HAS_VERSION]->(:DocumentVersion)
+      -[:MANDATES]->(:Obligation {obligation_id: $old_id})
+MATCH (new_doc:Document)-[:HAS_VERSION]->(:DocumentVersion)
+      -[:MANDATES]->(:Obligation {obligation_id: $new_id})
+WHERE old_doc <> new_doc
+RETURN old_doc.slug AS old_slug, new_doc.slug AS new_slug
+LIMIT 1
+"""
 
 RECORD = """
 MERGE (d:PairingDecision {key: $key})
@@ -108,6 +132,22 @@ RETURN count(d) AS stranded
 """
 
 
+class CrossDocumentPair(ValueError):
+    """`record_pairing` refusing a pair drawn from two `:Document`s.
+
+    The mirror of `decisions.SameDocumentPair`, and a type for its reason: the
+    route has to tell a refusal it can explain to a person from a fault it
+    cannot. The driver raises a bare `ValueError` out of `execute_write` when a
+    parameter cannot be packed, so an `except ValueError` in the route would
+    answer a serialisation bug of ours with "these two clauses are in different
+    documents" — a 400 blaming a reviewer's data, and one that sends them to
+    the wrong screen.
+
+    Subclasses `ValueError` so nothing that already catches or expects one has
+    to change.
+    """
+
+
 def pairing_key(old_id: str, new_id: str) -> str:
     """Identity for a verdict on one ordered pair of clauses.
 
@@ -137,11 +177,33 @@ def record_pairing(
     the diff to choose between. The MERGE is on `key`, and
     `pairing_decision_key_unique` (db.py) holds that to one node rather than a
     race to a second.
+
+    A pair drawn from two documents is refused. "Is the newer clause the older
+    one reworded?" is a question about one instrument's editions; between two
+    instruments the question is implementation, and it has its own canonical
+    node. The refusal lives here and not only in the route for
+    `record_decision`'s reason: a rule enforced at one caller is a rule only
+    that caller obeys, and "nothing currently offers such a pair" is a fact
+    about today's callers rather than a constraint. Membership beyond this —
+    that the two editions differ, and which is older — stays the route's,
+    because only the route can act on the answer.
     """
     if verdict not in set(PairingVerdict):
         raise ValueError(
             f"unknown verdict {verdict!r}; expected one of "
             f"{[v.value for v in PairingVerdict]}"
+        )
+    cross_document = tx.run(
+        CROSS_DOCUMENT, {"old_id": old_id, "new_id": new_id}
+    ).single()
+    if cross_document is not None:
+        raise CrossDocumentPair(
+            f"{old_id!r} and {new_id!r} are mandated by editions of "
+            f"{cross_document['old_slug']!r} and "
+            f"{cross_document['new_slug']!r}. A pairing runs between two "
+            "editions of one document — whether one document's clause "
+            "discharges another's is the implements question, and that verdict "
+            "belongs on a :LinkDecision, not here."
         )
     tx.run(
         RECORD,

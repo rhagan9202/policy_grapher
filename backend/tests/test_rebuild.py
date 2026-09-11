@@ -18,7 +18,7 @@ from policy_grapher.chunking import Chunk, chunk_pages
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.ingest import ingest_file
 from policy_grapher.links.decisions import record_decision
-from policy_grapher.links.pairing import record_pairing
+from policy_grapher.links.pairing import RECORD, pairing_key, record_pairing
 from policy_grapher.links.rebuild import (
     ExtractionFailed,
     MissingSourceError,
@@ -858,10 +858,26 @@ def test_a_rebuild_counts_the_pairing_side_of_the_repair(
         # itself does not depend on this fixture — it is pinned directly, on a
         # two-node graph, by test_links.py's
         # `test_a_key_an_unrelated_link_decision_holds_does_not_strand_a_pairing`.
+        #
+        # Written raw, through the recorder's own statement rather than the
+        # recorder: `record_pairing` refuses a pair drawn from two documents,
+        # and an approved *implements* pair is cross-document by definition —
+        # which is why borrowing its ids is what makes the two keys collide in
+        # the first place. Keeping the ids and dropping the guard is the only
+        # way to hold that collision; the guard is the routes' concern and the
+        # repair path under test reads no document structure at all.
         session.execute_write(
-            record_pairing,
-            old_id=approved[0], new_id=approved[1],
-            verdict="paired", actor="carol", rationale="reworded",
+            lambda tx: tx.run(
+                RECORD,
+                {
+                    "key": pairing_key(approved[0], approved[1]),
+                    "old_id": approved[0],
+                    "new_id": approved[1],
+                    "verdict": "paired",
+                    "actor": "carol",
+                    "rationale": "reworded",
+                },
+            ).consume()
         )
         # Already stranded: neither obligation has ever existed, so no map can
         # repair it and the count must say so.

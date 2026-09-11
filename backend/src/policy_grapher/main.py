@@ -17,6 +17,7 @@ from policy_grapher.routers import (
     ask,
     documents,
     graph,
+    pairings,
     rebuilds,
     review,
     triage,
@@ -148,6 +149,7 @@ app.include_router(admin.router)
 app.include_router(ask.router)
 app.include_router(documents.router)
 app.include_router(graph.router)
+app.include_router(pairings.router)
 app.include_router(rebuilds.router)
 app.include_router(review.router)
 app.include_router(triage.router)
