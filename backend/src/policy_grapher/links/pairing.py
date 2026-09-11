@@ -24,6 +24,8 @@ from enum import StrEnum
 
 from neo4j import ManagedTransaction
 
+from policy_grapher.links.decisions import DecisionSchema
+
 
 class PairingVerdict(StrEnum):
     """Closed on purpose, for `decisions.Verdict`'s reason: the diff branches on
@@ -187,3 +189,15 @@ def read_settled(
 def count_stranded_pairings(tx: ManagedTransaction) -> int:
     """Decisions the graph can no longer express: either obligation is gone."""
     return tx.run(STRANDED).single()["stranded"]
+
+
+# The pairing half of the repoint refactor (spec §5). Defined here rather than
+# in links/decisions.py so that module never has to know pairing exists: the
+# shared shape lives with the machinery, and each vocabulary names its own
+# instance beside its own key function.
+PAIRING_SCHEMA = DecisionSchema(
+    label="PairingDecision",
+    source_prop="old_obligation_id",
+    target_prop="new_obligation_id",
+    key_of=pairing_key,
+)

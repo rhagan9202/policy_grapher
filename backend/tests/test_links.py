@@ -8,6 +8,11 @@ from policy_grapher.links.decisions import (
     record_decision,
     replay_decisions,
 )
+from policy_grapher.links.pairing import (
+    PAIRING_SCHEMA,
+    pairing_key,
+    record_pairing,
+)
 from policy_grapher.links.propose import (
     content_words,
     designators,
@@ -860,3 +865,105 @@ def test_the_cross_document_pair_is_still_proposed_beside_a_skipped_one(
         database_=database,
     )
     assert [r["version"] for r in records] == ["higher"]
+
+
+# --- the repoint refactor serves the pairing vocabulary too (spec §5) ---------
+
+
+@pytest.mark.integration
+def test_a_pairing_decision_survives_its_obligations_being_re_keyed(
+    clean_graph, database
+):
+    """`repoint_decisions` is parameterised by `DecisionSchema` so the pairing
+    vocabulary rides the same ADR-027 repair path as `:LinkDecision`. Under
+    `PAIRING_SCHEMA` it must read, re-key and rewrite `:PairingDecision` nodes —
+    a label or property name hardcoded anywhere in the path would silently
+    repoint nothing and strand the verdict."""
+    from policy_grapher.links.decisions import repoint_decisions
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing,
+            old_id="old-old-id",
+            new_id="old-new-id",
+            verdict="paired",
+            actor="reviewer",
+            rationale="the reworded duty",
+        )
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={
+                "old-old-id": "the director shall report",
+                "old-new-id": "the director reports",
+            },
+            after={
+                "the director shall report": "new-old-id",
+                "the director reports": "new-new-id",
+            },
+            schema=PAIRING_SCHEMA,
+        )
+
+    assert repointed == 1
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.old_obligation_id AS old, "
+        "p.new_obligation_id AS new, p.key AS key, p.verdict AS verdict",
+        database_=database,
+    )
+    assert len(records) == 1
+    assert records[0]["old"] == "new-old-id"
+    assert records[0]["new"] == "new-new-id"
+    assert records[0]["key"] == pairing_key("new-old-id", "new-new-id")
+    # The verdict is what must survive. Re-pointing that dropped it would be
+    # worse than not re-pointing at all.
+    assert records[0]["verdict"] == "paired"
+
+
+@pytest.mark.integration
+def test_two_pairing_repoints_that_would_collide_do_not_abort_the_batch(
+    clean_graph, database
+):
+    """`pairing_decision_key_unique` constrains `:PairingDecision.key` exactly as
+    `link_decision_key_unique` constrains `:LinkDecision.key`, so the STORY-074
+    hazard transfers whole: two moves in one batch computing the same new key
+    cannot both be written, and screening each proposed key only against the
+    pre-batch set would let `APPLY_REPOINT` violate the constraint and roll the
+    caller's whole transaction back. Same resolution as a collision against a
+    pre-existing decision: the first move lands, the loser is left unrepaired
+    for `count_stranded_pairings`.
+    """
+    from policy_grapher.links.decisions import repoint_decisions
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing, old_id="old-a", new_id="target",
+            verdict="paired", actor="reviewer", rationale="first",
+        )
+        session.execute_write(
+            record_pairing, old_id="old-b", new_id="target",
+            verdict="distinct", actor="reviewer", rationale="second",
+        )
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={"old-a": "statement one", "old-b": "statement two"},
+            after={"statement one": "new-x", "statement two": "new-x"},
+            schema=PAIRING_SCHEMA,
+        )
+
+    assert repointed == 1, "one move lands; the colliding one is left unrepaired"
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.old_obligation_id AS old, p.key AS key",
+        database_=database,
+    )
+    assert len(records) == 2, "both human verdicts still exist"
+    moved = [r for r in records if r["key"] == pairing_key("new-x", "target")]
+    assert len(moved) == 1
+    # The winner's obligation id moved, not merely its key: a repair that
+    # re-keyed without rewriting the property would leave a decision whose key
+    # no longer describes the pair it points at, and every remaining assertion
+    # here reads the loser, which is untouched by construction.
+    assert moved[0]["old"] == "new-x"
+    stranded = [r for r in records if r["key"] != pairing_key("new-x", "target")]
+    assert stranded[0]["old"] in {"old-a", "old-b"}
+    assert stranded[0]["key"] == pairing_key(stranded[0]["old"], "target")

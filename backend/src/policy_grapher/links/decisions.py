@@ -12,6 +12,8 @@ proposal exists, a human verdicts it, replay applies the verdict.
 
 import hashlib
 from collections import Counter
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
 
 from neo4j import ManagedTransaction
@@ -101,27 +103,51 @@ MATCH (:DocumentVersion {version_id: $version_id})-[:MANDATES]->(o:Obligation)
 RETURN o.obligation_id AS obligation_id, o.statement AS statement
 """
 
+
+@dataclass(frozen=True)
+class DecisionSchema:
+    """One canonical decision shape, as the repair path needs to see it.
+
+    Two decision types answer two different questions — `:LinkDecision` whether
+    a clause discharges a higher duty, `:PairingDecision` whether a newer
+    clause is the older one reworded — but a re-key strands both identically,
+    so `repoint_decisions` is written against this shape rather than against
+    either label. `key_of` is the directional content hash whose uniqueness
+    constraint the collision screen in `repoint_decisions` exists to protect.
+    """
+
+    label: str
+    source_prop: str
+    target_prop: str
+    key_of: Callable[[str, str], str]
+
+
+# .format templates, not query parameters: Cypher cannot parameterise a label or
+# a property name. The interpolated values come only from the two schemas this
+# repository defines — LINK_SCHEMA below and PAIRING_SCHEMA in links/pairing.py
+# — so no user input ever reaches a format field. Cypher's own map braces are
+# doubled so str.format leaves them alone.
 READ_DECISIONS_FOR = """
 UNWIND $ids AS id
-MATCH (d:LinkDecision)
-WHERE d.source_obligation_id = id OR d.target_obligation_id = id
+MATCH (d:{label})
+WHERE d.{source_prop} = id OR d.{target_prop} = id
 RETURN DISTINCT d.key AS key,
-       d.source_obligation_id AS source_id,
-       d.target_obligation_id AS target_id
+       d.{source_prop} AS source_id,
+       d.{target_prop} AS target_id
 """
 
 APPLY_REPOINT = """
 UNWIND $moves AS m
-MATCH (d:LinkDecision {key: m.old_key})
-SET d.source_obligation_id = m.source_id,
-    d.target_obligation_id = m.target_id,
-    d.key                  = m.new_key
+MATCH (d:{label} {{key: m.old_key}})
+SET d.{source_prop} = m.source_id,
+    d.{target_prop} = m.target_id,
+    d.key = m.new_key
 RETURN count(d) AS repointed
 """
 
 EXISTING_KEYS = """
 UNWIND $keys AS key
-MATCH (d:LinkDecision {key: key})
+MATCH (d:{label} {{key: key}})
 RETURN collect(d.key) AS present
 """
 
@@ -139,8 +165,37 @@ def read_obligation_statements(tx: ManagedTransaction, *, version_id: str) -> di
     }
 
 
+def decision_key(source_id: str, target_id: str) -> str:
+    """Identity for a verdict on one directed pair.
+
+    Content-derived from two obligation ids, which are themselves content-derived
+    (extraction.schema.obligation_id) — so the key survives a re-extraction that
+    reproduces the same obligations. A key built from an internal node id would
+    not: the node is dropped and recreated on every rebuild.
+
+    Directional. "A implements B" is not "B implements A", and a symmetric key
+    would let a verdict on one direction silently decide the other.
+    """
+    return hashlib.sha256(f"{source_id}|{target_id}".encode()).hexdigest()[:32]
+
+
+# The default, and the refactor's regression gate: under this schema
+# `repoint_decisions` reproduces the pre-parameterisation behaviour exactly,
+# which is what lets every existing repoint test pass unchanged.
+LINK_SCHEMA = DecisionSchema(
+    label="LinkDecision",
+    source_prop="source_obligation_id",
+    target_prop="target_obligation_id",
+    key_of=decision_key,
+)
+
+
 def repoint_decisions(
-    tx: ManagedTransaction, *, before: dict[str, str], after: dict[str, str]
+    tx: ManagedTransaction,
+    *,
+    before: dict[str, str],
+    after: dict[str, str],
+    schema: DecisionSchema = LINK_SCHEMA,
 ) -> int:
     """Carry recorded verdicts across a change of obligation identity (ADR-027).
 
@@ -148,6 +203,11 @@ def repoint_decisions(
     maps each normalized statement to the id the rebuild has just written for
     it. A statement that did not move produces the same id on both sides and is
     skipped.
+
+    `schema` names which canonical decision shape is being repaired. Both
+    vocabularies strand identically under a re-key, so the machinery is shared;
+    the default is `LINK_SCHEMA`, under which this behaves exactly as the
+    unparameterised version did.
 
     **A statement two obligations share maps neither of them.** `obligation_id`
     hashes `version_id | section_path | statement`, so one sentence appearing in
@@ -162,10 +222,19 @@ def repoint_decisions(
     A decision whose new key already belongs to another decision — one that
     existed before this batch, or one this batch has already accepted — is left
     exactly as it was. Merging two human verdicts into one is the single
-    outcome this must not have, and an unrepaired approval is still counted by
-    `replay_decisions` as `unpromotable`. (A stranded *rejection* is counted
-    nowhere; see ADR-027's consequences.)
+    outcome this must not have, and the screen protects whichever uniqueness
+    constraint holds the schema's label (`link_decision_key_unique`,
+    `pairing_decision_key_unique`): a colliding write would violate it and roll
+    the caller's whole transaction back. An unrepaired approval is still
+    counted by `replay_decisions` as `unpromotable`, an unrepaired pairing by
+    `count_stranded_pairings`. (A stranded *rejection* is counted nowhere; see
+    ADR-027's consequences.)
     """
+    fields = {
+        "label": schema.label,
+        "source_prop": schema.source_prop,
+        "target_prop": schema.target_prop,
+    }
     ambiguous = {
         statement for statement, count in Counter(before.values()).items() if count > 1
     }
@@ -179,7 +248,9 @@ def repoint_decisions(
     if not moved:
         return 0
 
-    decisions = list(tx.run(READ_DECISIONS_FOR, {"ids": list(moved)}))
+    decisions = list(
+        tx.run(READ_DECISIONS_FOR.format(**fields), {"ids": list(moved)})
+    )
     if not decisions:
         return 0
 
@@ -187,7 +258,7 @@ def repoint_decisions(
     for record in decisions:
         source_id = moved.get(record["source_id"], record["source_id"])
         target_id = moved.get(record["target_id"], record["target_id"])
-        new_key = decision_key(source_id, target_id)
+        new_key = schema.key_of(source_id, target_id)
         if new_key == record["key"]:
             continue
         proposed.append(
@@ -202,12 +273,15 @@ def repoint_decisions(
         return 0
 
     taken = set(
-        tx.run(EXISTING_KEYS, {"keys": [m["new_key"] for m in proposed]}).single()["present"]
+        tx.run(
+            EXISTING_KEYS.format(**fields),
+            {"keys": [m["new_key"] for m in proposed]},
+        ).single()["present"]
     )
     # `taken` grows as moves are accepted, not only from the pre-batch read: two
     # moves within one batch can compute the same new key, and screening each
     # against the pre-batch set alone lets both through — `APPLY_REPOINT` then
-    # violates `link_decision_key_unique` and rolls the whole rebuild back
+    # violates the schema's key constraint and rolls the whole rebuild back
     # (STORY-074). A collision inside the batch resolves the way one against a
     # pre-existing decision does: the first move lands, the loser is unrepaired.
     moves = []
@@ -219,21 +293,9 @@ def repoint_decisions(
     if not moves:
         return 0
 
-    return tx.run(APPLY_REPOINT, {"moves": moves}).single()["repointed"]
-
-
-def decision_key(source_id: str, target_id: str) -> str:
-    """Identity for a verdict on one directed pair.
-
-    Content-derived from two obligation ids, which are themselves content-derived
-    (extraction.schema.obligation_id) — so the key survives a re-extraction that
-    reproduces the same obligations. A key built from an internal node id would
-    not: the node is dropped and recreated on every rebuild.
-
-    Directional. "A implements B" is not "B implements A", and a symmetric key
-    would let a verdict on one direction silently decide the other.
-    """
-    return hashlib.sha256(f"{source_id}|{target_id}".encode()).hexdigest()[:32]
+    return tx.run(
+        APPLY_REPOINT.format(**fields), {"moves": moves}
+    ).single()["repointed"]
 
 
 def record_decision(
