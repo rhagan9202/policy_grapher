@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from policy_grapher import main
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
+from policy_grapher.documents import delete_document
 from policy_grapher.extraction.schema import (
     ExtractedObligation,
     Modality,
@@ -40,23 +41,51 @@ ZEROS = {
     "retired_same_edition": 0,
     "retired_conflicting": 0,
     "retired_unknown_verdict": 0,
+    "retired_pairing_exists": 0,
     "implements_deleted": 0,
     "proposals_deleted": 0,
+    "decisions_missing_documents": 0,
 }
 
 
 def _seed_edition(
-    driver, database, *, version_id, effective_date, statements, slug="doc", name="DOC"
+    driver,
+    database,
+    *,
+    version_id,
+    effective_date,
+    statements,
+    slug="doc",
+    name="DOC",
+    ingested_at=None,
 ):
     """One edition of one document, one obligation per statement, all in one
     section. Returns the obligation ids in statement order. `effective_date`
     pins the corpus ordering rule explicitly — the re-orientation tests must
-    not be allowed to pass by accident of version_id lexicography."""
+    not be allowed to pass by accident of version_id lexicography.
+
+    `effective_date=None` leaves the property unwritten rather than null,
+    because that is what an undated edition looks like: setting a property to
+    null in Cypher deletes it, so `versions.MERGE_VERSION` writing a null date
+    and this writing none produce the same node. ADR-011 makes the date
+    optional and `ingested_at` the designed fallback, so both legs of the
+    ordering tuple need to be reachable from a fixture. `ingested_at` is
+    stored as a real temporal, as `versions.py` stores it — a string would let
+    the migration's `toString` pass by doing nothing."""
     driver.execute_query(
         "MERGE (d:Document {slug: $slug, name: $name}) "
-        "MERGE (d)-[:HAS_VERSION]->(:DocumentVersion {version_id: $vid, "
-        "checksum: $vid, source_uri: 'file:///d.pdf', effective_date: $eff})",
-        {"slug": slug, "name": name, "vid": version_id, "eff": effective_date},
+        "MERGE (d)-[:HAS_VERSION]->(v:DocumentVersion {version_id: $vid}) "
+        "SET v.checksum = $vid, v.source_uri = 'file:///d.pdf', "
+        "    v.effective_date = $eff, "
+        "    v.ingested_at = CASE WHEN $ingested IS NULL THEN NULL "
+        "                         ELSE datetime($ingested) END",
+        {
+            "slug": slug,
+            "name": name,
+            "vid": version_id,
+            "eff": effective_date,
+            "ingested": ingested_at,
+        },
         database_=database,
     )
     chunk = chunk_pages(["1.1. DUTIES.\nBody.\n"], version_id=version_id)[-1]
@@ -330,6 +359,185 @@ def test_a_same_edition_approval_is_retired_with_its_edge_gone(clean_graph, data
 
 
 @pytest.mark.integration
+def test_opposite_orientations_of_one_pair_retire_together(clean_graph, database):
+    """Two legacy decisions on ONE pair, written in opposite directions, both
+    re-orient to the same `(old, new)` and therefore compute the same key.
+    `CONVERT` MERGEs on that key and SETs unconditionally, so without a screen
+    the second row overwrites the first and one human's verdict replaces the
+    other's — and `SAME_DOCUMENT_DECISIONS` has no ORDER BY, so *which* human
+    wins is undefined, decided by whatever order the store returns rows in.
+
+    Reachable in real legacy data: the pre-guard `propose_links` wrote
+    proposals org→candidate, so rebuilding edition X against Y and later Y
+    against X produced both directions, each independently reviewable.
+
+    The endpoint rule cannot catch this pair — it counts endpoints only among
+    candidates whose mapped verdict is `paired`, and the `reject` never enters
+    that count. Duplicate *keys* are what must be detected, not shared
+    endpoints: a legitimate `paired` on (X,Y) and `distinct` on (X,Z) inside
+    one edition pair also share an endpoint and must still convert."""
+    (older_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    (newer_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING],
+    )
+    _legacy_decision(clean_graph, database, source_id=newer_id, target_id=older_id)
+    _legacy_decision(
+        clean_graph, database, source_id=older_id, target_id=newer_id,
+        verdict="reject",
+    )
+
+    counts = migrate_pairing_decisions(clean_graph, database)
+
+    assert counts["converted"] == 0
+    assert counts["retired_conflicting"] == 2
+    # Order-independent, and that is the point: whichever row the store
+    # returned first, neither verdict may be silently replaced by the other.
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN count(p) AS total", database_=database
+    )
+    assert records[0]["total"] == 0, "a migration must not choose between two humans"
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:RetiredLinkDecision) RETURN d.retired_reason AS reason, "
+        "d.verdict AS verdict ORDER BY d.verdict",
+        database_=database,
+    )
+    assert [r["reason"] for r in records] == [
+        "conflicting_pairing",
+        "conflicting_pairing",
+    ]
+    # Both verdicts survive under the archival label. Losing either is the bug.
+    assert [r["verdict"] for r in records] == ["approve", "reject"]
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 0
+
+    assert migrate_pairing_decisions(clean_graph, database) == ZEROS
+
+
+@pytest.mark.integration
+def test_a_conversion_never_overwrites_an_existing_pairing_decision(
+    clean_graph, database
+):
+    """`CONVERT`'s MERGE finds an existing `:PairingDecision` by key and its
+    unconditional SET then replaces that decision's verdict, actor, rationale
+    and timestamp with the legacy one's — destroying a verdict, silently and
+    uncounted.
+
+    Reachable without the pairings route: boot 1 converts a decision; a legacy
+    decision boot 1 could not see — one obligation did not resolve, the class
+    this migration deliberately leaves to `repoint_decisions` — is repointed
+    onto live ids by a later rebuild; boot 2 converts it straight over the top.
+    Here the victim is recorded through `record_pairing`, the real write path,
+    because the verdict destroyed is not only a migrated one: any verdict a
+    reviewer records through the product can be sitting on that key.
+
+    The screen mirrors `repoint_decisions`, which faces the same problem and
+    refuses the same way: a decision whose new key already belongs to another
+    is left exactly as it was rather than merged over it."""
+    (older_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    (newer_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING],
+    )
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing,
+            old_id=older_id,
+            new_id=newer_id,
+            verdict="paired",
+            actor="alice",
+            rationale="the same duty, reworded",
+        )
+    # Converts to the key alice's verdict already holds, with a verdict that
+    # contradicts hers.
+    _legacy_decision(
+        clean_graph, database, source_id=newer_id, target_id=older_id,
+        verdict="reject",
+    )
+
+    counts = migrate_pairing_decisions(clean_graph, database)
+
+    assert counts["retired_pairing_exists"] == 1
+    assert counts["converted"] == 0
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.verdict AS verdict, p.actor AS actor, "
+        "p.rationale AS rationale, p.key AS key",
+        database_=database,
+    )
+    assert len(records) == 1
+    assert records[0]["verdict"] == "paired", "alice's verdict must not be replaced"
+    assert records[0]["actor"] == "alice"
+    assert records[0]["rationale"] == "the same duty, reworded"
+    assert records[0]["key"] == pairing_key(older_id, newer_id)
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:RetiredLinkDecision) RETURN d.retired_reason AS reason, "
+        "d.verdict AS verdict",
+        database_=database,
+    )
+    assert len(records) == 1
+    assert records[0]["reason"] == "pairing_exists"
+    # The legacy verdict is not converted, but neither is it discarded: it is
+    # readable under the archival label, which is what a reviewer needs to
+    # settle the disagreement by hand.
+    assert records[0]["verdict"] == "reject"
+
+    assert migrate_pairing_decisions(clean_graph, database) == ZEROS
+
+
+@pytest.mark.integration
+def test_two_paired_verdicts_on_one_clause_cannot_be_minted_across_two_runs(
+    clean_graph, database
+):
+    """The conflict rule was enforced within a run only. Run 1 converting A→B
+    and run 2 converting A→C leaves two live `paired` verdicts naming one
+    clause in one edition pair — the state the pairings route's 409 exists to
+    refuse (spec §6), minted by a writer that route does not guard, and
+    reachable because a decision can arrive between two boots.
+
+    The fix is that the endpoint rule reads the `:PairingDecision`s already in
+    the graph as well as the candidates in this batch — a live `paired` verdict
+    counts against its endpoints whichever run recorded it. The second clause's
+    decision is not converted, so the pair stays for a person to settle."""
+    (older_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    newer_a, newer_b = _seed_edition(
+        clean_graph, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING, SECOND_NEW],
+    )
+    _legacy_decision(clean_graph, database, source_id=newer_a, target_id=older_id)
+
+    first = migrate_pairing_decisions(clean_graph, database)
+    assert first["converted"] == 1
+
+    # The decision that arrived between two boots.
+    _legacy_decision(clean_graph, database, source_id=newer_b, target_id=older_id)
+
+    second = migrate_pairing_decisions(clean_graph, database)
+
+    assert second["converted"] == 0
+    assert second["retired_conflicting"] == 1
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision {verdict: 'paired'}) "
+        "RETURN p.new_obligation_id AS new",
+        database_=database,
+    )
+    assert [r["new"] for r in records] == [newer_a], (
+        "one clause may hold one live `paired` verdict per edition pair, "
+        "however many boots it takes to violate that"
+    )
+
+
+@pytest.mark.integration
 def test_an_unrecognised_verdict_is_retired_rather_than_raised(clean_graph, database):
     """A verdict neither vocabulary knows is corruption, and the migration
     still has to finish. Raising would be the usual choice and is the wrong one
@@ -390,6 +598,168 @@ def test_an_unrecognised_verdict_is_retired_rather_than_raised(clean_graph, data
     # Idempotent like the other two classes: the retired node stops matching
     # the read that found it, so the next boot reports nothing to do.
     assert migrate_pairing_decisions(clean_graph, database) == ZEROS
+
+
+@pytest.mark.integration
+def test_a_same_edition_decision_with_a_corrupt_verdict_reports_as_same_edition(
+    clean_graph, database
+):
+    """Precedence between the two guards, which is otherwise invisible: both
+    retire the node, so swapping the branches changes only which count reports
+    it — and a refactor that reordered them would have nothing to fail.
+
+    Same-edition wins because it is the stronger fact. That decision was never
+    going to have its verdict mapped, whatever the verdict said, so reporting
+    it as an unmappable verdict would claim a mapping was attempted and
+    failed — and would hide a genuinely corrupt row in a count an operator
+    reads as expected legacy."""
+    first, second = _seed_edition(
+        clean_graph, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING, SECOND_OLD],
+    )
+    _legacy_decision(
+        clean_graph, database, source_id=first, target_id=second, verdict="maybe",
+    )
+
+    counts = migrate_pairing_decisions(clean_graph, database)
+
+    assert counts["retired_same_edition"] == 1
+    assert counts["retired_unknown_verdict"] == 0
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:RetiredLinkDecision) RETURN d.retired_reason AS reason, "
+        "d.verdict AS verdict",
+        database_=database,
+    )
+    assert len(records) == 1
+    assert records[0]["reason"] == "same_edition"
+    assert records[0]["verdict"] == "maybe"
+
+
+@pytest.mark.integration
+def test_undated_editions_are_oriented_by_ingest_time(clean_graph, database):
+    """The second leg of the ordering tuple, which no other fixture reaches:
+    every other test here gives its editions distinct effective dates, and
+    `_seed_edition` writes no `ingested_at` at all, so reducing the whole tuple
+    to `effective_date` alone leaves them all green.
+
+    ADR-011 makes the date optional and `ingested_at` the designed fallback, so
+    an undated pair is not a hypothetical. Two things make this fixture bite
+    where an obvious one would not:
+
+    - The decision is written **older→newer**, so the correct answer is to
+      leave the orientation alone. Written the other way round it would pass
+      under a mutant that dropped the ordering entirely: two equal tuples take
+      the `else` arm, which swaps — and swapping a newer→older decision is
+      right by accident.
+    - The version ids are chosen so lexical order *contradicts* ingest order
+      (`zzz` ingested first), which kills an implementation that reached for
+      the id before the timestamp."""
+    (older_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@zzz", effective_date=None,
+        ingested_at="2019-01-01T00:00:00Z", statements=[OLD_WORDING],
+    )
+    (newer_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@aaa", effective_date=None,
+        ingested_at="2023-01-01T00:00:00Z", statements=[NEW_WORDING],
+    )
+    _legacy_decision(clean_graph, database, source_id=older_id, target_id=newer_id)
+
+    counts = migrate_pairing_decisions(clean_graph, database)
+
+    assert counts["converted"] == 1
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.old_obligation_id AS old, "
+        "p.new_obligation_id AS new, p.key AS key",
+        database_=database,
+    )
+    assert len(records) == 1
+    assert (records[0]["old"], records[0]["new"]) == (older_id, newer_id)
+    assert records[0]["key"] == pairing_key(older_id, newer_id)
+
+
+@pytest.mark.integration
+def test_editions_tied_on_date_and_ingest_time_are_oriented_by_version_id(
+    clean_graph, database
+):
+    """The third leg — the tie-breaker this feature adds, and the one Task 10's
+    POST has to agree with, since two writers computing a directional key from
+    two different orderings produce two nodes for one pair.
+
+    Two undated editions ingested in one instant tie on the first two legs, and
+    without the third neither orientation could be called older: the comparison
+    would be equal, the `else` arm would take it, and the pair would be swapped
+    whatever it said. The decision here is written older→newer, so swapping is
+    exactly the wrong answer and an implementation missing this leg records the
+    pair backwards."""
+    same_instant = "2020-06-01T12:00:00Z"
+    (older_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@aaa", effective_date=None,
+        ingested_at=same_instant, statements=[OLD_WORDING],
+    )
+    (newer_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@bbb", effective_date=None,
+        ingested_at=same_instant, statements=[NEW_WORDING],
+    )
+    _legacy_decision(clean_graph, database, source_id=older_id, target_id=newer_id)
+
+    counts = migrate_pairing_decisions(clean_graph, database)
+
+    assert counts["converted"] == 1
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.old_obligation_id AS old, "
+        "p.new_obligation_id AS new, p.key AS key",
+        database_=database,
+    )
+    assert len(records) == 1
+    assert (records[0]["old"], records[0]["new"]) == (older_id, newer_id)
+    assert records[0]["key"] == pairing_key(older_id, newer_id)
+
+
+@pytest.mark.integration
+def test_decisions_whose_obligations_lost_their_document_are_counted_not_touched(
+    clean_graph, database
+):
+    """Every query here routes through `:Document`, so a decision whose
+    obligations outlived their document is invisible to all of them — and stays
+    under `:LinkDecision`, where `PROMOTE` resurrects its edge on every replay.
+    A shipped route produces that state: `delete_document` removes the
+    document, its versions and their chunks, and leaves the obligations behind.
+
+    Counted and left alone, deliberately. Without documents there is no way to
+    tell a same-document verdict from a cross-document one, and retiring a
+    legitimate implements verdict would be this migration's own data loss. The
+    real repair is deletion cascading to obligations, which is a different
+    story. What this count buys is that the migration cannot report a graph
+    clean when it knows there is part of it that it could not see."""
+    (first_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    (second_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING],
+    )
+    _legacy_decision(clean_graph, database, source_id=second_id, target_id=first_id)
+    # Through the real route's function, not a hand-rolled delete: the point is
+    # that shipped behaviour produces this state.
+    delete_document(clean_graph, database, "doc")
+
+    counts = migrate_pairing_decisions(clean_graph, database)
+
+    assert counts["decisions_missing_documents"] == 1
+    assert counts == {**ZEROS, "decisions_missing_documents": 1}
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN d.verdict AS verdict, "
+        "d.retired_reason AS reason",
+        database_=database,
+    )
+    assert len(records) == 1, "an unclassifiable decision must be left exactly as it is"
+    assert records[0]["verdict"] == "approve"
+    assert records[0]["reason"] is None
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:RetiredLinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 0
 
 
 @pytest.mark.integration

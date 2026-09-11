@@ -59,6 +59,58 @@ RETURN d.key AS key,
        coalesce(toString(tv.ingested_at), '') AS target_ingested
 """
 
+# Decisions whose obligations both exist but do not both resolve through a
+# `:Document`. Every other query in this module routes through `:Document`, so
+# these are invisible to all of them — and a same-document one among them stays
+# under `:LinkDecision`, where `PROMOTE` resurrects its edge on every replay.
+# `delete_document` produces the state: it removes the document, its versions
+# and their chunks, and leaves the obligations behind (documents.py).
+#
+# Counted, never touched. Without documents there is no way to tell a
+# same-document verdict from a cross-document one, and retiring a legitimate
+# implements verdict would be this migration's own data loss. The repair is
+# deletion cascading to obligations, which is a different story; what belongs
+# here is that a run cannot report a graph clean when part of it was unreadable.
+DECISIONS_MISSING_DOCUMENTS = """
+MATCH (d:LinkDecision)
+MATCH (source:Obligation {obligation_id: d.source_obligation_id})
+MATCH (target:Obligation {obligation_id: d.target_obligation_id})
+WHERE NOT EXISTS {
+        MATCH (:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(source)
+      }
+   OR NOT EXISTS {
+        MATCH (:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(target)
+      }
+RETURN count(d) AS missing
+"""
+
+# Every `:PairingDecision` already in the graph, with its editions where they
+# can still be resolved. Two screens read this, and they need different halves
+# of it:
+#
+# - `key` is read for ALL of them, resolvable or not, because `CONVERT` MERGEs
+#   on that key and would overwrite whatever holds it. A stranded pairing
+#   decision — one whose obligations a re-extraction moved — is exactly as
+#   destructible as a live one, so the OPTIONAL MATCHes must not filter it out.
+# - the endpoints and editions are read only for live `paired` verdicts, to
+#   carry the conflict rule across runs. `old_obligation_id` is in the older
+#   edition by construction, so `(old_version, new_version)` lines up with the
+#   edition tuple the classifier builds; a mis-ordered decision produces a tuple
+#   that matches no candidate, which is a miss rather than a false conflict.
+EXISTING_PAIRINGS = """
+MATCH (p:PairingDecision)
+OPTIONAL MATCH (old_v:DocumentVersion)-[:MANDATES]->
+               (:Obligation {obligation_id: p.old_obligation_id})
+OPTIONAL MATCH (new_v:DocumentVersion)-[:MANDATES]->
+               (:Obligation {obligation_id: p.new_obligation_id})
+RETURN p.key AS key,
+       p.verdict AS verdict,
+       p.old_obligation_id AS old_id,
+       p.new_obligation_id AS new_id,
+       old_v.version_id AS old_version,
+       new_v.version_id AS new_version
+"""
+
 # Retirement: the label moves, the node stays. REMOVE :LinkDecision is the
 # entire idempotency mechanism — a retired node stops matching the read above —
 # and it is what takes the decision out of PROMOTE's match. The promoted edge
@@ -80,11 +132,22 @@ RETURN count(DISTINCT d) AS retired
 # Conversion carries the judgement, not the shape: the verdict is re-mapped by
 # the caller, actor/rationale/at copied verbatim, and the pair re-oriented
 # before the key is computed — `key` is a directional hash, so a mis-oriented
-# node carries one no pairings POST ever computes, and a re-verdict would MERGE
-# a second decision beside it instead of replacing it. MERGE, not CREATE, for
-# the same reason `record_pairing` MERGEs: one pair, one node, one key — which
-# also collapses the degenerate find of the same pair verdicted in both
-# directions onto a single node, last row winning.
+# node carries one the route that records pairing verdicts would never compute
+# (spec §6), and a re-verdict there would MERGE a second decision beside it
+# instead of replacing it.
+#
+# **This statement overwrites whatever holds `c.new_key`.** The MERGE finds an
+# existing node by key and the SET below is unconditional, so a key already
+# claimed — by a `:PairingDecision` in the graph, or by an earlier row of this
+# same batch — has its verdict, actor, rationale and timestamp replaced, and
+# the replacement is silent. `UNWIND` has no defined row order and
+# `SAME_DOCUMENT_DECISIONS` has no ORDER BY, so which human's verdict survives
+# would not even be deterministic.
+#
+# It is safe only because the caller screens every row first: no two rows here
+# share a `new_key`, and no `new_key` belongs to a decision that already
+# exists. Those screens are load-bearing, not defensive — do not relax one
+# without replacing it.
 CONVERT = """
 UNWIND $conversions AS c
 MATCH (d:LinkDecision {key: c.old_key})
@@ -97,12 +160,12 @@ SET p.old_obligation_id = c.old_id,
     p.at                = d.at
 SET d:RetiredLinkDecision, d.retired_reason = 'converted'
 REMOVE d:LinkDecision
-WITH d
+WITH d, p
 OPTIONAL MATCH (:Obligation {obligation_id: d.source_obligation_id})
               -[r:IMPLEMENTS]->
               (:Obligation {obligation_id: d.target_obligation_id})
 DELETE r
-RETURN count(DISTINCT d) AS converted
+RETURN count(DISTINCT p) AS converted
 """
 
 # Derived, undecidable after the recorder's guard, and matched by the review
@@ -190,15 +253,61 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
             }
         )
 
-    # Two convertible approvals sharing an endpoint within one edition pair
-    # would convert into exactly the two-live-`paired`-verdicts state the
-    # pairings POST's 409 exists to refuse — minted by a writer that route
-    # does not guard. Neither converts; the reviewer re-records the one they
-    # mean through the route, which enforces the conflict rule. Scoped per
-    # edition pair on purpose: a middle edition's clause paired into both
+    existing = list(tx.run(EXISTING_PAIRINGS)) if convertible else []
+
+    # Screen 1, against the graph: a conversion whose key another decision
+    # already holds must not convert, because `CONVERT` would MERGE onto that
+    # node and overwrite a verdict, an actor and a rationale that a person put
+    # there. Not this migration's to replace — retired instead, so the legacy
+    # verdict stays readable under the archival label and a reviewer can settle
+    # the disagreement themselves.
+    #
+    # This is `repoint_decisions`' rule (links/decisions.py), which faces the
+    # same hazard and answers it the same way: a decision whose new key already
+    # belongs to another is left as it was rather than merged over it.
+    taken_keys = {row["key"] for row in existing}
+    pairing_exists_keys = {
+        candidate["old_key"]
+        for candidate in convertible
+        if candidate["new_key"] in taken_keys
+    }
+
+    # Screen 2, the conflict rule, in two halves that are one rule.
+    #
+    # (a) Two candidates computing ONE key are two verdicts on one pair, written
+    # in opposite orientations — reachable because the pre-guard `propose_links`
+    # wrote proposals org→candidate, so rebuilding X against Y and later Y
+    # against X produced both directions and each was independently reviewable.
+    # They cannot both be recorded and neither may be chosen, so both retire.
+    # Detected by key rather than by endpoint on purpose: the endpoint half
+    # below counts `paired` verdicts only, so a `paired`/`distinct` disagreement
+    # on one pair passes it untouched — and widening that half to every verdict
+    # would wrongly refuse a legitimate `paired` on (X,Y) beside a `distinct` on
+    # (X,Z), which share an endpoint and must both convert.
+    #
+    # (b) Two `paired` verdicts naming one clause within one edition pair are
+    # the state the pairing route is specified to refuse with a 409 (spec §6) —
+    # and when that route lands this writer will not be behind it, so the rule
+    # has to hold here on its own.
+    # Scoped per edition pair, so a middle edition's clause paired into both
     # adjacent pairs is legitimate and passes. `distinct` verdicts never
-    # conflict — the 409 refuses only a second live `paired`.
+    # conflict — only a second live `paired` does. The already-recorded
+    # decisions are counted alongside the candidates, which is what makes the
+    # rule hold across runs as well as within one: a decision arriving between
+    # two boots would otherwise convert beside a `paired` verdict an earlier
+    # boot had already minted on the same clause.
+    key_claims: Counter = Counter(
+        candidate["new_key"] for candidate in convertible
+    )
     paired_endpoints: Counter = Counter()
+    for row in existing:
+        if row["verdict"] != PairingVerdict.PAIRED.value:
+            continue
+        if row["old_version"] is None or row["new_version"] is None:
+            continue
+        editions = (row["old_version"], row["new_version"])
+        paired_endpoints[(editions, row["old_id"])] += 1
+        paired_endpoints[(editions, row["new_id"])] += 1
     for candidate in convertible:
         if candidate["verdict"] != PairingVerdict.PAIRED.value:
             continue
@@ -207,10 +316,16 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
     conflicting_keys = {
         candidate["old_key"]
         for candidate in convertible
-        if candidate["verdict"] == PairingVerdict.PAIRED.value
+        if candidate["old_key"] not in pairing_exists_keys
         and (
-            paired_endpoints[(candidate["editions"], candidate["old_id"])] > 1
-            or paired_endpoints[(candidate["editions"], candidate["new_id"])] > 1
+            key_claims[candidate["new_key"]] > 1
+            or (
+                candidate["verdict"] == PairingVerdict.PAIRED.value
+                and (
+                    paired_endpoints[(candidate["editions"], candidate["old_id"])] > 1
+                    or paired_endpoints[(candidate["editions"], candidate["new_id"])] > 1
+                )
+            )
         )
     }
     conversions = [
@@ -223,6 +338,7 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
         }
         for candidate in convertible
         if candidate["old_key"] not in conflicting_keys
+        and candidate["old_key"] not in pairing_exists_keys
     ]
 
     implements_deleted = 0
@@ -249,6 +365,15 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
         retired_conflicting = result.single()["retired"]
         implements_deleted += result.consume().counters.relationships_deleted
 
+    retired_pairing_exists = 0
+    if pairing_exists_keys:
+        result = tx.run(
+            RETIRE,
+            {"keys": sorted(pairing_exists_keys), "reason": "pairing_exists"},
+        )
+        retired_pairing_exists = result.single()["retired"]
+        implements_deleted += result.consume().counters.relationships_deleted
+
     converted = 0
     if conversions:
         result = tx.run(CONVERT, {"conversions": conversions})
@@ -261,38 +386,60 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
         .counters.relationships_deleted
     )
 
+    # Read last, after every retirement: a decision retired above no longer
+    # wears `:LinkDecision` and so cannot be counted here as well. Anything this
+    # reports is a decision no screen above could even see.
+    missing_documents = tx.run(DECISIONS_MISSING_DOCUMENTS).single()["missing"]
+
     return {
         "converted": converted,
         "retired_same_edition": retired_same_edition,
         "retired_conflicting": retired_conflicting,
         "retired_unknown_verdict": retired_unknown_verdict,
+        "retired_pairing_exists": retired_pairing_exists,
         "implements_deleted": implements_deleted,
         "proposals_deleted": proposals_deleted,
+        "decisions_missing_documents": missing_documents,
     }
 
 
 def migrate_pairing_decisions(driver: Driver, database: str) -> dict[str, int]:
-    """Convert, retire and clean up in one transaction; return the five counts.
+    """Convert, retire and clean up in one transaction; return the counts.
 
     One transaction on purpose: a conversion that landed without its
     retirement would leave a decision `PROMOTE` still matches, and the next
     replay would resurrect the very edge the conversion just deleted. Keys:
 
-    - `converted` — same-document decisions re-recorded as `:PairingDecision`,
-      re-oriented older→newer by the corpus rule.
+    - `converted` — `:PairingDecision` nodes minted, re-oriented older→newer by
+      the corpus rule. Counted over the nodes written rather than over the
+      decisions retired, so that the two numbers disagree loudly if a screen
+      below ever stops holding and two originals collapse onto one node.
     - `retired_same_edition` — decisions between two clauses of one edition.
-    - `retired_conflicting` — approvals sharing an endpoint within one edition
-      pair; the reviewer re-records the survivor through the pairings route.
+    - `retired_conflicting` — two verdicts the migration must not choose
+      between: two decisions on one pair written in opposite orientations, or
+      two `paired` verdicts naming one clause within one edition pair. A person
+      re-records the one they mean, through the pairing route once it exists
+      (spec §6).
     - `retired_unknown_verdict` — decisions carrying a verdict no vocabulary
       recognises. Non-zero means corruption and is worth investigating, but it
       does not stop the run: raising inside `lifespan` would cost the whole
       application over one node.
+    - `retired_pairing_exists` — decisions whose pair a `:PairingDecision`
+      already answers. Converting would overwrite that verdict, actor and
+      rationale silently; the legacy one is retired unread instead.
     - `implements_deleted` — promoted same-document edges removed with their
       decisions.
     - `proposals_deleted` — same-document `IMPLEMENTS_PROPOSED` edges removed.
+    - `decisions_missing_documents` — decisions this run could not classify at
+      all, because their obligations no longer resolve to a `:Document`.
+      Reported, never touched. **Non-zero means the graph holds same-document
+      `IMPLEMENTS` edges this migration could not reach**, so it is the one
+      count whose zero is load-bearing for the others' completeness.
 
     A second run returns zeros: nothing a run converts or retires still
-    matches the queries that found it.
+    matches the queries that found it. `decisions_missing_documents` is the
+    exception and reports the same number every boot, because it is a census
+    rather than a unit of work.
     """
     with driver.session(database=database) as session:
         return session.execute_write(_migrate)
