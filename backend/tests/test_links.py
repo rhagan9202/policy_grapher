@@ -2,7 +2,11 @@ import pytest
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
-from policy_grapher.extraction.schema import ExtractedObligation, Modality
+from policy_grapher.extraction.schema import (
+    ExtractedObligation,
+    Modality,
+    obligation_id,
+)
 from policy_grapher.links.decisions import (
     LINK_SCHEMA,
     DecisionSchema,
@@ -1180,3 +1184,119 @@ def test_a_schema_refuses_a_label_or_property_that_is_not_an_identifier():
     # And the rule must not be one the real schemas cannot satisfy.
     assert LINK_SCHEMA.label == "LinkDecision"
     assert PAIRING_SCHEMA.label == "PairingDecision"
+
+
+# --- IMPLEMENTS is cross-document only, enforced at the recorder (spec §8) ----
+
+
+def _seed_two_editions(driver, database):
+    """One document, two editions, one obligation each — the configuration whose
+    IMPLEMENTS question `record_decision` must refuse. Returns the two
+    obligation ids, older edition first."""
+    ids = []
+    for version_id, statement in (("doc@2018", ORG), ("doc@2022", HIGHER)):
+        driver.execute_query(
+            "MERGE (d:Document {slug: 'doc', name: 'DOC'}) "
+            "MERGE (d)-[:HAS_VERSION]->(:DocumentVersion {version_id: $vid, "
+            "checksum: $vid, source_uri: 'file:///x.pdf'})",
+            {"vid": version_id},
+            database_=database,
+        )
+        chunk = chunk_pages(["1.1. DUTIES.\nBody.\n"], version_id=version_id)[-1]
+        with driver.session(database=database) as session:
+            session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+            session.execute_write(
+                write_obligations,
+                version_id=version_id,
+                chunk_id=chunk.chunk_id,
+                section_path=chunk.section_path,
+                obligations=[
+                    ExtractedObligation(
+                        statement=statement,
+                        modality=Modality.MUST,
+                        actor=None,
+                        deadline=None,
+                        conditions=None,
+                        confidence=0.9,
+                    )
+                ],
+            )
+        ids.append(obligation_id(version_id, chunk.section_path, statement))
+    return tuple(ids)
+
+
+@pytest.mark.integration
+def test_a_same_document_pair_is_refused_by_record_decision(clean_graph, database):
+    """`IMPLEMENTS` is cross-document only (spec §8). Between two editions of one
+    document the question is pairing, and a verdict recorded here would be
+    matched by `PROMOTE` — which has no document predicate — on every review
+    POST and every rebuild."""
+    older, newer = _seed_two_editions(clean_graph, database)
+
+    with pytest.raises(ValueError, match="pairing") as refusal:
+        _decide(clean_graph, database, source=newer, target=older, verdict="approve")
+
+    # The slug, quoted as the message interpolates it. Naming the instrument is
+    # the difference between a refusal an operator can act on and one they have
+    # to reproduce: the two ids in the message are content hashes.
+    assert "'doc'" in str(refusal.value)
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 0
+
+
+@pytest.mark.integration
+def test_a_decision_on_ids_the_graph_cannot_resolve_still_records(
+    clean_graph, database
+):
+    """The repoint tests above record verdicts on ids that resolve to nothing,
+    and ADR-027's whole repair path depends on that staying possible: a decision
+    stranded by a re-extraction is still a fact a human established, and must
+    remain recordable and re-recordable. Only a pair that BOTH resolves and
+    resolves to one document is refused."""
+    _decide(clean_graph, database, source="gone-a", target="gone-b", verdict="approve")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN d.verdict AS verdict", database_=database
+    )
+    assert [r["verdict"] for r in records] == ["approve"]
+
+
+@pytest.mark.integration
+def test_a_decision_with_only_one_side_resolvable_still_records(clean_graph, database):
+    """Half-stranded, which is the shape ADR-027 actually produces: a
+    re-extraction drops one obligation of a pair and leaves the other, which is
+    why `UNPROMOTABLE` joins its two absence checks with `OR` and not `AND`.
+
+    Not covered by the both-gone test above, and the difference is a whole
+    implementation: a guard phrased as "the obligations I can see belong to one
+    document" refuses this pair, because the one surviving side belongs to
+    exactly one document. Both orientations, so a guard anchored on only the
+    source or only the target is caught as well.
+    """
+    section_path = _seed_version(
+        clean_graph, database, version_id="org", statements=[ORG]
+    )
+    alive = obligation_id("org", section_path, ORG)
+
+    _decide(clean_graph, database, source=alive, target="gone", verdict="approve")
+    _decide(clean_graph, database, source="gone", target=alive, verdict="approve")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 2
+
+
+@pytest.mark.integration
+def test_a_cross_document_decision_still_records(clean_graph, database):
+    """The guard is about one document, not about resolvable obligations."""
+    source, target = _seed_proposal(clean_graph, database)
+    _decide(clean_graph, database, source=source, target=target, verdict="approve")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 1

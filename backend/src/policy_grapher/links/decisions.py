@@ -40,6 +40,22 @@ SET d.source_obligation_id = $source_id,
     d.at                   = datetime()
 """
 
+# Membership, read in the transaction the verdict would land in. Two obligations
+# `:MANDATES`-ed by editions of one `:Document` are the pairing question wearing
+# the wrong vocabulary — an edition does not discharge its predecessor — and
+# `IMPLEMENTS` is cross-document only (spec §8). A pair that does not BOTH
+# resolve is allowed through: `:LinkDecision` outlives its obligations by design
+# (`repoint_decisions` repairs them, `unpromotable` counts them), and refusing
+# an unresolvable id here would make a stranded verdict unrecordable.
+SAME_DOCUMENT = """
+MATCH (source:Obligation {obligation_id: $source_id})
+MATCH (target:Obligation {obligation_id: $target_id})
+MATCH (doc:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(source)
+MATCH (doc)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(target)
+RETURN doc.slug AS slug
+LIMIT 1
+"""
+
 # Approvals whose obligations both still exist. Written as a MERGE so replay is
 # idempotent, and scoped by the decision so nothing else can reach this edge type.
 PROMOTE = """
@@ -340,10 +356,25 @@ def record_decision(
     one current verdict, not two contradictory records for a replay to choose
     between. The history that a control framework might want is not kept here —
     see ADR-014 on what `:LinkDecision`'s shape leaves open.
+
+    A pair inside one document is refused. `PROMOTE` has no document predicate,
+    so a same-document approval recorded here would resurrect a same-document
+    `IMPLEMENTS` on every replay; the question between two editions of one
+    instrument is pairing, and it has its own canonical node (spec §4, §8).
     """
     if verdict not in set(Verdict):
         raise ValueError(
             f"unknown verdict {verdict!r}; expected one of {[v.value for v in Verdict]}"
+        )
+    same_document = tx.run(
+        SAME_DOCUMENT, {"source_id": source_id, "target_id": target_id}
+    ).single()
+    if same_document is not None:
+        raise ValueError(
+            f"{source_id!r} and {target_id!r} are both mandated by editions of "
+            f"{same_document['slug']!r}. Within one document the question is "
+            "pairing, not implementation — that verdict belongs on a "
+            ":PairingDecision, not here."
         )
     tx.run(
         RECORD_DECISION,
