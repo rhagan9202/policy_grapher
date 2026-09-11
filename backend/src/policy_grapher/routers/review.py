@@ -215,5 +215,12 @@ def decide(
         )
         return replay_decisions(tx)
 
-    with driver.session(database=settings.neo4j_database) as session:
-        return session.execute_write(_write)
+    try:
+        with driver.session(database=settings.neo4j_database) as session:
+            return session.execute_write(_write)
+    except ValueError as exc:
+        # record_decision's same-document refusal (spec §8): the pair is a
+        # pairing question, and the verdict belongs on the pairings route. The
+        # unknown-verdict ValueError cannot arrive here — it is screened above
+        # before the transaction opens.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

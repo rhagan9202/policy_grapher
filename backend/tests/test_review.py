@@ -4,7 +4,11 @@ import pytest
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
-from policy_grapher.extraction.schema import ExtractedObligation, Modality
+from policy_grapher.extraction.schema import (
+    ExtractedObligation,
+    Modality,
+    obligation_id,
+)
 from policy_grapher.links.propose import propose_links
 from policy_grapher.models import ReviewQueueOut
 from policy_grapher.obligations import write_obligations
@@ -439,3 +443,75 @@ def test_pending_counts_what_is_undecided_not_what_fits_on_the_page(client_with_
 
     assert len(body["items"]) == 1
     assert body["pending"] == 2
+
+
+def _seed_edition_of(driver, database, *, slug, version_id, statement):
+    """One edition of a named document — unlike `_seed_version`, which mints a
+    document per version and so can never build the same-document shape."""
+    driver.execute_query(
+        "MERGE (d:Document {slug: $slug, name: $slug}) "
+        "MERGE (d)-[:HAS_VERSION]->(:DocumentVersion {version_id: $vid, "
+        "checksum: $vid, source_uri: 'file:///x.pdf'})",
+        {"slug": slug, "vid": version_id},
+        database_=database,
+    )
+    chunk = chunk_pages(
+        ["CHAPTER 2\n2.4. DUTIES.\nBody text.\n"], version_id=version_id
+    )[-1]
+    with driver.session(database=database) as session:
+        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+        session.execute_write(
+            write_obligations,
+            version_id=version_id,
+            chunk_id=chunk.chunk_id,
+            section_path=chunk.section_path,
+            obligations=[
+                ExtractedObligation(
+                    statement=statement,
+                    modality=Modality.MUST,
+                    actor=None,
+                    deadline=None,
+                    conditions=None,
+                    confidence=0.9,
+                )
+            ],
+        )
+    return obligation_id(version_id, chunk.section_path, statement)
+
+
+@pytest.mark.integration
+def test_a_same_document_verdict_is_a_400(client_with_auth):
+    """`IMPLEMENTS` is cross-document only. `propose_links` no longer creates a
+    same-document proposal and the startup migration deletes the legacy ones,
+    but the graph this route meets is whatever it is — the guard in
+    `record_decision` is the enforcement, and the route must translate its
+    refusal into a 400 rather than 500 on it."""
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+
+    older = _seed_edition_of(
+        driver, database, slug="doc", version_id="doc@2018", statement=ORG
+    )
+    newer = _seed_edition_of(
+        driver, database, slug="doc", version_id="doc@2022", statement=HIGHER
+    )
+    # Raw on purpose: this edge can only exist as an inheritance from before
+    # the split, which is exactly the state the guard exists to meet.
+    driver.execute_query(
+        "MATCH (a:Obligation {obligation_id: $a}), (b:Obligation {obligation_id: $b}) "
+        "MERGE (a)-[:IMPLEMENTS_PROPOSED {confidence: 0.9, rationale: 'legacy', "
+        "proposer: 'lexical-v1'}]->(b)",
+        {"a": newer, "b": older},
+        database_=database,
+    )
+
+    response = client_with_auth.post(
+        f"/review/{newer}/{older}", json={"verdict": "approve", "rationale": "r"}
+    )
+
+    assert response.status_code == 400
+    assert "pairing" in response.json()["detail"]
+    records, _, _ = driver.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 0, "a refused verdict must leave no audit record"
