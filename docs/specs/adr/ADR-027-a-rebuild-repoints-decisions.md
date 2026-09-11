@@ -67,6 +67,25 @@ recording the gap rather than closing it: widening the count is a behaviour chan
 going to promote anything. That is its own item, and the requirement below is about the count
 that does exist.
 
+> **Superseded on 2026-09-11, twice over.** STORY-076 closed the gap this section records:
+> `REJECTIONS_STRANDED` counts an unrepaired rejection, and `replay_decisions` returns it as
+> `rejections_stranded` beside `unpromotable`. The two stayed separate for the reason argued
+> above — "unpromotable" is the wrong name for a verdict that was never going to promote — and
+> because the losses differ: a stranded approval leaves a link missing and the proposal returns
+> to the queue, while a stranded rejection leaves a suppression nobody applies, so the proposal
+> returns and nothing tells the reviewer they already refused it.
+>
+> The pairing split then added a second decision vocabulary. `:PairingDecision` repoints through
+> the same path (its schema parameterises the label, both property names and the key function),
+> and `pairing_decisions_stranded` counts `paired` and `distinct` together in ONE number — not
+> the link side's two. That is deliberate, not an oversight: both pairing verdicts lose the same
+> way, the pair simply returns to the queue unanswered, so there is no second event to name. The
+> link side's split exists because STORY-076 had to retrofit one.
+>
+> What stands unchanged is everything above this note about *which* decisions fall through
+> unrepaired — a moved statement, or a statement two obligations share — and the requirement
+> below that the count be on screen rather than merely returned.
+
 The count that does exist is why this ADR requires `unpromotable` to be on screen rather than
 merely returned by the API — a rebuild that silently repaired most decisions and said nothing
 about the rest would look complete in exactly the case where it is not.
