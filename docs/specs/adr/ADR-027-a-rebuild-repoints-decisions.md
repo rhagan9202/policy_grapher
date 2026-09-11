@@ -44,7 +44,8 @@ holds cannot write both. Two human verdicts are never silently merged into one; 
 happens, the older decision keeps deciding and the one that lost the collision is left
 unrepaired rather than overwriting or being overwritten. If that stranded decision is an
 *approval*, `unpromotable` counts it; if it is a rejection, nothing counts it — see
-**Makes hard** below.
+**Makes hard** below. (Both are counted now: `rejections_stranded` closed that gap, and the
+superseding note under **Makes hard** records what else has changed since.)
 
 ## Consequences
 
@@ -85,6 +86,12 @@ that does exist.
 > What stands unchanged is everything above this note about *which* decisions fall through
 > unrepaired — a moved statement, or a statement two obligations share — and the requirement
 > below that the count be on screen rather than merely returned.
+>
+> **That requirement is not yet met for the new count.** `unpromotable` and
+> `rejections_stranded` are rendered on the rebuild panel; `pairing_decisions_stranded` is
+> returned by the rebuild and displayed nowhere. By this ADR's own argument that is the state it
+> exists to forbid — a rebuild that repaired most decisions and said nothing about the rest looks
+> complete in exactly the case where it is not. The pairing screen task owes it.
 
 The count that does exist is why this ADR requires `unpromotable` to be on screen rather than
 merely returned by the API — a rebuild that silently repaired most decisions and said nothing
