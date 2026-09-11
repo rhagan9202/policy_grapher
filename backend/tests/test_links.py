@@ -1026,6 +1026,74 @@ def test_a_pairing_repoint_that_would_collide_leaves_the_existing_verdict_alone(
     ]
 
 
+@pytest.mark.integration
+def test_a_key_an_unrelated_link_decision_holds_does_not_strand_a_pairing(
+    clean_graph, database
+):
+    """`EXISTING_KEYS` is scoped by label, and that is load-bearing rather than
+    decorative: `decision_key` and `pairing_key` have byte-identical bodies, so
+    a `:LinkDecision` can hold the exact key string a `:PairingDecision` is
+    about to move onto. The two uniqueness constraints are per-label, so both
+    keys may coexist, and the pairing verdict is perfectly repairable.
+
+    Dropping the label from that query looks like a tidy — a key alone appears
+    to identify a decision — and the failure it causes is silent and plausible:
+    the pairing collides with a link decision that merely shares a hash input,
+    is skipped, and is then reported to a reviewer as a verdict that could not
+    be repaired. Nothing about the two decisions was related; only the label in
+    that query stands between the reviewer and a false report.
+    """
+    from policy_grapher.links.decisions import repoint_decisions
+
+    # The premise, asserted rather than assumed. If the two key functions ever
+    # stop agreeing there is no collision left to screen and this test proves
+    # nothing — it should be revisited then, not deleted, because the property
+    # it guards is that `EXISTING_KEYS` never reads another label's keys.
+    assert pairing_key("new-a", "new-b") == decision_key("new-a", "new-b")
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing, old_id="old-a", new_id="old-b",
+            verdict="paired", actor="reviewer", rationale="the reworded duty",
+        )
+        # Unrelated in every way except the hash of its two ids.
+        session.execute_write(
+            record_decision, source_id="new-a", target_id="new-b",
+            verdict="approve", actor="someone else", rationale="another question",
+        )
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={"old-a": "statement one", "old-b": "statement two"},
+            after={"statement one": "new-a", "statement two": "new-b"},
+            schema=PAIRING_SCHEMA,
+        )
+
+    assert repointed == 1, "a foreign label's key is not this schema's collision"
+
+    pairings, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.old_obligation_id AS old, "
+        "p.new_obligation_id AS new, p.key AS key, p.verdict AS verdict",
+        database_=database,
+    )
+    assert [(r["old"], r["new"], r["verdict"]) for r in pairings] == [
+        ("new-a", "new-b", "paired")
+    ]
+    assert pairings[0]["key"] == pairing_key("new-a", "new-b")
+
+    # And the link decision it now shares a key string with is untouched. Both
+    # rows exist at once, which is what the per-label constraints permit and
+    # what an unlabelled screen would have read as one decision.
+    links, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN d.source_obligation_id AS s, "
+        "d.target_obligation_id AS t, d.key AS key, d.verdict AS verdict",
+        database_=database,
+    )
+    assert [(r["s"], r["t"], r["verdict"]) for r in links] == [
+        ("new-a", "new-b", "approve")
+    ]
+    assert links[0]["key"] == decision_key("new-a", "new-b")
+
+
 def _tagged_key(source_id: str, target_id: str) -> str:
     """A key function no real schema would use, so a repoint that calls a
     production key function instead of the schema's own is visible in the key
