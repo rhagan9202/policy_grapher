@@ -10,7 +10,12 @@ from neo4j import Driver, RoutingControl
 from policy_grapher.auth import Principal, require_principal
 from policy_grapher.config import Settings
 from policy_grapher.dependencies import get_app_settings, get_driver
-from policy_grapher.links.decisions import Verdict, record_decision, replay_decisions
+from policy_grapher.links.decisions import (
+    SameDocumentPair,
+    Verdict,
+    record_decision,
+    replay_decisions,
+)
 from policy_grapher.models import (
     ObligationCitationOut,
     ReviewItemOut,
@@ -218,9 +223,16 @@ def decide(
     try:
         with driver.session(database=settings.neo4j_database) as session:
             return session.execute_write(_write)
-    except ValueError as exc:
+    except SameDocumentPair as exc:
         # record_decision's same-document refusal (spec §8): the pair is a
-        # pairing question, and the verdict belongs on the pairings route. The
-        # unknown-verdict ValueError cannot arrive here — it is screened above
-        # before the transaction opens.
+        # pairing question, and the verdict belongs on the pairings route.
+        #
+        # Caught by type, not as `ValueError`. The driver raises a bare
+        # `ValueError` out of `execute_write` when a parameter cannot be packed,
+        # and a 400 carrying this refusal's wording would tell a reviewer their
+        # two clauses share a document when what actually broke was ours to fix
+        # — a lie about their data, and one that sends them to the wrong screen.
+        # A fault we cannot explain must stay a 500. The unknown-verdict
+        # `ValueError` cannot arrive here either: it is screened above, before
+        # the transaction opens.
         raise HTTPException(status_code=400, detail=str(exc)) from exc

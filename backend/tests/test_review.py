@@ -515,3 +515,39 @@ def test_a_same_document_verdict_is_a_400(client_with_auth):
         "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
     )
     assert records[0]["total"] == 0, "a refused verdict must leave no audit record"
+
+
+@pytest.mark.integration
+def test_a_fault_inside_the_write_is_not_reported_as_a_same_document_refusal(
+    queued, monkeypatch
+):
+    """400 here means one thing: "your pair is a pairing question, take it to the
+    pairings screen". Any other failure inside the write transaction is ours, and
+    answering it with that status and that wording tells a reviewer something
+    false about their data — these two clauses share a document — and sends them
+    somewhere that cannot help.
+
+    `ValueError` is not this module's private signal, which is the whole reason
+    the refusal is a type. The driver raises a bare one out of `execute_write`
+    when a parameter cannot be packed; that it cannot happen today rests on all
+    five parameters being `str`, not on anything structural. Faked here rather
+    than provoked, because the route's parameters all arrive through path and
+    body validation and none of them can be made unpackable from outside.
+    """
+    item = queued.get("/review/queue").json()["items"][0]
+    source, target = item["source"]["obligation_id"], item["target"]["obligation_id"]
+
+    def _unpackable(tx):
+        raise ValueError("Parameters of type object are not supported")
+
+    monkeypatch.setattr(
+        "policy_grapher.routers.review.replay_decisions", _unpackable
+    )
+
+    # Propagates as a server fault. TestClient re-raises rather than returning
+    # 500, so the raise *is* the assertion that no 400 was manufactured.
+    with pytest.raises(ValueError, match="not supported"):
+        queued.post(
+            f"/review/{source}/{target}",
+            json={"verdict": "approve", "rationale": "r"},
+        )

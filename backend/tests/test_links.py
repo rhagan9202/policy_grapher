@@ -1236,9 +1236,15 @@ def test_a_same_document_pair_is_refused_by_record_decision(clean_graph, databas
     with pytest.raises(ValueError, match="pairing") as refusal:
         _decide(clean_graph, database, source=newer, target=older, verdict="approve")
 
-    # The slug, quoted as the message interpolates it. Naming the instrument is
-    # the difference between a refusal an operator can act on and one they have
-    # to reproduce: the two ids in the message are content hashes.
+    # Quoted, and the quotes are load-bearing rather than cosmetic: every
+    # phrasing of this refusal contains the word "document", so a bare "doc"
+    # is satisfied by the prose alone — including the prose of a guard that
+    # refuses every pair it cannot prove cross-document, which is the
+    # wrong-way-round implementation this assertion exists to catch. Written
+    # unquoted it passes on that mutant and pins nothing.
+    #
+    # Naming the instrument at all is what makes the refusal actionable: the
+    # two ids in the message are content hashes.
     assert "'doc'" in str(refusal.value)
 
     records, _, _ = clean_graph.execute_query(

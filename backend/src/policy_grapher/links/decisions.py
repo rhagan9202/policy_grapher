@@ -56,6 +56,25 @@ RETURN doc.slug AS slug
 LIMIT 1
 """
 
+
+class SameDocumentPair(ValueError):
+    """`record_decision` refusing a pair that resolves to one `:Document`.
+
+    A type rather than a message, because the route has to tell a refusal it can
+    explain to a person from a fault it cannot. `ValueError` alone cannot carry
+    that distinction: the driver raises a bare `ValueError` out of
+    `execute_write` when a parameter cannot be packed, so an `except ValueError`
+    in the route would answer a serialisation bug with "these two clauses are in
+    the same document" — a 400 blaming a reviewer's data for a defect in ours.
+    That today's five parameters are all `str` is a fact about five variables,
+    not a structural guarantee, and it is not what should be holding this up.
+
+    Subclasses `ValueError` so nothing that already catches or expects one has
+    to change: the narrowing is in what the route catches, not in what
+    `record_decision` promises its callers.
+    """
+
+
 # Approvals whose obligations both still exist. Written as a MERGE so replay is
 # idempotent, and scoped by the decision so nothing else can reach this edge type.
 PROMOTE = """
@@ -370,7 +389,7 @@ def record_decision(
         SAME_DOCUMENT, {"source_id": source_id, "target_id": target_id}
     ).single()
     if same_document is not None:
-        raise ValueError(
+        raise SameDocumentPair(
             f"{source_id!r} and {target_id!r} are both mandated by editions of "
             f"{same_document['slug']!r}. Within one document the question is "
             "pairing, not implementation — that verdict belongs on a "
