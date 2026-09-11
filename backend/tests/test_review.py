@@ -6,6 +6,7 @@ from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.links.propose import propose_links
+from policy_grapher.models import ReviewQueueOut
 from policy_grapher.obligations import write_obligations
 
 HIGHER = "Components must document the cybersecurity strategy in the engineering plan."
@@ -325,6 +326,33 @@ def test_the_queue_reports_two_documents_that_could_be_linked(client_with_auth):
 
     assert body["editions_with_obligations"] == 2
     assert body["documents_with_obligations"] == 2
+
+
+def test_the_review_queue_payload_carries_exactly_these_fields():
+    """Not a test of the field names. A test that renaming one is deliberate.
+
+    `frontend/src/api/types.ts` declares `ReviewQueue` by hand, and nothing
+    checks the two declarations against each other. The dangerous direction was
+    measured on this branch: with this payload renamed and the frontend left at
+    its previous revision, `npm test` is fully green — eslint, `tsc -b`, all
+    232 tests — while the screen reads a field that no longer arrives, gets
+    `undefined`, falls through `undefined === 0`, and prints "Nothing is
+    waiting for review." over a corpus where no proposal is possible. That is
+    the false all-clear STORY-090 exists to prevent, delivered from behind a
+    green gate. TypeScript catches only the opposite direction, where a stale
+    screen meets a renamed `types.ts` and `tsc` fails with TS2339.
+
+    Every other test in this file reads the payload by key and so pins the
+    names too, but each does it while asking about something else and none of
+    them says where the other half of the mirror lives. Changing this set is
+    fine; changing it without opening `types.ts` is the defect.
+    """
+    assert set(ReviewQueueOut.model_fields) == {
+        "items",
+        "editions_with_obligations",
+        "documents_with_obligations",
+        "pending",
+    }
 
 
 @pytest.mark.integration
