@@ -88,6 +88,13 @@ def start_rebuild(
 
     The body is optional; an empty POST is a rebuild with no proposals.
 
+    **A candidate in the same document as this edition yields nothing.**
+    `propose_links` skips any pair whose two obligations share a `:Document`:
+    between two editions of one instrument the question is whether the newer
+    clause is the older one reworded, which is the diff's, not whether one
+    discharges the other. Naming a sibling edition is accepted — it exists, so
+    the 404 check above passes — and the rebuild reports `proposed: 0`.
+
     **Known limitation.** Rebuilding edition V `DETACH DELETE`s V's obligations,
     and that takes with it any `IMPLEMENTS_PROPOSED` edge pointing *at* V that a
     rebuild of some other edition W created. So rebuilding a higher-tier edition
