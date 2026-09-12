@@ -46,6 +46,13 @@ export default function DocumentDetail() {
   const [error, setError] = useState<string | null>(null)
   const [namesBySlug, setNamesBySlug] = useState<Map<string, string>>(new Map())
 
+  // What the build fieldset offers: every *other* document's editions, each with
+  // the document it belongs to. Not derived from `namesBySlug`, which holds names
+  // for this document's references only.
+  const [pool, setPool] = useState<
+    { slug: string; name: string; versions: DocumentVersionOut[] }[]
+  >([])
+
   // Building the derived layer (STORY-061). The routes shipped in sprint 4 and the
   // client modelled neither, so this — sprint 4's whole deliverable — could only be
   // reached with curl.
@@ -125,6 +132,51 @@ export default function DocumentDetail() {
       cancelled = true
     }
   }, [])
+
+  // The candidates the fieldset below can propose against. `IMPLEMENTS` is
+  // cross-document only, so the pool is other documents' editions and the corpus
+  // is small enough to fetch them one document at a time.
+  //
+  // Its own effect rather than an extra branch of the lookup above, and the
+  // separate `listDocuments` call is the price: the names lookup is deliberately
+  // fail-soft so a failure there leaves the references list rendering, and
+  // sharing a `try` would let one document's failed version fetch blank it.
+  useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const all = await listDocuments()
+        // Only documents with an edition. A manifest records 438 documents that
+        // have no text at all, and a candidate with no obligations proposes
+        // nothing while costing a request to discover it.
+        const others = all.filter(
+          (found) => found.slug !== slug && found.version_count > 0,
+        )
+        const editions = await Promise.all(
+          others.map((found) => listVersions(found.slug)),
+        )
+        if (cancelled) return
+        setPool(
+          others
+            .map((found, index) => ({
+              slug: found.slug,
+              name: found.name,
+              versions: editions[index],
+            }))
+            .filter((entry) => entry.versions.length > 0),
+        )
+      } catch {
+        // Fail soft: an empty pool renders no fieldset, and the build button
+        // still queues a rebuild that proposes nothing — which is a valid
+        // request, not a broken screen.
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
 
   // Separate from the document fetch because it re-runs when the edition changes.
   // `edition` starts undefined, which the API reads as "newest" — the right default,
@@ -373,31 +425,44 @@ export default function DocumentDetail() {
             again.
           </p>
 
-          {versions.length > 1 && (
+          {pool.length > 0 && (
             <fieldset>
               <legend>Propose links against</legend>
-              {versions
-                .filter((v) => v.version_id !== (edition ?? versions[versions.length - 1]?.version_id))
-                .map((v) => (
-                  <label key={v.version_id} className="stacked">
-                    <input
-                      type="checkbox"
-                      checked={candidates.includes(v.version_id)}
-                      onChange={(event) =>
-                        setCandidates((current) =>
-                          event.target.checked
-                            ? [...current, v.version_id]
-                            : current.filter((c) => c !== v.version_id),
-                        )
-                      }
-                    />{' '}
-                    {v.version_id}
-                  </label>
-                ))}
-              {/* Naming candidates is the only way proposals are generated: nothing
-                  in the graph records which documents are higher-tier, so the caller
-                  states it and the route does not guess. Choosing none is a valid
-                  request that rebuilds without proposing. */}
+              {/* Other documents' editions, never this document's own. A
+                  proposal whose two obligations share a `:Document` is skipped —
+                  `IMPLEMENTS` means our lower-tier clause discharges a
+                  higher-tier duty, and an edition does not discharge its
+                  predecessor; that relationship is the diff's, and it is settled
+                  on the Pairings screen. Offering this document's editions here
+                  would offer candidates that cannot produce a single proposal.
+                  The rebuild API was never this narrow: it validates candidates
+                  by version id alone, so other documents' editions could always
+                  be named by a direct call and never by this control. */}
+              {pool.map((entry) => (
+                <div key={entry.slug}>
+                  <h4>{entry.name}</h4>
+                  {entry.versions.map((v) => (
+                    <label key={v.version_id} className="stacked">
+                      <input
+                        type="checkbox"
+                        checked={candidates.includes(v.version_id)}
+                        onChange={(event) =>
+                          setCandidates((current) =>
+                            event.target.checked
+                              ? [...current, v.version_id]
+                              : current.filter((c) => c !== v.version_id),
+                          )
+                        }
+                      />{' '}
+                      {v.version_id}
+                    </label>
+                  ))}
+                </div>
+              ))}
+              {/* Naming candidates is the only way proposals are generated:
+                  nothing in the graph records which documents are higher-tier, so
+                  the caller states it and the route does not guess. Choosing none
+                  is a valid request that rebuilds without proposing. */}
               <p>Choosing none rebuilds the edition without proposing any links.</p>
             </fieldset>
           )}

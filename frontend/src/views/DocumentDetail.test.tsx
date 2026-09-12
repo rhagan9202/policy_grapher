@@ -57,6 +57,39 @@ const versions = [
   },
 ]
 
+// A second document with an edition of its own. The build fieldset's pool after
+// the pairing split: `IMPLEMENTS` is cross-document only, so this document's own
+// editions can no longer produce a single proposal and are not offered.
+const otherDocument = {
+  slug: 'dodi-5000-88',
+  name: 'DoDI 5000.88',
+  is_external: false,
+  references: [],
+  referenced_by: [],
+  version_count: 1,
+}
+
+const otherVersions = [
+  {
+    version_id: 'dodi-5000-88@2020-09-09',
+    effective_date: '2020-09-09',
+    checksum: 'b4c1f0',
+    source_uri: 'file:///data/samples/500088p.pdf',
+    supersedes: null,
+  },
+]
+
+/** A two-document corpus, answered per slug. The fieldset makes two kinds of
+ *  call — the document list to find the others, then one `listVersions` for each
+ *  of them — so a single `mockResolvedValue` would hand this document's editions
+ *  back for every slug and hide exactly the bug this fixture exists to catch. */
+function corpusOfTwo() {
+  listDocuments.mockResolvedValue([document, otherDocument])
+  listVersions.mockImplementation((slug: string) =>
+    Promise.resolve(slug === 'dodd-5000-01' ? versions : otherVersions),
+  )
+}
+
 const chunks = [
   {
     chunk_id: 'c1',
@@ -287,26 +320,64 @@ describe('DocumentDetail — building the derived layer', () => {
     expect(startRebuild).toHaveBeenCalledWith('dodd-5000-01', 'dodd-5000-01@2020-09-09', [])
   })
 
+  it('offers other documents’ editions, and never this document’s own', async () => {
+    // Spec §8. `versions` came from `GET /documents/{slug}/versions`, so the only
+    // candidates this screen could name were other editions of the document being
+    // read — and after `propose_links` skips a pair whose obligations share a
+    // `:Document`, not one of them can produce a proposal. The rebuild API was
+    // never this narrow: it validates candidates by version id alone, so other
+    // documents' editions could always be named by a direct call and never by
+    // this control.
+    loaded()
+    corpusOfTwo()
+    renderAt()
+    await screen.findByRole('article')
+
+    expect(
+      await screen.findByRole('checkbox', { name: /dodi-5000-88@2020-09-09/ }),
+    ).toBeInTheDocument()
+    // Grouped by document, because a bare list of version ids from several
+    // documents is a list of strings nobody can read.
+    expect(screen.getByText('DoDI 5000.88')).toBeInTheDocument()
+    // This document's own editions are gone from the pool entirely — both of
+    // them, including the one that is not selected, which is what the old
+    // filter left standing.
+    expect(
+      screen.queryByRole('checkbox', { name: /dodd-5000-01@2018-08-31/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('checkbox', { name: /dodd-5000-01@2020-09-09/ }),
+    ).not.toBeInTheDocument()
+    // Choosing none stays a valid request, and still says so.
+    expect(screen.getByText(/choosing none rebuilds/i)).toBeInTheDocument()
+  })
+
   it('proposes against the editions the reader chose', async () => {
     loaded()
+    corpusOfTwo()
     startRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09',
-      candidate_version_ids: ['dodd-5000-01@2018-08-31'],
+      candidate_version_ids: ['dodi-5000-88@2020-09-09'],
     })
     getRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'v', state: 'started',
       chunks_done: 0, chunks_total: 34, counts: {}, rejections: [],
+      // `getRebuild` is the typed mock (see its declaration above): a fixture
+      // missing any of `RebuildStatus`'s required fields fails `tsc`, not just
+      // the test.
       rejections_total: 0, extractor_adapter: '', embedder_adapter: '', error: null,
     })
     renderAt()
     await screen.findByRole('article')
 
     await userEvent.selectOptions(screen.getByLabelText(/edition/i), 'dodd-5000-01@2020-09-09')
-    await userEvent.click(screen.getByRole('checkbox', { name: /2018-08-31/ }))
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: /dodi-5000-88@2020-09-09/ }),
+    )
     await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
 
     expect(startRebuild).toHaveBeenCalledWith('dodd-5000-01', 'dodd-5000-01@2020-09-09', [
-      'dodd-5000-01@2018-08-31',
+      'dodi-5000-88@2020-09-09',
     ])
   })
 
