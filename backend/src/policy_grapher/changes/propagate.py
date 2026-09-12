@@ -91,10 +91,12 @@ RETURN c.change_id          AS change_id,
        higher_chunk.section_path AS higher_section_path,
        higher_chunk.page    AS higher_page,
        higher_document.name AS higher_document,
+       higher_version.version_id AS higher_version_id,
        ours.obligation_id   AS our_obligation_id,
        ours.statement       AS our_statement,
        our_chunk.section_path AS our_section_path,
        our_chunk.page       AS our_page,
+       our_version.version_id AS our_version_id,
        document.name        AS document,
        document.slug        AS document_slug
 """
@@ -148,12 +150,14 @@ class TriageRow:
     our_statement: str
     our_section_path: list[str]
     our_page: int
+    our_version_id: str
     higher_obligation_id: str
     higher_statement: str
     previous_statement: str | None
     higher_section_path: list[str]
     higher_page: int
     higher_document: str
+    higher_version_id: str
     modality: str
     summary: str
 
@@ -203,12 +207,14 @@ def triage(
             our_statement=record["our_statement"],
             our_section_path=record["our_section_path"],
             our_page=record["our_page"],
+            our_version_id=record["our_version_id"],
             higher_obligation_id=record["higher_obligation_id"],
             higher_statement=record["higher_statement"],
             previous_statement=record["previous_statement"],
             higher_section_path=record["higher_section_path"],
             higher_page=record["higher_page"],
             higher_document=record["higher_document"],
+            higher_version_id=record["higher_version_id"],
             modality=record["modality"],
             summary=record["summary"],
         )

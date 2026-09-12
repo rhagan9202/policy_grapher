@@ -73,6 +73,7 @@ const triage: TriageOut = {
         obligation_id: 'ours-1',
         statement: 'The Program Manager shall document the strategy.',
         document: 'ORG 1.0',
+        version_id: 'org@2019-06-01',
         section_path: ['2', '2.4'],
         page: 7,
       },
@@ -80,6 +81,7 @@ const triage: TriageOut = {
         obligation_id: 'higher-1',
         statement: 'Components shall document the cybersecurity strategy annually.',
         document: 'DoDI 5000.88',
+        version_id: 'dodi-5000-88@2020-11-18',
         section_path: ['3', '3.2'],
         page: 12,
       },
@@ -122,6 +124,22 @@ describe('Triage', () => {
     expect(screen.getByText(/3\/3\.2/)).toBeInTheDocument()
     expect(screen.getByText(/p\.\s*12/)).toBeInTheDocument()
     expect(screen.getByText('MODIFIED')).toBeInTheDocument()
+  })
+
+  it('names the edition each quoted clause is from', async () => {
+    // Triage puts two editions of one instrument on screen at once, so the
+    // document name alone matches a clause in either of them. This is
+    // `ObligationCitation.version_id`'s reasoning arriving on the screen that
+    // needs it most — the field was carried to the browser to be read.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    getTriage.mockResolvedValue(triage)
+    showTriage()
+
+    await chooseAnEdition()
+
+    expect(await screen.findByText(/org@2019-06-01/)).toBeInTheDocument()
+    expect(screen.getByText(/dodi-5000-88@2020-11-18/)).toBeInTheDocument()
   })
 
   it('shows what the clause used to say, so the change is visible', async () => {

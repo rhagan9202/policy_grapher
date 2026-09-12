@@ -14,7 +14,8 @@ function Citation({ heading, of }: { heading: string; of: TriageCitation }) {
       <h4>{heading}</h4>
       <blockquote>{of.statement}</blockquote>
       <cite>
-        {of.document} · {of.section_path.join('/')} · p. {of.page}
+        {of.document} · <code>{of.version_id}</code> ·{' '}
+        {of.section_path.join('/')} · p. {of.page}
       </cite>
     </div>
   )

@@ -251,6 +251,11 @@ export interface TriageCitation {
   obligation_id: string
   statement: string
   document: string
+  /** Which edition the clause is in. Triage compares two editions of one
+   *  instrument by construction, so a citation without the edition prints the
+   *  same document name on both sides — `ObligationCitation.version_id`'s
+   *  reasoning, binding at least as hard here. */
+  version_id: string
   section_path: string[]
   page: number
 }

@@ -418,7 +418,12 @@ def triage_client(client_with_auth):
 
 @pytest.mark.integration
 def test_the_route_answers_with_ranked_rows_and_both_citations(triage_client):
-    """Nothing in the response is unsourced."""
+    """Nothing in the response is unsourced — and since the sprint-12
+    walkthrough, "sourced" includes the edition. A triage row's higher side
+    comes from a diff of two editions of one instrument, so the document name
+    alone cannot say which edition a quoted clause is from; both citations
+    carry `version_id`, the same reasoning `ObligationCitationOut` and Ask's
+    `CitationOut` already record."""
     response = triage_client.get(
         "/triage", params={"to_version_id": "higher-v2", "from_version_id": "higher-v1"}
     )
@@ -437,10 +442,12 @@ def test_the_route_answers_with_ranked_rows_and_both_citations(triage_client):
         "obligation_id": row["ours"]["obligation_id"],
         "statement": OURS,
         "document": "ORG 1.0",
+        "version_id": "ours-v1",
         "section_path": ["2.4"],
         "page": 1,
     }
     assert row["higher"]["document"] == "DoDI 5000.88"
+    assert row["higher"]["version_id"] == "higher-v2"
     assert row["higher"]["statement"] == HIGHER_NEW
     assert row["higher"]["section_path"] == ["3.2"]
 

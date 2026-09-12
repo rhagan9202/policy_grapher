@@ -361,11 +361,18 @@ class PairingVerdictIn(BaseModel):
 class TriageCitationOut(BaseModel):
     """One side of a triage row, sourced. Nothing in a triage response is
     unattributed: a row naming a policy without saying which passage of it is
-    affected would send a reviewer hunting."""
+    affected would send a reviewer hunting.
+
+    `version_id` is part of "sourced": the higher side comes from a diff of two
+    editions of one instrument, so the document name alone matches a clause in
+    each of them — the reasoning `ObligationCitationOut` and Ask's `CitationOut`
+    already record, and it binds here because the two editions are on screen at
+    once by construction."""
 
     obligation_id: str
     statement: str
     document: str
+    version_id: str
     section_path: list[str]
     page: int
 
