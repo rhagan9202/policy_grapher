@@ -9,6 +9,7 @@ from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.links.decisions import record_decision, replay_decisions
 from policy_grapher.links.pairing import PairingVerdict, record_pairing
+from policy_grapher.links.propose import score_pairing
 from policy_grapher.models import TriageOut
 from policy_grapher.obligations import write_obligations
 
@@ -869,15 +870,35 @@ def test_the_triage_payload_carries_exactly_these_fields():
 # The rewrite no measure can see, which is what makes this end-to-end rather than
 # a second run of the wording pass. `_pair_by_wording` scores through
 # `links.propose.score_pairing`, whose shared `_score` returns None once the
-# overlap falls below `MIN_CONFIDENCE`; this statement shares no content word at
-# all with HIGHER_OLD — `document`, `cybersecurity` and `strategy` against
-# `program`, `offices`, `record`, `protection` and `approach` — so it scores 0,
-# is never offered, and gets no `PAIRING_CANDIDATE` edge. The section rule cannot
-# reach it either: the clause moved from 3.2 to 7.1. A `paired` verdict is the
-# only thing in the system that can turn the two into one `MODIFIED`, and the
-# problem section names this class — a complete rewording — as the case a human
-# most obviously beats the measure on.
+# *confidence* — the content-word overlap plus a bonus per shared issuance
+# designator, not the overlap alone — falls below `MIN_CONFIDENCE`. This
+# statement shares no content word at all with HIGHER_OLD — `document`,
+# `cybersecurity` and `strategy` against `program`, `offices`, `record`,
+# `protection` and `approach` — and neither clause cites a designator, so both
+# terms are zero, the pair is never offered, and it gets no `PAIRING_CANDIDATE`
+# edge. The section rule cannot reach it either: the clause moved from 3.2 to
+# 7.1. A `paired` verdict is the only thing in the system that can turn the two
+# into one `MODIFIED`, and the problem section names this class — a complete
+# rewording — as the case a human most obviously beats the measure on.
 REWORDED = "Program offices will record the protection approach."
+
+
+def test_the_end_to_end_pair_is_one_the_wording_pass_cannot_reach():
+    """The capstone's premise, checkable without Docker.
+
+    The test below is `@pytest.mark.integration` and so never runs in the loop a
+    developer actually has, while its entire value rests on this pair being one
+    no measure can make: were REWORDED to drift into range of the wording pass,
+    the pass would pair the two on its own and every assertion after the verdict
+    would still hold while the verdict did nothing. The pre-verdict GET down
+    there catches that, but only where Docker exists. This catches it here.
+
+    Both orientations. `_pair_by_wording` calls the scorer `(after, before)`, so
+    the first is the one that governs; `_score` is symmetric today, which makes
+    the second a guard on that symmetry rather than a second fact about the pair.
+    """
+    assert score_pairing(REWORDED, HIGHER_OLD) is None
+    assert score_pairing(HIGHER_OLD, REWORDED) is None
 
 
 @pytest.mark.integration
@@ -978,6 +999,16 @@ def test_a_confirmed_pairing_carries_the_previous_statement_into_triage(
     row = body["rows"][0]
     assert row["kind"] == "MODIFIED"
     assert row["previous_statement"] == HIGHER_OLD
+    # Provenance, stated by the row itself rather than inferred from the count.
+    # Each of the three things that can emit a MODIFIED writes its own sentence —
+    # the section rule names the section, the wording pass names the move and
+    # appends the scorer's rationale — and this one is written only by
+    # `_plan_changes`' verdict arm. So it says a person decided this, not a rule
+    # that happened to agree, and it is what a reviewer reads on the screen.
+    assert row["summary"] == (
+        "A reviewer paired these clauses: they are one obligation, "
+        "reworded between these two editions."
+    )
     assert row["higher"]["statement"] == REWORDED
     assert row["higher"]["document"] == "DoDI 5000.88"
     # The new obligation on the higher side, three ways: its id, the section it
