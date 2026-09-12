@@ -479,6 +479,16 @@ export default function DocumentDetail() {
                 </ul>
               )}
 
+              {/* The list is capped at 20 by the worker and the count is not, so
+                  a list of 20 over 213 refusals looks like a complete account of
+                  a modest problem. ADR-030's silent drop, one level up. */}
+              {(run.rejections_total ?? 0) > run.rejections.length && (
+                <p>
+                  Showing {run.rejections.length} of {run.rejections_total}{' '}
+                  refusals; the list is capped and the count is not.
+                </p>
+              )}
+
               {/* ADR-027. A rebuild re-keys obligations when the chunker changes,
                   and carries the verdicts recorded against them across. What it
                   could not carry is the one number a healthy-looking rebuild
@@ -507,6 +517,16 @@ export default function DocumentDetail() {
                   back to the queue, where it is met again. A stranded rejection
                   leaves a refusal nobody is applying — the proposal returns and
                   nothing says it was already refused. */}
+              {(run.counts.rejections_stranded ?? 0) > 0 && (
+                <p>
+                  {run.counts.rejections_stranded} recorded rejection
+                  {run.counts.rejections_stranded === 1 ? '' : 's'} could not be
+                  replayed. The proposals they refused can return to the review
+                  queue, and nothing there will say they were refused before — so
+                  these need deciding again.
+                </p>
+              )}
+
               {/* The pairing vocabulary's half of the same repoint. One number
                   covers both pairing verdicts where the link side has two,
                   because `paired` and `distinct` lose identically: the clause
@@ -529,16 +549,6 @@ export default function DocumentDetail() {
                   those ids, and the statements no longer match. Those pairs come
                   back to the pairing queue unanswered, and nothing there will say
                   they were settled before.
-                </p>
-              )}
-
-              {(run.counts.rejections_stranded ?? 0) > 0 && (
-                <p>
-                  {run.counts.rejections_stranded} recorded rejection
-                  {run.counts.rejections_stranded === 1 ? '' : 's'} could not be
-                  replayed. The proposals they refused can return to the review
-                  queue, and nothing there will say they were refused before — so
-                  these need deciding again.
                 </p>
               )}
             </div>

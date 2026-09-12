@@ -431,6 +431,52 @@ describe('DocumentDetail — building the derived layer', () => {
     expect(status).toHaveTextContent(/Input should be SHALL/)
   })
 
+  it('says how many refusals the capped list left out', async () => {
+    // The worker keeps 20 reasons and counts every one. DoDD 5143.01's rebuild
+    // showed 20 against 213 refusals and nothing said so, which is the silent
+    // drop ADR-030 made a defect — the backend has sent `rejections_total`
+    // since STORY-057 and the hand-written `RebuildStatus` never declared it,
+    // so no screen could read it.
+    loaded()
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'finished',
+      chunks_done: 34, chunks_total: 34,
+      counts: { chunks_written: 34, obligations_written: 115, proposed: 0, chunks_rejected: 213 },
+      rejections: [
+        { chunk_id: 'c9', reason: 'modality: Input should be SHALL, MUST, WILL, SHOULD or MAY' },
+        { chunk_id: 'c11', reason: 'statement: Field required' },
+      ],
+      rejections_total: 213,
+      extractor_adapter: 'local', embedder_adapter: 'null', error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent(/2 of 213/)
+  })
+
+  it('says nothing about a cap the run did not reach', async () => {
+    loaded()
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'v', state: 'finished',
+      chunks_done: 34, chunks_total: 34,
+      counts: { chunks_written: 34, obligations_written: 115, proposed: 0, chunks_rejected: 1 },
+      rejections: [{ chunk_id: 'c9', reason: 'statement: Field required' }],
+      rejections_total: 1,
+      extractor_adapter: 'local', embedder_adapter: 'null', error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    const status = await screen.findByRole('status')
+    expect(status).not.toHaveTextContent(/of 1 refusal/i)
+  })
+
   it('says when a recorded approval could not be replayed', async () => {
     // replay_decisions has returned this count since it was written and nothing
     // has ever shown it. An approval that stopped being represented in the graph
