@@ -2,6 +2,7 @@ import Ask from './views/Ask'
 import DocumentTable from './views/DocumentTable'
 import GraphExplorer from './views/GraphExplorer'
 import Ingest from './views/Ingest'
+import Pairings from './views/Pairings'
 import Reset from './views/Reset'
 import Review from './views/Review'
 import Triage from './views/Triage'
@@ -15,6 +16,11 @@ export const ROUTES = [
   { to: '/ingest', label: 'Ingest', element: <Ingest /> },
   { to: '/triage', label: 'Triage', element: <Triage /> },
   { to: '/review', label: 'Review', element: <Review /> },
+  // Next to Review because the two are easy to confuse and the distinction is
+  // the whole point: Review asks whether our clause discharges another
+  // document's duty, Pairings whether this edition's clause is the previous
+  // edition's reworded. Two questions, two vocabularies, two canonical nodes.
+  { to: '/pairings', label: 'Pairings', element: <Pairings /> },
   { to: '/ask', label: 'Ask', element: <Ask /> },
   // Last in the navigation on purpose: it is the only destructive screen.
   { to: '/reset', label: 'Reset', element: <Reset /> },
