@@ -177,7 +177,14 @@ def test_a_removed_obligation_we_implement_still_produces_a_row(
     clean_graph, database
 ):
     """Our policy now implements something that no longer exists. That is a live
-    compliance gap and exactly what a reviewer needs to be told."""
+    compliance gap and exactly what a reviewer needs to be told.
+
+    This is also the one row kind where `higher_version_id` is not redundant
+    with `to_version_id`: the deleted clause lives only in the edition being
+    diffed *from*. A traversal that returned `to_version_id` instead of the
+    obligation's own edition would agree with every MODIFIED-row assertion in
+    this file — `higher_version.version_id` and `to_version_id` coincide there
+    — and disagree only here."""
     old_ids = _seed_version(
         clean_graph, database, version_id="higher-v1", doc_slug="higher",
         doc_name="DoDI 5000.88",
@@ -198,6 +205,8 @@ def test_a_removed_obligation_we_implement_still_produces_a_row(
     assert len(result.rows) == 1
     assert result.rows[0].kind == "REMOVED"
     assert result.rows[0].higher_statement == HIGHER_OLD
+    assert result.rows[0].higher_version_id == "higher-v1"
+    assert result.rows[0].our_version_id == "ours-v1"
 
 
 @pytest.mark.integration
@@ -450,6 +459,59 @@ def test_the_route_answers_with_ranked_rows_and_both_citations(triage_client):
     assert row["higher"]["version_id"] == "higher-v2"
     assert row["higher"]["statement"] == HIGHER_NEW
     assert row["higher"]["section_path"] == ["3.2"]
+
+
+@pytest.fixture
+def removed_client(client_with_auth):
+    """A higher-tier clause removed between two editions, and one of our clauses
+    that implemented it. Unlike `triage_client`'s reworded clause, the deleted
+    obligation exists only in `higher-v1` — the edition being diffed *from*, not
+    the one named by `to_version_id` — which is what makes this the row kind
+    `version_id` is not redundant on."""
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+
+    old_ids = _seed_version(
+        driver, database, version_id="higher-v1", doc_slug="higher",
+        doc_name="DoDI 5000.88",
+        entries=[("3.2", HIGHER_OLD, Modality.SHALL), ("9.9", "We shall keep this.", Modality.SHALL)],
+    )
+    _seed_version(
+        driver, database, version_id="higher-v2", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("9.9", "We shall keep this.", Modality.SHALL)],
+    )
+    our_ids = _seed_version(
+        driver, database, version_id="ours-v1", doc_slug="ours",
+        doc_name="ORG 1.0", entries=[("2.4", OURS, Modality.SHALL)],
+    )
+    _link(driver, database, source=our_ids[OURS], target=old_ids[HIGHER_OLD])
+    driver.execute_query(
+        "MATCH (new:DocumentVersion {version_id: 'higher-v2'}) "
+        "MATCH (old:DocumentVersion {version_id: 'higher-v1'}) "
+        "MERGE (new)-[:SUPERSEDES]->(old)",
+        database_=database,
+    )
+    return client_with_auth
+
+
+@pytest.mark.integration
+def test_the_route_reports_the_edition_a_removed_clause_actually_lived_in(
+    removed_client,
+):
+    """The one case `version_id` is not cosmetic: a REMOVED row's higher side
+    must name the deleted clause's own edition. Printing `to_version_id` instead
+    — indistinguishable from correct on every MODIFIED row in this file, since
+    the two coincide there — would here attribute the quote to `higher-v2`, an
+    edition that does not contain it."""
+    response = removed_client.get(
+        "/triage", params={"to_version_id": "higher-v2", "from_version_id": "higher-v1"}
+    )
+    assert response.status_code == 200
+
+    row = response.json()["rows"][0]
+    assert row["kind"] == "REMOVED"
+    assert row["higher"]["version_id"] == "higher-v1"
+    assert row["ours"]["version_id"] == "ours-v1"
 
 
 @pytest.mark.integration
