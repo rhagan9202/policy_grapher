@@ -252,14 +252,18 @@ export default function Pairings() {
     }
   }
 
-  function verdictButtons(pair: Pair, prefix: string) {
+  // Both verdicts on a settled pair too, not only the one that reverses it. A
+  // verdict outside the closed pair of words has no "other" to offer, and
+  // re-recording the same one with a corrected reason is a thing a reviewer may
+  // legitimately want — the record keeps the latest rationale.
+  function verdictButtons(pair: Pair, paired: string, distinct: string) {
     return (
       <p>
         <button type="button" disabled={pending} onClick={() => settle(pair, 'paired')}>
-          {prefix}Paired
+          {paired}
         </button>{' '}
         <button type="button" disabled={pending} onClick={() => settle(pair, 'distinct')}>
-          {prefix}Distinct
+          {distinct}
         </button>
       </p>
     )
@@ -415,7 +419,7 @@ export default function Pairings() {
                               }))
                             }
                           />
-                          {verdictButtons(item, '')}
+                          {verdictButtons(item, 'Paired', 'Distinct')}
                         </li>
                       ))}
                     </ol>
@@ -460,7 +464,7 @@ export default function Pairings() {
                             }))
                           }
                         />
-                        {verdictButtons(settled, 'Mark ')}
+                        {verdictButtons(settled, 'Mark paired', 'Mark distinct')}
                       </li>
                     ))}
                   </ul>
