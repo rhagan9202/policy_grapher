@@ -169,6 +169,40 @@ describe('Triage', () => {
     expect(screen.getByText(/no reviewed link/i)).toBeInTheDocument()
   })
 
+  it('says which recorded pairings this diff could not apply', async () => {
+    // The count reaches this screen and was rendered nowhere. A reviewer's
+    // pairing verdict that the diff could not act on is not a retraction — the
+    // decision stands — but a shelved verdict nobody is told about is
+    // indistinguishable from one that took effect.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    getTriage.mockResolvedValue({ ...triage, pairings_unapplied: 2 })
+    showTriage()
+
+    await chooseAnEdition()
+
+    expect(await screen.findByText(/2 recorded pairings/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /pairings/i })).toHaveAttribute(
+      'href',
+      '/pairings',
+    )
+  })
+
+  it('says nothing about unapplied pairings when the diff applied them all', async () => {
+    // Without this the sentence above can be rendered unconditionally and still
+    // satisfy its test — a warning that fires on every diff is one a reader
+    // learns to skip, which is the state it exists to prevent.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    getTriage.mockResolvedValue(triage)
+    showTriage()
+
+    await chooseAnEdition()
+
+    await screen.findByText(/document the strategy/)
+    expect(screen.queryByText(/recorded pairing/i)).not.toBeInTheDocument()
+  })
+
   it('reads an empty result as nothing linked yet, never as nothing affected', async () => {
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue(versions)
