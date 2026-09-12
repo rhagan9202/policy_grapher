@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -90,6 +90,39 @@ function corpusOfTwo() {
   )
 }
 
+// A third document, distinct from `otherDocument`, for the one thing a
+// two-document corpus cannot pin: that each other document is zipped with its
+// *own* editions. With only one other document, index 0 is the only index
+// there is, so `editions[index]` and `editions[0]` answer identically and an
+// off-by-one in that zip has nothing to disagree with.
+const thirdDocument = {
+  slug: 'dodi-1322-18',
+  name: 'DoDI 1322.18',
+  is_external: false,
+  references: [],
+  referenced_by: [],
+  version_count: 1,
+}
+
+const thirdVersions = [
+  {
+    version_id: 'dodi-1322-18@2019-01-01',
+    effective_date: '2019-01-01',
+    checksum: 'c9d2e1',
+    source_uri: 'file:///data/samples/132218p.pdf',
+    supersedes: null,
+  },
+]
+
+function corpusOfThree() {
+  listDocuments.mockResolvedValue([document, otherDocument, thirdDocument])
+  listVersions.mockImplementation((slug: string) => {
+    if (slug === 'dodd-5000-01') return Promise.resolve(versions)
+    if (slug === 'dodi-5000-88') return Promise.resolve(otherVersions)
+    return Promise.resolve(thirdVersions)
+  })
+}
+
 const chunks = [
   {
     chunk_id: 'c1',
@@ -117,6 +150,12 @@ function renderAt(slug = 'dodd-5000-01') {
   )
 }
 
+function loaded() {
+  getDocument.mockResolvedValue(document)
+  listVersions.mockResolvedValue(versions)
+  listChunks.mockResolvedValue(chunks)
+}
+
 // Every test renders the whole screen, so the obligations fetch fires in all of
 // them. A benign default keeps tests that are about something else from having to
 // know this route exists; the ones that are about it override.
@@ -130,6 +169,14 @@ function renderAt(slug = 'dodd-5000-01') {
 // at roughly one run in eight, and an intermittent failure is worse than a red
 // one — it teaches people to re-run rather than to look.
 beforeEach(() => {
+  // A realistic default, not `undefined`: the build fieldset's pool effect
+  // calls this on every render this file exercises, and a bare `vi.fn()`
+  // answering `undefined` made every test but the two written for the pool
+  // throw `TypeError: all is not iterable` off-screen, caught only because an
+  // earlier version of the effect wrapped the whole computation — including
+  // this bug's own symptom — in one `catch {}`. A corpus of the one document
+  // under test is the default a test not about the pool should see.
+  listDocuments.mockResolvedValue([document])
   listObligations.mockResolvedValue({
     obligations: [],
     total: 0,
@@ -268,8 +315,14 @@ describe('DocumentDetail', () => {
     // same slug fallback without ever calling listDocuments.
     expect(listDocuments).toHaveBeenCalled()
 
-    rejectLookup(new Error('offline'))
-    await lookup.catch(() => {})
+    // The pool effect shares this same call, and now has its own reaction to
+    // the rejection (`setPoolError`) that the old, silent `namesBySlug` catch
+    // never had — wrapped here so that update is not the one React warns
+    // about happening outside `act`.
+    await act(async () => {
+      rejectLookup(new Error('offline'))
+      await lookup.catch(() => {})
+    })
 
     // A failed name lookup must not blank the references list — the slug is
     // still a working link — and the rejection must not surface as an error
@@ -295,12 +348,6 @@ describe('DocumentDetail', () => {
 // reached with curl. The same class of gap `listChunks` was, one sprint newer.
 
 describe('DocumentDetail — building the derived layer', () => {
-  function loaded() {
-    getDocument.mockResolvedValue(document)
-    listVersions.mockResolvedValue(versions)
-    listChunks.mockResolvedValue(chunks)
-  }
-
   it('queues a rebuild for the edition being read', async () => {
     loaded()
     startRebuild.mockResolvedValue({
@@ -337,8 +384,14 @@ describe('DocumentDetail — building the derived layer', () => {
       await screen.findByRole('checkbox', { name: /dodi-5000-88@2020-09-09/ }),
     ).toBeInTheDocument()
     // Grouped by document, because a bare list of version ids from several
-    // documents is a list of strings nobody can read.
-    expect(screen.getByText('DoDI 5000.88')).toBeInTheDocument()
+    // documents is a list of strings nobody can read. Scoped to the fieldset
+    // itself (a `<fieldset>`'s implicit role is `group`) — this document's own
+    // name appears on the page too, in the `<h1>`, and a bare `getByText` would
+    // still pass if the name were pointed there by mistake, or if the pool the
+    // grouping loop reads from silently became this document's own editions.
+    expect(
+      within(screen.getByRole('group')).getByText('DoDI 5000.88'),
+    ).toBeInTheDocument()
     // This document's own editions are gone from the pool entirely — both of
     // them, including the one that is not selected, which is what the old
     // filter left standing.
@@ -606,6 +659,387 @@ describe('DocumentDetail — building the derived layer', () => {
   })
 })
 
+// Round 2 on the same fieldset. A mutation hunt against the first pass found
+// eight of sixteen attempted mutations survived, and an independent read of
+// the diff found a defect no mutation hunt was aimed at: this component is not
+// remounted when the route's slug changes (no `key` on `<Route>`), so a
+// selection made on one document's page can still name a *different*
+// document's own edition once the reader follows a reference link to it.
+describe('DocumentDetail, the build fieldset pool — closing what review found', () => {
+  it('lists each other document under its own editions, not the first other document\'s', async () => {
+    // Pins the document/editions zip. `otherDocument` alone cannot: with one
+    // other document, index 0 is the only index there is, so `editions[index]`
+    // and `editions[0]` cannot disagree.
+    loaded()
+    corpusOfThree()
+    renderAt()
+    await screen.findByRole('article')
+
+    const group = await screen.findByRole('group')
+    const otherHeading = within(group).getByRole('heading', { name: 'DoDI 5000.88' })
+    const otherContainer = otherHeading.parentElement as HTMLElement
+    const thirdHeading = within(group).getByRole('heading', { name: 'DoDI 1322.18' })
+    const thirdContainer = thirdHeading.parentElement as HTMLElement
+
+    expect(within(otherContainer).getByText(/dodi-5000-88@2020-09-09/)).toBeInTheDocument()
+    expect(within(otherContainer).queryByText(/dodi-1322-18@2019-01-01/)).not.toBeInTheDocument()
+    expect(within(thirdContainer).getByText(/dodi-1322-18@2019-01-01/)).toBeInTheDocument()
+    expect(within(thirdContainer).queryByText(/dodi-5000-88@2020-09-09/)).not.toBeInTheDocument()
+  })
+
+  it('reflects a tick and an untick on the checkbox itself, not only on what gets submitted', async () => {
+    // Pins two survivors at once: forcing `checked` to a constant, and making
+    // the untick branch of the `onChange` handler a no-op. Both are invisible
+    // to a test that only reads the submitted `candidates` array, because the
+    // DOM checkbox still reports the browser's own toggle on the one click a
+    // test like that drives — `onChange` fires from the real event, not from
+    // the (possibly wrong) `checked` prop.
+    loaded()
+    corpusOfTwo()
+    startRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [],
+    })
+    renderAt()
+    await screen.findByRole('article')
+
+    const box = await screen.findByRole('checkbox', { name: /dodi-5000-88@2020-09-09/ })
+    expect(box).not.toBeChecked()
+    await userEvent.click(box)
+    expect(box).toBeChecked()
+    await userEvent.click(box)
+    expect(box).not.toBeChecked()
+
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+    expect(startRebuild).toHaveBeenCalledWith('dodd-5000-01', 'dodd-5000-01@2020-09-09', [])
+  })
+
+  it('does not ask for the editions of a document the corpus says has none', async () => {
+    // Pins the version-count guard. `manifestOnly` answers non-empty editions
+    // if asked — the assertion is that it is never asked, not that it would
+    // have answered empty anyway.
+    loaded()
+    const manifestOnly = {
+      slug: 'manifest-only', name: 'Manifest Only', is_external: false,
+      references: [], referenced_by: [], version_count: 0,
+    }
+    listDocuments.mockResolvedValue([document, otherDocument, manifestOnly])
+    listVersions.mockImplementation((slug: string) =>
+      Promise.resolve(slug === 'dodd-5000-01' ? versions : otherVersions),
+    )
+    renderAt()
+    await screen.findByRole('article')
+    await screen.findByRole('checkbox', { name: /dodi-5000-88@2020-09-09/ })
+
+    expect(listVersions).not.toHaveBeenCalledWith('manifest-only')
+  })
+
+  it('does not render a document heading for one whose editions turned out empty', async () => {
+    // Pins the empty-editions filter, for a document whose `version_count`
+    // disagrees with what `listVersions` actually answers — a manifest-vs-graph
+    // drift PROBE G's fixture names `staleCount`, not the ordinary "has none"
+    // case the guard above covers.
+    loaded()
+    const staleCount = {
+      slug: 'stale-count', name: 'Stale Count', is_external: false,
+      references: [], referenced_by: [], version_count: 3,
+    }
+    listDocuments.mockResolvedValue([document, otherDocument, staleCount])
+    listVersions.mockImplementation((slug: string) => {
+      if (slug === 'dodd-5000-01') return Promise.resolve(versions)
+      if (slug === 'dodi-5000-88') return Promise.resolve(otherVersions)
+      return Promise.resolve([])
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await screen.findByRole('checkbox', { name: /dodi-5000-88@2020-09-09/ })
+
+    expect(screen.queryByText('Stale Count')).not.toBeInTheDocument()
+  })
+
+  it('says it is still looking, distinctly from either state it might settle into', async () => {
+    loaded()
+    let resolveList: (docs: unknown[]) => void = () => {}
+    listDocuments.mockReturnValue(
+      new Promise((resolve) => {
+        resolveList = resolve
+      }),
+    )
+    renderAt()
+    await screen.findByRole('article')
+
+    expect(
+      screen.getByText(/looking for other documents to propose links against/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveList([document])
+      await Promise.resolve()
+    })
+  })
+
+  it('says there is nothing else in the corpus, rather than rendering nothing', async () => {
+    // Pins the empty-pool gate: this and the two states above and below it must
+    // each render something, and not the same something.
+    loaded()
+    listDocuments.mockResolvedValue([document])
+    renderAt()
+    await screen.findByRole('article')
+
+    expect(
+      await screen.findByText(/nothing else in the corpus to propose links against/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('says the corpus could not be listed, rather than looking like a one-document one', async () => {
+    loaded()
+    listDocuments.mockRejectedValue(new Error('corpus down'))
+    renderAt()
+    await screen.findByRole('article')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/corpus down/)
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/nothing else in the corpus/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps the candidate that answered when a different one\'s editions could not be listed', async () => {
+    // A `Promise.all` over the edition listings would let one rejection empty
+    // the whole pool — `otherDocument`'s perfectly good editions included —
+    // and say nothing about why. `Promise.allSettled` is what keeps the one
+    // that answered; this pins that it actually does, and that the failure of
+    // the other one is not simply dropped on the floor.
+    loaded()
+    corpusOfThree()
+    listVersions.mockImplementation((slug: string) => {
+      if (slug === 'dodd-5000-01') return Promise.resolve(versions)
+      if (slug === 'dodi-5000-88') return Promise.resolve(otherVersions)
+      return Promise.reject(new Error('timed out'))
+    })
+    renderAt()
+    await screen.findByRole('article')
+
+    // The document whose listing failed names no editions and gets no
+    // heading — there is nothing under it to show.
+    expect(
+      await screen.findByRole('checkbox', { name: /dodi-5000-88@2020-09-09/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('DoDI 1322.18')).not.toBeInTheDocument()
+
+    // The failure is on screen, not silent.
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/1 of 2/)
+  })
+
+  // The route carries no `key`, so following a reference link from one
+  // document to another does not remount this component — `candidates` and
+  // `pool` both outlive the navigation.
+  it('drops a ticked candidate once it would name the document now being read', async () => {
+    const a = {
+      slug: 'doc-a', name: 'Document A', is_external: false,
+      references: ['doc-b'], referenced_by: [], version_count: 1,
+    }
+    const b = {
+      slug: 'doc-b', name: 'Document B', is_external: false,
+      references: ['doc-a'], referenced_by: [], version_count: 1,
+    }
+    const edA = [{
+      version_id: 'doc-a@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'aaaa', source_uri: 'file:///doc-a.pdf', supersedes: null,
+    }]
+    const edB = [{
+      version_id: 'doc-b@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'bbbb', source_uri: 'file:///doc-b.pdf', supersedes: null,
+    }]
+
+    getDocument.mockImplementation((slug: string) =>
+      Promise.resolve(slug === 'doc-a' ? a : b),
+    )
+    listVersions.mockImplementation((slug: string) =>
+      Promise.resolve(slug === 'doc-a' ? edA : edB),
+    )
+    listChunks.mockResolvedValue(chunks)
+    listDocuments.mockResolvedValue([a, b])
+    startRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'doc-b@2020-01-01', candidate_version_ids: [],
+    })
+
+    renderAt('doc-a')
+    await screen.findByRole('article')
+
+    // On A's page, tick B's edition — a legitimate cross-document candidate
+    // there.
+    await userEvent.click(
+      await screen.findByRole('checkbox', { name: /doc-b@2020-01-01/ }),
+    )
+
+    // Follow the reference link to B.
+    await userEvent.click(screen.getByRole('link', { name: 'Document B' }))
+    await screen.findByRole('heading', { level: 1, name: /Document B/ })
+
+    // B's own edition is not offered here...
+    expect(
+      screen.queryByRole('checkbox', { name: /doc-b@2020-01-01/ }),
+    ).not.toBeInTheDocument()
+
+    // ...and the tick made on A's page, before B's own edition was ever
+    // excludable, must not still name it.
+    await userEvent.click(
+      await screen.findByRole('button', { name: /build derived layer/i }),
+    )
+    expect(startRebuild).toHaveBeenCalledWith('doc-b', 'doc-b@2020-01-01', [])
+  })
+
+  it('never lets a late answer for the document just left overwrite the one already resolved for this document', async () => {
+    // Pins the `cancelled` guard and the effect's dependency on `slug`
+    // together: an empty dependency array would never recompute the pool for
+    // B at all, so the first assertion below would time out; a deleted
+    // `cancelled` check would let the held-open answer for A, released after
+    // the reader has moved on, overwrite B's already-correct pool with one
+    // keyed to A's slug — which no longer matches, and reads as still loading.
+    const a = {
+      slug: 'doc-a', name: 'Document A', is_external: false,
+      references: ['doc-b'], referenced_by: [], version_count: 1,
+    }
+    const b = {
+      slug: 'doc-b', name: 'Document B', is_external: false,
+      references: ['doc-a'], referenced_by: [], version_count: 1,
+    }
+    const edA = [{
+      version_id: 'doc-a@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'aaaa', source_uri: 'file:///doc-a.pdf', supersedes: null,
+    }]
+    const edB = [{
+      version_id: 'doc-b@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'bbbb', source_uri: 'file:///doc-b.pdf', supersedes: null,
+    }]
+
+    getDocument.mockImplementation((slug: string) =>
+      Promise.resolve(slug === 'doc-a' ? a : b),
+    )
+    listVersions.mockImplementation((slug: string) =>
+      Promise.resolve(slug === 'doc-a' ? edA : edB),
+    )
+    listChunks.mockResolvedValue(chunks)
+
+    // The corpus listing made while on A's page is held open until after the
+    // reader has already navigated to B; the one B's own page makes answers
+    // straight away.
+    let releaseFirst: (docs: unknown[]) => void = () => {}
+    let calls = 0
+    listDocuments.mockImplementation(() => {
+      calls += 1
+      if (calls === 1) {
+        return new Promise((resolve) => {
+          releaseFirst = resolve
+        })
+      }
+      return Promise.resolve([a, b])
+    })
+
+    renderAt('doc-a')
+    await screen.findByRole('heading', { level: 1, name: /Document A/ })
+    // The corpus listing is still held, so the reference has not resolved to
+    // a name yet — the slug fallback is the link this click can use.
+    await userEvent.click(screen.getByRole('link', { name: 'doc-b' }))
+    await screen.findByRole('heading', { level: 1, name: /Document B/ })
+
+    // B's own pool, from its own (unheld) call, is already showing.
+    expect(
+      await screen.findByRole('checkbox', { name: /doc-a@2020-01-01/ }),
+    ).toBeInTheDocument()
+
+    // The held answer for A now arrives — reporting, as it would have all
+    // along, a corpus of just `a` itself: from the *stale* closure's own
+    // slug ('doc-a'), that leaves no other document at all, so an
+    // unguarded continuation reaches `setPool` on the very next line rather
+    // than after a second await.
+    await act(async () => {
+      releaseFirst([a])
+      await Promise.resolve()
+    })
+
+    // It must not have overwritten what B already correctly resolved to.
+    expect(
+      screen.getByRole('checkbox', { name: /doc-a@2020-01-01/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('never lets a late edition answer for the document just left overwrite this document\'s pool', async () => {
+    // The same guard, pinned at its other await: the corpus listing can
+    // answer promptly while a *edition* listing it kicked off is what is
+    // still in flight when the reader navigates away.
+    const a = {
+      slug: 'doc-a', name: 'Document A', is_external: false,
+      references: ['doc-b'], referenced_by: [], version_count: 1,
+    }
+    const b = {
+      slug: 'doc-b', name: 'Document B', is_external: false,
+      references: ['doc-a'], referenced_by: [], version_count: 1,
+    }
+    const edA = [{
+      version_id: 'doc-a@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'aaaa', source_uri: 'file:///doc-a.pdf', supersedes: null,
+    }]
+    const edB = [{
+      version_id: 'doc-b@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'bbbb', source_uri: 'file:///doc-b.pdf', supersedes: null,
+    }]
+
+    getDocument.mockImplementation((slug: string) =>
+      Promise.resolve(slug === 'doc-a' ? a : b),
+    )
+    listChunks.mockResolvedValue(chunks)
+    listDocuments.mockResolvedValue([a, b])
+
+    // A's page asks for B's editions twice over — once for B's own "Editions"
+    // section once the reader has navigated there, and, before that, once
+    // from A's pool effect asking about B as a candidate. Only the *first*
+    // of those (A's pool effect) is the stale one; B's own page must get its
+    // own editions back promptly or nothing about it would ever render.
+    let releaseStale: (eds: unknown[]) => void = () => {}
+    let docBCalls = 0
+    listVersions.mockImplementation((slug: string) => {
+      if (slug === 'doc-b') {
+        docBCalls += 1
+        if (docBCalls === 1) {
+          return new Promise((resolve) => {
+            releaseStale = resolve
+          })
+        }
+        return Promise.resolve(edB)
+      }
+      return Promise.resolve(edA)
+    })
+
+    renderAt('doc-a')
+    await screen.findByRole('heading', { level: 1, name: /Document A/ })
+    await userEvent.click(screen.getByRole('link', { name: 'Document B' }))
+    await screen.findByRole('heading', { level: 1, name: /Document B/ })
+
+    // B's own pool, from a call this held request has nothing to do with, is
+    // already showing.
+    expect(
+      await screen.findByRole('checkbox', { name: /doc-a@2020-01-01/ }),
+    ).toBeInTheDocument()
+
+    // The held answer — for A's page, about B's editions — now arrives.
+    await act(async () => {
+      releaseStale(edB)
+      await Promise.resolve()
+    })
+
+    // It must not have overwritten what B already correctly resolved to.
+    expect(
+      screen.getByRole('checkbox', { name: /doc-a@2020-01-01/ }),
+    ).toBeInTheDocument()
+  })
+})
 
 // STORY-081. Obligations are the product's central noun and had no screen at all:
 // reachable only as a count in a rebuild report, two at a time in Review, or

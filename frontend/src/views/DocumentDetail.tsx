@@ -18,6 +18,8 @@ import type {
   RebuildStatus,
 } from '../api/types'
 
+type PoolEntry = { slug: string; name: string; versions: DocumentVersionOut[] }
+
 // STORY-017, the "corpus management" MVP item. `GET /documents/{slug}/chunks` has
 // served ordered text with `page` and `section_path` since ADR-012, and `client.ts`
 // had no function for the route at all — so nothing in the UI could read a
@@ -49,9 +51,21 @@ export default function DocumentDetail() {
   // What the build fieldset offers: every *other* document's editions, each with
   // the document it belongs to. Not derived from `namesBySlug`, which holds names
   // for this document's references only.
-  const [pool, setPool] = useState<
-    { slug: string; name: string; versions: DocumentVersionOut[] }[]
-  >([])
+  //
+  // Keyed by the slug it was computed for — the `obligations` idiom below, not a
+  // reset in the effect body (which trips `react-hooks/set-state-in-effect`).
+  // The route carries no `key`, so navigating between documents does not remount
+  // this component: a pool still in flight for the document just left, or one
+  // that finished computing for it, must not be read as the answer for the
+  // document now on screen. It was computed by excluding the OLD slug, not the
+  // new one, so read that way it would offer the new document's own editions.
+  const [pool, setPool] = useState<{ slug: string; entries: PoolEntry[] } | null>(null)
+  // Its own state, not folded into a boolean on `pool`: a corpus that could not
+  // be listed is not the same fact as one with nothing else in it, and the
+  // fieldset's only way to say which happened is to hold the message.
+  const [poolError, setPoolError] = useState<{ slug: string; message: string } | null>(
+    null,
+  )
 
   // Building the derived layer (STORY-061). The routes shipped in sprint 4 and the
   // client modelled neither, so this — sprint 4's whole deliverable — could only be
@@ -109,67 +123,89 @@ export default function DocumentDetail() {
   }, [slug, buildsSettled])
 
   // Resolves this document's reference slugs to names — the same names the table
-  // (STORY-017's neighbour, two clicks away) already shows. Kept out of the
-  // document-fetch effect and made deliberately fail-soft: the slug is itself a
-  // working link, so a failed lookup here must leave the references list
-  // rendering rather than blank it.
-  useEffect(() => {
-    let cancelled = false
-
-    void (async () => {
-      try {
-        const all = await listDocuments()
-        if (cancelled) return
-        const names = new Map<string, string>()
-        for (const found of all) names.set(found.slug, found.name)
-        setNamesBySlug(names)
-      } catch {
-        // Fail soft: leave namesBySlug empty and let the slug fallback carry it.
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // The candidates the fieldset below can propose against. `IMPLEMENTS` is
-  // cross-document only, so the pool is other documents' editions and the corpus
-  // is small enough to fetch them one document at a time.
+  // (STORY-017's neighbour, two clicks away) already shows — and, from the same
+  // corpus listing, finds the pool the build fieldset below can propose against:
+  // every *other* document with an edition, since `IMPLEMENTS` is cross-document
+  // only and a same-document candidate can no longer produce a proposal.
   //
-  // Its own effect rather than an extra branch of the lookup above, and the
-  // separate `listDocuments` call is the price: the names lookup is deliberately
-  // fail-soft so a failure there leaves the references list rendering, and
-  // sharing a `try` would let one document's failed version fetch blank it.
+  // One `listDocuments()` call, not two: both consumers need the identical
+  // unpaginated corpus listing, and issuing it twice on every navigation would
+  // duplicate a corpus-wide request for an answer the caller already has. What
+  // stays separate is the failure handling below the shared call — the name
+  // lookup is deliberately fail-soft (the slug is itself a working link), while a
+  // failed listing leaves the fieldset with nothing to offer and has to say so;
+  // one `try` around both would either blank a working references list or hide a
+  // broken control, depending on which failure it happened to catch.
   useEffect(() => {
     let cancelled = false
 
     void (async () => {
+      let all: DocumentOut[]
       try {
-        const all = await listDocuments()
-        // Only documents with an edition. A manifest records 438 documents that
-        // have no text at all, and a candidate with no obligations proposes
-        // nothing while costing a request to discover it.
-        const others = all.filter(
-          (found) => found.slug !== slug && found.version_count > 0,
-        )
-        const editions = await Promise.all(
-          others.map((found) => listVersions(found.slug)),
-        )
-        if (cancelled) return
-        setPool(
-          others
-            .map((found, index) => ({
-              slug: found.slug,
-              name: found.name,
-              versions: editions[index],
-            }))
-            .filter((entry) => entry.versions.length > 0),
-        )
-      } catch {
-        // Fail soft: an empty pool renders no fieldset, and the build button
-        // still queues a rebuild that proposes nothing — which is a valid
-        // request, not a broken screen.
+        all = await listDocuments()
+      } catch (cause: unknown) {
+        // Fail soft for namesBySlug: leave it as it was and let the slug
+        // fallback carry the references list. The pool cannot stay silent about
+        // the same failure — it is the only thing that can say why the
+        // fieldset offers nothing.
+        if (!cancelled) {
+          setPoolError({
+            slug,
+            message:
+              cause instanceof Error ? cause.message : 'The request failed.',
+          })
+        }
+        return
+      }
+      if (cancelled) return
+
+      // Nothing past this point can throw on `all` itself — it is not wrapped
+      // in the try above, because a bug in this logic is a defect in this
+      // component, not a failed request, and must not be swallowed as one.
+      const names = new Map<string, string>()
+      for (const found of all) names.set(found.slug, found.name)
+      setNamesBySlug(names)
+
+      // Only documents with an edition. A manifest records 438 documents that
+      // have no text at all, and a candidate with no obligations proposes
+      // nothing while costing a request to discover it.
+      const others = all.filter(
+        (found) => found.slug !== slug && found.version_count > 0,
+      )
+      if (others.length === 0) {
+        setPool({ slug, entries: [] })
+        return
+      }
+
+      // `allSettled`, not `all`: one other document's edition listing failing
+      // must not cost the reader every candidate from the documents that did
+      // answer.
+      const settled = await Promise.allSettled(
+        others.map((found) => listVersions(found.slug)),
+      )
+      if (cancelled) return
+
+      const entries: PoolEntry[] = []
+      let failed = 0
+      others.forEach((found, index) => {
+        const result = settled[index]
+        if (result.status === 'fulfilled') {
+          if (result.value.length > 0) {
+            entries.push({ slug: found.slug, name: found.name, versions: result.value })
+          }
+        } else {
+          failed += 1
+        }
+      })
+      setPool({ slug, entries })
+      if (failed > 0) {
+        setPoolError({
+          slug,
+          message:
+            failed === others.length
+              ? "Could not load any other document's editions."
+              : `${failed} of ${others.length} other documents' editions could not be loaded; showing the rest.`,
+        })
       }
     })()
 
@@ -244,6 +280,14 @@ export default function DocumentDetail() {
   )
   const recordedRunId = selectedVersion?.build_run_id ?? null
   const recordedState = selectedVersion?.build_state ?? null
+
+  // Only ever read a pool answer that belongs to the document currently being
+  // read — the same guard `shownObligations` applies below, and for the same
+  // reason: a stale `pool` here was computed excluding the OLD slug, so read
+  // against the new one it would offer this document's own editions.
+  const poolForThisSlug = pool && pool.slug === slug ? pool.entries : null
+  const poolErrorForThisSlug =
+    poolError && poolError.slug === slug ? poolError.message : null
 
   useEffect(() => {
     if (recordedState !== 'started' || !recordedRunId) return
@@ -326,8 +370,18 @@ export default function DocumentDetail() {
     // stranded run was reported as "did not finish" went on saying so over a
     // rebuild that had since succeeded.
     setRunLost(false)
+    // Scoped to the pool actually offered for this document, not to whatever
+    // `candidates` still holds. A tick made on another document's page survives
+    // navigation here — this component is not remounted when the route's slug
+    // changes — and an id ticked there can name this document's own edition:
+    // the fieldset already never shows it as checkable here, but nothing before
+    // this line stopped it from being submitted anyway.
+    const offered = new Set(
+      (poolForThisSlug ?? []).flatMap((entry) => entry.versions.map((v) => v.version_id)),
+    )
+    const scopedCandidates = candidates.filter((id) => offered.has(id))
     try {
-      const started = await startRebuild(slug, target, candidates)
+      const started = await startRebuild(slug, target, scopedCandidates)
       applyRun(await getRebuild(started.run_id))
     } catch (cause: unknown) {
       setRunError(cause instanceof Error ? cause.message : 'Could not start the rebuild.')
@@ -425,7 +479,34 @@ export default function DocumentDetail() {
             again.
           </p>
 
-          {pool.length > 0 && (
+          {/* Three states a blank fieldset used to hide as the same thing:
+              still looking, nothing else in the corpus to offer, and a listing
+              that failed outright. Sprint 3's walkthrough found a control
+              rendered empty and unexplained on Triage; this is that shape
+              again, one screen over. */}
+          {poolErrorForThisSlug && (
+            <p role="alert">
+              Could not fully list other documents to propose links against:{' '}
+              {poolErrorForThisSlug}
+            </p>
+          )}
+
+          {poolForThisSlug === null ? (
+            !poolErrorForThisSlug && (
+              <p>Looking for other documents to propose links against…</p>
+            )
+          ) : poolForThisSlug.length === 0 ? (
+            !poolErrorForThisSlug && (
+              <p>
+                <strong>
+                  There is nothing else in the corpus to propose links against.
+                </strong>{' '}
+                A proposal runs between two documents' clauses, and this is the
+                only document with an edition. Ingest and build a second one to
+                unlock this.
+              </p>
+            )
+          ) : (
             <fieldset>
               <legend>Propose links against</legend>
               {/* Other documents' editions, never this document's own. A
@@ -438,7 +519,7 @@ export default function DocumentDetail() {
                   The rebuild API was never this narrow: it validates candidates
                   by version id alone, so other documents' editions could always
                   be named by a direct call and never by this control. */}
-              {pool.map((entry) => (
+              {poolForThisSlug.map((entry) => (
                 <div key={entry.slug}>
                   <h4>{entry.name}</h4>
                   {entry.versions.map((v) => (
