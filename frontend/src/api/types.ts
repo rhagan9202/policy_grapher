@@ -351,8 +351,8 @@ export interface RebuildStatus {
   /** How many refusals there were, against however many `rejections` carries.
    *  The list is capped at 20 by the worker and this is not, so 20 reasons over
    *  213 refusals — DoDD 5143.01's rebuild — is a difference a reader can only
-   *  see from here. The backend has sent it since STORY-057; this interface is
-   *  hand-written and did not declare it, so nothing could read it. */
+   *  see from here. ADR-030 is what makes the gap a defect rather than a
+   *  rounding: a silent drop is not reporting. */
   rejections_total: number
   /** Which adapters the worker actually used. Empty until a worker picks the
    *  run up. `null` extracts nothing, so a run under it writes chunks and no

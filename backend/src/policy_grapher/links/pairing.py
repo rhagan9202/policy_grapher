@@ -311,9 +311,12 @@ def read_settled(
             "new_id": record["new_id"],
             "verdict": record["verdict"],
             "actor": record["actor"],
-            # Never None to the caller. A decision written before this column
-            # existed has no property at all, and a screen prefilling its reason
-            # box from that would show "null" as the reason on record.
+            # Never None to the caller. A decision can have no `rationale`
+            # property at all: `migrate.CONVERT` copies it off the
+            # `:LinkDecision` it converts, and a SET to null removes the
+            # property rather than storing one. `PairingSettledOut.rationale` is
+            # a `str`, so the None would fail validation and take the whole
+            # settled list down with it.
             "rationale": record["rationale"] or "",
         }
         for record in tx.run(
