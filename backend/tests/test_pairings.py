@@ -27,6 +27,12 @@ from policy_grapher.extraction.schema import (
     Modality,
 )
 from policy_grapher.links.pairing import pairing_key
+from policy_grapher.models import (
+    PairingCandidateOut,
+    PairingQueueOut,
+    PairingSettledOut,
+    PairingVerdictOut,
+)
 from policy_grapher.obligations import write_obligations
 from policy_grapher.routers import pairings
 
@@ -1027,3 +1033,131 @@ def test_a_distinct_pair_stays_reachable_after_a_rediff(client_with_auth):
     )
     assert reversed_verdict.status_code == 200
     assert reversed_verdict.json()["verdict"] == "paired"
+
+
+def test_the_pairing_payloads_carry_exactly_these_fields():
+    """Not a test of the field names. A test that changing one is deliberate.
+
+    `frontend/src/api/types.ts` declares `PairingCandidate`, `PairingSettled`,
+    `PairingVerdictRecorded` and `PairingQueue` by hand, and nothing checks the
+    two declarations against each other. TypeScript catches one direction only:
+    a stale screen meeting a renamed `types.ts` fails `tsc` with TS2339. A field
+    ADDED here and not mirrored there is silent in both languages — the screen
+    cannot read what it does not declare, and no test anywhere goes red. Adding
+    one to `PairingQueueOut` was measured on this branch against a live stack:
+    59 frontend tests stayed green.
+
+    Every other test in this file reads these payloads by key and so pins the
+    names too, but each does it while asking about something else and none says
+    where the other half of the mirror lives. Changing these sets is fine;
+    changing one without opening `types.ts` is the defect. `ReviewQueueOut` has
+    carried the same guard since STORY-090.
+    """
+    assert set(PairingCandidateOut.model_fields) == {
+        "old",
+        "new",
+        "confidence",
+        "rationale",
+        "outcome",
+        "taken_by",
+    }
+    assert set(PairingSettledOut.model_fields) == {
+        "old",
+        "new",
+        "verdict",
+        "actor",
+        "rationale",
+    }
+    assert set(PairingVerdictOut.model_fields) == {
+        "old_id",
+        "new_id",
+        "verdict",
+        "actor",
+    }
+    assert set(PairingQueueOut.model_fields) == {
+        "items",
+        "settled",
+        "pairings_unapplied",
+        "pending",
+    }
+
+
+@pytest.mark.integration
+def test_a_settled_pair_carries_the_reason_it_was_settled_with(client_with_auth):
+    """The settled list is the only route back to a recorded verdict, and
+    reversing one overwrites `rationale` unconditionally. Without the reason on
+    the row, a screen's reason box starts empty and posts that empty string on
+    the reviewer's behalf — wiping the justification of the decision they are
+    reversing, having never been shown it. Empty travels as "", not as a
+    missing field: "recorded with no reason" and "not asked" are different
+    answers.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    old_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2018",
+        entries=[("3.2", REWORDED_OLD), ("5.1", BLANK_OLD)],
+    )
+    new_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2020",
+        entries=[("4.1", REWORDED_NEW), ("5.1", BLANK_NEW)],
+    )
+
+    assert client_with_auth.post(
+        f"/pairings/{old_ids[REWORDED_OLD]}/{new_ids[REWORDED_NEW]}",
+        json={"verdict": "distinct", "rationale": "competition, not acquisition"},
+    ).status_code == 200
+    assert client_with_auth.post(
+        f"/pairings/{old_ids[BLANK_OLD]}/{new_ids[BLANK_NEW]}",
+        json={"verdict": "distinct"},
+    ).status_code == 200
+
+    settled = client_with_auth.get(
+        "/pairings/queue",
+        params={"from_version_id": "pol@2018", "to_version_id": "pol@2020"},
+    ).json()["settled"]
+
+    reasons = {
+        (row["old"]["obligation_id"], row["new"]["obligation_id"]): row["rationale"]
+        for row in settled
+    }
+    assert reasons[(old_ids[REWORDED_OLD], new_ids[REWORDED_NEW])] == (
+        "competition, not acquisition"
+    )
+    assert reasons[(old_ids[BLANK_OLD], new_ids[BLANK_NEW])] == ""
+
+
+@pytest.mark.integration
+def test_a_decision_recorded_without_a_reason_still_lists(client_with_auth):
+    """A `:PairingDecision` can exist with no `rationale` property at all: the
+    migration copies the reason off the `:LinkDecision` it converts, and setting
+    a property to null in Cypher removes it. The settled list is the only route
+    back to a recorded verdict, so a row that cannot be serialised takes the
+    whole queue down — a 500 where a reviewer needed the list most.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    old_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2018",
+        entries=[("3.2", REWORDED_OLD)],
+    )
+    new_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2020",
+        entries=[("4.1", REWORDED_NEW)],
+    )
+    old_id, new_id = old_ids[REWORDED_OLD], new_ids[REWORDED_NEW]
+    driver.execute_query(
+        "CREATE (:PairingDecision {key: $key, old_obligation_id: $old_id, "
+        "new_obligation_id: $new_id, verdict: 'distinct', actor: 'migration', "
+        "at: datetime()})",
+        {"key": pairing_key(old_id, new_id), "old_id": old_id, "new_id": new_id},
+        database_=database,
+    )
+
+    response = client_with_auth.get(
+        "/pairings/queue",
+        params={"from_version_id": "pol@2018", "to_version_id": "pol@2020"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["settled"][0]["rationale"] == ""

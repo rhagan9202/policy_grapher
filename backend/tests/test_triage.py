@@ -7,6 +7,7 @@ from policy_grapher.changes.propagate import KIND_WEIGHT, MODALITY_WEIGHT, triag
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
+from policy_grapher.models import TriageOut
 from policy_grapher.obligations import write_obligations
 
 HIGHER_OLD = "Components shall document the cybersecurity strategy."
@@ -836,3 +837,28 @@ def test_the_triage_get_reports_a_verdict_it_could_not_apply(client_with_auth):
     assert [r["verdict"] for r in records] == ["paired"], (
         "an unapplied verdict is reported, never retracted"
     )
+
+
+def test_the_triage_payload_carries_exactly_these_fields():
+    """Not a test of the field names. A test that changing one is deliberate.
+
+    `frontend/src/api/types.ts` declares `TriageOut` by hand, and the screen
+    now reads `pairings_unapplied` off it to say which recorded verdicts this
+    diff could not apply. TypeScript catches only the direction where a stale
+    screen meets a renamed `types.ts` and `tsc` fails with TS2339; a field
+    renamed or added HERE reaches a hand-written interface that never hears
+    about it, the screen reads `undefined`, and every test in both languages
+    stays green. `ReviewQueueOut` and the pairing payloads carry the same
+    guard. Changing this set is fine; changing it without opening `types.ts`
+    is the defect.
+    """
+    assert set(TriageOut.model_fields) == {
+        "from_version_id",
+        "to_version_id",
+        "rows",
+        "total_changes",
+        "unlinked_changes",
+        "pairings_unapplied",
+        "from_obligations",
+        "to_obligations",
+    }
