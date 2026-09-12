@@ -337,6 +337,28 @@ describe('Pairings', () => {
     )
   })
 
+  it('lets a reviewer clear the recorded reason on purpose', async () => {
+    // The prefill must not become a floor. Emptying the box is a reviewer saying
+    // the old reason no longer applies, and '' has to reach the recorder as ''.
+    // A logical-or instead of the nullish coalescing reads an emptied box as
+    // "nothing typed" and silently re-posts the reason they just deleted.
+    getPairingQueue.mockResolvedValue(
+      q({ items: [], settled: [settledPair], pending: 0 }),
+    )
+    recordPairing.mockResolvedValue({
+      old_id: 'old-7', new_id: 'new-7', verdict: 'distinct', actor: 'tester',
+    })
+    await choosePair()
+    const settled = await screen.findByRole('list', { name: /settled pairs/i })
+
+    await userEvent.clear(screen.getByLabelText(/reason/i))
+    await userEvent.click(
+      within(settled).getByRole('button', { name: /mark distinct/i }),
+    )
+
+    expect(recordPairing).toHaveBeenCalledWith('old-7', 'new-7', 'distinct', '')
+  })
+
   it('records a paired verdict older-first and reloads the queue', async () => {
     // The reload returns the pair as settled, which is what the route really
     // does: the verdict moves it out of `items` and into `settled`, never out of
