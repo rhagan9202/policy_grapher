@@ -110,7 +110,8 @@ SETTLED = _SCOPE + """
 RETURN d.old_obligation_id AS old_id,
        d.new_obligation_id AS new_id,
        d.verdict           AS verdict,
-       d.actor             AS actor
+       d.actor             AS actor,
+       d.rationale         AS rationale
 """
 
 # A verdict whose obligation a re-extraction no longer produces. The decision
@@ -310,6 +311,10 @@ def read_settled(
             "new_id": record["new_id"],
             "verdict": record["verdict"],
             "actor": record["actor"],
+            # Never None to the caller. A decision written before this column
+            # existed has no property at all, and a screen prefilling its reason
+            # box from that would show "null" as the reason on record.
+            "rationale": record["rationale"] or "",
         }
         for record in tx.run(
             SETTLED,

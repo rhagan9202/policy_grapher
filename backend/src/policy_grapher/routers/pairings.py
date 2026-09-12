@@ -409,6 +409,7 @@ def queue(
                 new=_citation(citations[(entry["old_id"], entry["new_id"])], "new"),
                 verdict=entry["verdict"],
                 actor=entry["actor"],
+                rationale=entry["rationale"],
             )
             for entry in settled
         ],

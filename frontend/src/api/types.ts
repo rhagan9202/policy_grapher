@@ -218,6 +218,11 @@ export interface PairingSettled {
   new: ObligationCitation
   verdict: string
   actor: string
+  /** The reason recorded with the verdict, "" when none was given. Re-recording
+   *  a verdict on the same pair overwrites this, so a screen that cannot show it
+   *  posts an empty one the moment a reviewer reverses a decision — erasing the
+   *  justification of the verdict being reversed, unseen. */
+  rationale: string
 }
 
 /** What the POST echoes back: the canonical decision as it was stored.
@@ -343,6 +348,12 @@ export interface RebuildStatus {
   chunks_total: number
   counts: Record<string, number>
   rejections: { chunk_id: string; reason: string }[]
+  /** How many refusals there were, against however many `rejections` carries.
+   *  The list is capped at 20 by the worker and this is not, so 20 reasons over
+   *  213 refusals — DoDD 5143.01's rebuild — is a difference a reader can only
+   *  see from here. The backend has sent it since STORY-057; this interface is
+   *  hand-written and did not declare it, so nothing could read it. */
+  rejections_total: number
   /** Which adapters the worker actually used. Empty until a worker picks the
    *  run up. `null` extracts nothing, so a run under it writes chunks and no
    *  obligations — a correct result indistinguishable from a broken one unless

@@ -301,12 +301,21 @@ class PairingSettledOut(BaseModel):
     Deciding whether to reverse a verdict is answering the question that was
     answered when it was made, and it needs the same two clauses in front of
     it.
+
+    `rationale` travels for a sharper reason than completeness. Re-recording a
+    verdict on the same pair SETS `rationale` unconditionally (`RECORD` in
+    links/pairing.py), so a screen that cannot show the reason on record posts
+    an empty one on the reviewer's behalf the moment they reverse a verdict —
+    erasing the justification of the decision they are reversing, having never
+    been shown it. Sent even when empty, because "" here means "recorded with
+    no reason" and a missing field would mean "not asked".
     """
 
     old: ObligationCitationOut
     new: ObligationCitationOut
     verdict: str
     actor: str
+    rationale: str
 
 
 class PairingVerdictOut(BaseModel):

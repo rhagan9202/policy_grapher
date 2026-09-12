@@ -159,7 +159,9 @@ def test_settled_pairs_carry_their_actor_and_respect_the_same_scope(
     clean_graph, database
 ):
     """The queue lists settled pairs so a reviewer can reach one to undo it;
-    who settled it is part of what they are undoing."""
+    who settled it and why are part of what they are undoing. The reason
+    especially: re-recording a verdict overwrites `rationale`, so a reader who
+    was never shown it erases it by answering."""
     _seed_edition(clean_graph, database, version_id="e2018", obligation_ids=["a1"])
     _seed_edition(clean_graph, database, version_id="e2020", obligation_ids=["b1"])
     _seed_edition(clean_graph, database, version_id="e2022", obligation_ids=["c1"])
@@ -172,7 +174,13 @@ def test_settled_pairs_carry_their_actor_and_respect_the_same_scope(
         )
 
     assert settled == [
-        {"old_id": "a1", "new_id": "b1", "verdict": "paired", "actor": "alice"}
+        {
+            "old_id": "a1",
+            "new_id": "b1",
+            "verdict": "paired",
+            "actor": "alice",
+            "rationale": "r",
+        }
     ]
 
 
