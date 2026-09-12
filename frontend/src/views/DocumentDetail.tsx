@@ -507,6 +507,31 @@ export default function DocumentDetail() {
                   back to the queue, where it is met again. A stranded rejection
                   leaves a refusal nobody is applying — the proposal returns and
                   nothing says it was already refused. */}
+              {/* The pairing vocabulary's half of the same repoint. One number
+                  covers both pairing verdicts where the link side has two,
+                  because `paired` and `distinct` lose identically: the clause
+                  the verdict named is gone, so the pair returns to the pairing
+                  queue unanswered rather than leaving a link missing or a
+                  suppression unapplied (ADR-027). */}
+              {(run.counts.pairing_decisions_repointed ?? 0) > 0 && (
+                <p>
+                  {run.counts.pairing_decisions_repointed} pairing decision
+                  {run.counts.pairing_decisions_repointed === 1 ? ' was' : 's were'}{' '}
+                  carried across a change of obligation identity.
+                </p>
+              )}
+
+              {(run.counts.pairing_decisions_stranded ?? 0) > 0 && (
+                <p>
+                  {run.counts.pairing_decisions_stranded} recorded pairing verdict
+                  {run.counts.pairing_decisions_stranded === 1 ? '' : 's'} could not
+                  be carried across — the clauses they named no longer exist under
+                  those ids, and the statements no longer match. Those pairs come
+                  back to the pairing queue unanswered, and nothing there will say
+                  they were settled before.
+                </p>
+              )}
+
               {(run.counts.rejections_stranded ?? 0) > 0 && (
                 <p>
                   {run.counts.rejections_stranded} recorded rejection

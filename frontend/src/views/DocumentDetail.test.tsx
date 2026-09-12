@@ -860,6 +860,66 @@ describe('DocumentDetail, stranded rejections', () => {
   })
 })
 
+// ADR-027 requires the count of decisions a rebuild could not carry to be on
+// screen rather than merely returned, and the pairing split added a second
+// decision vocabulary that the rebuild repoints through the same path. Both its
+// counts reached this payload and neither was drawn.
+
+describe('DocumentDetail, pairing decisions across a rebuild', () => {
+  const finished = (counts: Record<string, number>) => ({
+    run_id: 'r', version_id: versions[1].version_id, state: 'finished',
+    chunks_done: 37, chunks_total: 37, counts, rejections: [],
+    extractor_adapter: 'local', embedder_adapter: 'local', error: null,
+  })
+
+  it('reports the pairing verdicts it carried and the ones it lost', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+    startRebuild.mockResolvedValue({ run_id: 'r' })
+    getRebuild.mockResolvedValue(
+      finished({
+        chunks_written: 37,
+        obligations_written: 56,
+        pairing_decisions_repointed: 4,
+        pairing_decisions_stranded: 2,
+      }),
+    )
+
+    renderAt()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /build derived layer/i }),
+    )
+
+    expect(await screen.findByText(/2 recorded pairing verdicts/i)).toBeInTheDocument()
+    expect(screen.getByText(/4 pairing decisions/i)).toBeInTheDocument()
+  })
+
+  it('says nothing about pairing verdicts when none were carried or lost', async () => {
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+    startRebuild.mockResolvedValue({ run_id: 'r' })
+    getRebuild.mockResolvedValue(
+      finished({
+        chunks_written: 37,
+        obligations_written: 56,
+        pairing_decisions_repointed: 0,
+        pairing_decisions_stranded: 0,
+      }),
+    )
+
+    renderAt()
+    await userEvent.click(
+      await screen.findByRole('button', { name: /build derived layer/i }),
+    )
+
+    await screen.findByText(/37 chunks written|chunks rejected/i)
+    expect(screen.queryByText(/pairing verdict/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/pairing decisions/i)).not.toBeInTheDocument()
+  })
+})
+
 // Found in the sprint-12 walkthrough, driving the real stack. `versions` was read
 // once on mount, so the build record the run had just written was never re-read:
 // the moment a build finished, the page said "Finished. 41 chunks…" in one panel
