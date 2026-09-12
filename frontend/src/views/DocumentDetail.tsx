@@ -159,6 +159,14 @@ export default function DocumentDetail() {
       }
       if (cancelled) return
 
+      // A retry for this same document can succeed after an earlier one
+      // failed — most directly, navigating away and back. Nothing else
+      // clears a `poolError` this old; left standing, it would go on
+      // describing a listing that has already recovered. Cleared here,
+      // before the checks below decide whether this run has a failure of
+      // its own to report.
+      setPoolError(null)
+
       // Nothing past this point can throw on `all` itself — it is not wrapped
       // in the try above, because a bug in this logic is a defect in this
       // component, not a failed request, and must not be swallowed as one.
@@ -493,11 +501,15 @@ export default function DocumentDetail() {
 
           {poolForThisSlug === null ? (
             !poolErrorForThisSlug && (
-              <p>Looking for other documents to propose links against…</p>
+              // A live region, like `EmptyState` and Pairings' equivalent
+              // block both are: without it, a screen-reader user gets no
+              // announcement when this settles from "Looking…" into either
+              // the fieldset or the paragraph below.
+              <p role="status">Looking for other documents to propose links against…</p>
             )
           ) : poolForThisSlug.length === 0 ? (
             !poolErrorForThisSlug && (
-              <p>
+              <p role="status">
                 <strong>
                   There is nothing else in the corpus to propose links against.
                 </strong>{' '}

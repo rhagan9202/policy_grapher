@@ -346,6 +346,14 @@ describe('DocumentDetail', () => {
 // `POST .../rebuild` and `GET /rebuilds/{run_id}` shipped in sprint 4 and
 // `api/client.ts` modelled neither, so sprint 4's whole deliverable could only be
 // reached with curl. The same class of gap `listChunks` was, one sprint newer.
+//
+// The build fieldset's own pool paragraph ("Looking for other documents…" /
+// "nothing else in the corpus…") is `role="status"` too, and — under
+// `loaded()`'s default single-document corpus — settles to the second of
+// those before any of the tests below click Build, then stays on screen for
+// the rest of the test. A bare `findByRole('status')` here would find that
+// one, or throw for finding two; every status assertion below picks the last
+// one instead, which is always the run's own.
 
 describe('DocumentDetail — building the derived layer', () => {
   it('queues a rebuild for the edition being read', async () => {
@@ -467,7 +475,9 @@ describe('DocumentDetail — building the derived layer', () => {
     await screen.findByRole('article')
     await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
 
-    const status = await screen.findByRole('status')
+    // The run's status is the *last* `status` region: the pool's own
+    // ("Looking…"/"nothing else…") renders first and is also live now.
+    const status = (await screen.findAllByRole('status')).at(-1)
     expect(status).toHaveTextContent(/null.*extractor/i)
     expect(status).toHaveTextContent(/review and triage stay empty/i)
   })
@@ -486,7 +496,9 @@ describe('DocumentDetail — building the derived layer', () => {
     await screen.findByRole('article')
     await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
 
-    const status = await screen.findByRole('status')
+    // The run's status is the *last* `status` region: the pool's own
+    // ("Looking…"/"nothing else…") renders first and is also live now.
+    const status = (await screen.findAllByRole('status')).at(-1)
     expect(status).not.toHaveTextContent(/null.*extractor/i)
   })
 
@@ -505,7 +517,9 @@ describe('DocumentDetail — building the derived layer', () => {
     await screen.findByRole('article')
     await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
 
-    const status = await screen.findByRole('status')
+    // The run's status is the *last* `status` region: the pool's own
+    // ("Looking…"/"nothing else…") renders first and is also live now.
+    const status = (await screen.findAllByRole('status')).at(-1)
     expect(status).toHaveTextContent(/121/)
     expect(status).toHaveTextContent(/313/)
     // A rejected chunk is silent incompleteness unless the number is shown (ADR-023).
@@ -543,7 +557,9 @@ describe('DocumentDetail — building the derived layer', () => {
     await screen.findByRole('article')
     await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
 
-    const status = await screen.findByRole('status')
+    // The run's status is the *last* `status` region: the pool's own
+    // ("Looking…"/"nothing else…") renders first and is also live now.
+    const status = (await screen.findAllByRole('status')).at(-1)
     expect(status).toHaveTextContent(/queued/i)
     expect(status).not.toHaveTextContent(/0 of 0/)
   })
@@ -565,7 +581,9 @@ describe('DocumentDetail — building the derived layer', () => {
     await screen.findByRole('article')
     await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
 
-    const status = await screen.findByRole('status')
+    // The run's status is the *last* `status` region: the pool's own
+    // ("Looking…"/"nothing else…") renders first and is also live now.
+    const status = (await screen.findAllByRole('status')).at(-1)
     expect(status).toHaveTextContent(/2 chunks rejected/i)
     expect(status).toHaveTextContent(/Input should be SHALL/)
   })
@@ -592,7 +610,9 @@ describe('DocumentDetail — building the derived layer', () => {
     await screen.findByRole('article')
     await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
 
-    const status = await screen.findByRole('status')
+    // The run's status is the *last* `status` region: the pool's own
+    // ("Looking…"/"nothing else…") renders first and is also live now.
+    const status = (await screen.findAllByRole('status')).at(-1)
     expect(status).toHaveTextContent(/2 of 213/)
   })
 
@@ -611,7 +631,9 @@ describe('DocumentDetail — building the derived layer', () => {
     await screen.findByRole('article')
     await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
 
-    const status = await screen.findByRole('status')
+    // The run's status is the *last* `status` region: the pool's own
+    // ("Looking…"/"nothing else…") renders first and is also live now.
+    const status = (await screen.findAllByRole('status')).at(-1)
     expect(status).not.toHaveTextContent(/of 1 refusal/i)
   })
 
@@ -633,7 +655,9 @@ describe('DocumentDetail — building the derived layer', () => {
     await screen.findByRole('article')
     await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
 
-    const status = await screen.findByRole('status')
+    // The run's status is the *last* `status` region: the pool's own
+    // ("Looking…"/"nothing else…") renders first and is also live now.
+    const status = (await screen.findAllByRole('status')).at(-1)
     expect(status).toHaveTextContent(/3 recorded approvals could not be replayed/i)
     expect(status).toHaveTextContent(/2 .*carried across/i)
   })
@@ -653,7 +677,9 @@ describe('DocumentDetail — building the derived layer', () => {
     await screen.findByRole('article')
     await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
 
-    const status = await screen.findByRole('status')
+    // The run's status is the *last* `status` region: the pool's own
+    // ("Looking…"/"nothing else…") renders first and is also live now.
+    const status = (await screen.findAllByRole('status')).at(-1)
     expect(status).not.toHaveTextContent(/could not be replayed/i)
     expect(status).not.toHaveTextContent(/carried across/i)
   })
@@ -787,9 +813,12 @@ describe('DocumentDetail, the build fieldset pool — closing what review found'
     renderAt()
     await screen.findByRole('article')
 
-    expect(
-      await screen.findByText(/nothing else in the corpus to propose links against/i),
-    ).toBeInTheDocument()
+    // A live region, like `EmptyState` and Pairings' equivalent block both
+    // are: without it, a screen reader gets no announcement that "Looking…"
+    // has settled into this.
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /nothing else in the corpus to propose links against/i,
+    )
     expect(screen.queryByRole('group')).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
@@ -1038,6 +1067,233 @@ describe('DocumentDetail, the build fieldset pool — closing what review found'
     expect(
       screen.getByRole('checkbox', { name: /doc-a@2020-01-01/ }),
     ).toBeInTheDocument()
+  })
+
+  // The two tests above pin the `cancelled` guards, and by the time either
+  // asserts, the current document's own pool has already settled — so the
+  // keyed read (`pool.slug === slug`) is never the thing actually stopping
+  // the wrong answer from showing; `cancelled` already did that. This test
+  // does not hold a *stale* request open at all: A's pool resolves and is
+  // written to state completely normally. What it pins is whether that
+  // already-correct, already-written value for A is misread as the answer
+  // for B while B's own (separate, currently in-flight) request is still
+  // settling — which only the slug comparison, not `cancelled`, can catch.
+  it('does not read the previous document\'s already-settled pool as this document\'s own while this document\'s own answer is still in flight', async () => {
+    const a = {
+      slug: 'doc-a', name: 'Document A', is_external: false,
+      references: ['doc-b'], referenced_by: [], version_count: 1,
+    }
+    const b = {
+      slug: 'doc-b', name: 'Document B', is_external: false,
+      references: ['doc-a'], referenced_by: [], version_count: 1,
+    }
+    const edA = [{
+      version_id: 'doc-a@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'aaaa', source_uri: 'file:///doc-a.pdf', supersedes: null,
+    }]
+    const edB = [{
+      version_id: 'doc-b@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'bbbb', source_uri: 'file:///doc-b.pdf', supersedes: null,
+    }]
+
+    getDocument.mockImplementation((slug: string) =>
+      Promise.resolve(slug === 'doc-a' ? a : b),
+    )
+    listChunks.mockResolvedValue(chunks)
+    listDocuments.mockResolvedValue([a, b])
+
+    // `listVersions('doc-a')` is called twice, by two different callers: the
+    // main document effect while A's own page is open (answered promptly),
+    // and B's pool effect once the reader has navigated to B — asking about
+    // A as a candidate. That second call is the one held open, so B's own
+    // pool fetch is still unsettled at the point this test checks it.
+    let releaseBsOwnPool: (eds: unknown[]) => void = () => {}
+    let docACalls = 0
+    listVersions.mockImplementation((slug: string) => {
+      if (slug === 'doc-a') {
+        docACalls += 1
+        if (docACalls === 1) return Promise.resolve(edA)
+        return new Promise((resolve) => {
+          releaseBsOwnPool = resolve
+        })
+      }
+      // A's pool effect asks this, promptly, so A's own pool (offering B) is
+      // fully settled and written to state before the reader ever leaves.
+      return Promise.resolve(edB)
+    })
+
+    renderAt('doc-a')
+    await screen.findByRole('heading', { level: 1, name: /Document A/ })
+    // A's pool is fully resolved before navigating away: it offers B.
+    await screen.findByRole('checkbox', { name: /doc-b@2020-01-01/ })
+
+    await userEvent.click(screen.getByRole('link', { name: 'Document B' }))
+    await screen.findByRole('heading', { level: 1, name: /Document B/ })
+
+    // B's own pool fetch is still pending. Without the keyed read, `pool`
+    // would still hold A's last-written value — whose one entry is B's own
+    // edition — and B's page would offer it against itself, the same shape
+    // of defect this whole round of work exists to close.
+    expect(screen.getByRole('status')).toHaveTextContent(/looking for other documents/i)
+    expect(
+      screen.queryByRole('checkbox', { name: /doc-b@2020-01-01/ }),
+    ).not.toBeInTheDocument()
+
+    await act(async () => {
+      releaseBsOwnPool(edA)
+      await Promise.resolve()
+    })
+
+    // B's own answer, once it settles, offers A.
+    expect(
+      await screen.findByRole('checkbox', { name: /doc-a@2020-01-01/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('clears an old listing failure once a later fetch for the same document succeeds', async () => {
+    // Reproduces: A's listing fails; the reader navigates to B and back to
+    // A, where it now succeeds. Without clearing, the alert from the first,
+    // failed attempt would still be showing over a fieldset that now works.
+    const a = {
+      slug: 'doc-a', name: 'Document A', is_external: false,
+      references: ['doc-b'], referenced_by: [], version_count: 1,
+    }
+    const b = {
+      slug: 'doc-b', name: 'Document B', is_external: false,
+      references: ['doc-a'], referenced_by: [], version_count: 1,
+    }
+    const edA = [{
+      version_id: 'doc-a@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'aaaa', source_uri: 'file:///doc-a.pdf', supersedes: null,
+    }]
+    const edB = [{
+      version_id: 'doc-b@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'bbbb', source_uri: 'file:///doc-b.pdf', supersedes: null,
+    }]
+
+    getDocument.mockImplementation((slug: string) =>
+      Promise.resolve(slug === 'doc-a' ? a : b),
+    )
+    listVersions.mockImplementation((slug: string) =>
+      Promise.resolve(slug === 'doc-a' ? edA : edB),
+    )
+    listChunks.mockResolvedValue(chunks)
+
+    let calls = 0
+    listDocuments.mockImplementation(() => {
+      calls += 1
+      // A's first visit fails; B's visit and A's retry both succeed.
+      if (calls === 1) return Promise.reject(new Error('corpus down'))
+      return Promise.resolve([a, b])
+    })
+
+    renderAt('doc-a')
+    await screen.findByRole('heading', { level: 1, name: /Document A/ })
+    expect(await screen.findByRole('alert')).toHaveTextContent(/corpus down/)
+
+    // The corpus listing failed, so the reference has not resolved to a name
+    // — the slug fallback is the link this click can use.
+    await userEvent.click(screen.getByRole('link', { name: 'doc-b' }))
+    await screen.findByRole('heading', { level: 1, name: /Document B/ })
+
+    await userEvent.click(screen.getByRole('link', { name: 'Document A' }))
+    await screen.findByRole('heading', { level: 1, name: /Document A/ })
+
+    // The retry succeeded: the stale failure must not still be reported.
+    expect(
+      await screen.findByRole('checkbox', { name: /doc-b@2020-01-01/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('does not let a listing failure held open past a successful retry revive the alert', async () => {
+    // The same fix as above, pinned at the guard that makes it safe rather
+    // than accidental: the `if (!cancelled)` inside the corpus-listing
+    // catch. Held open, then rejected only after a *later* attempt for the
+    // same document has already succeeded and cleared the slate.
+    const a = {
+      slug: 'doc-a', name: 'Document A', is_external: false,
+      references: ['doc-b'], referenced_by: [], version_count: 1,
+    }
+    const b = {
+      slug: 'doc-b', name: 'Document B', is_external: false,
+      references: ['doc-a'], referenced_by: [], version_count: 1,
+    }
+    const edA = [{
+      version_id: 'doc-a@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'aaaa', source_uri: 'file:///doc-a.pdf', supersedes: null,
+    }]
+    const edB = [{
+      version_id: 'doc-b@2020-01-01', effective_date: '2020-01-01',
+      checksum: 'bbbb', source_uri: 'file:///doc-b.pdf', supersedes: null,
+    }]
+
+    getDocument.mockImplementation((slug: string) =>
+      Promise.resolve(slug === 'doc-a' ? a : b),
+    )
+    listVersions.mockImplementation((slug: string) =>
+      Promise.resolve(slug === 'doc-a' ? edA : edB),
+    )
+    listChunks.mockResolvedValue(chunks)
+
+    let rejectFirst: (error: Error) => void = () => {}
+    let calls = 0
+    listDocuments.mockImplementation(() => {
+      calls += 1
+      // A's first visit: held open, rejected only once the reader has been
+      // to B and back, and the retry below has already succeeded.
+      if (calls === 1) {
+        return new Promise((_, reject) => {
+          rejectFirst = reject
+        })
+      }
+      return Promise.resolve([a, b])
+    })
+
+    renderAt('doc-a')
+    await screen.findByRole('heading', { level: 1, name: /Document A/ })
+    await userEvent.click(screen.getByRole('link', { name: 'doc-b' }))
+    await screen.findByRole('heading', { level: 1, name: /Document B/ })
+    await userEvent.click(screen.getByRole('link', { name: 'Document A' }))
+    await screen.findByRole('heading', { level: 1, name: /Document A/ })
+
+    // The retry (the third `listDocuments` call) succeeded.
+    expect(
+      await screen.findByRole('checkbox', { name: /doc-b@2020-01-01/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    // The held-open first attempt now rejects — for a closure whose effect
+    // was cleaned up two navigations ago.
+    await act(async () => {
+      rejectFirst(new Error('timed out'))
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', { name: /doc-b@2020-01-01/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('says so when none of the other documents\' editions could be loaded', async () => {
+    // The `failed === others.length` branch: distinct wording from the
+    // partial-failure case, and untested until now — the string it produces
+    // appeared only in the component.
+    loaded()
+    listDocuments.mockResolvedValue([document, otherDocument])
+    listVersions.mockImplementation((slug: string) =>
+      slug === 'dodd-5000-01' ? Promise.resolve(versions) : Promise.reject(new Error('timed out')),
+    )
+    renderAt()
+    await screen.findByRole('article')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/could not load any other document's editions/i)
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/nothing else in the corpus/i),
+    ).not.toBeInTheDocument()
   })
 })
 
