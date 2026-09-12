@@ -289,9 +289,38 @@ class PairingCandidateOut(BaseModel):
 
 class PairingSettledOut(BaseModel):
     """A pair a person has already ruled on, kept reachable so the verdict can
-    be undone. Ids alone, deliberately: this list exists to mark rows settled
-    and route a reversal, not to be read — the citations live on the
-    candidates."""
+    be undone.
+
+    Carries both citations, exactly as a candidate does, because a settled pair
+    is never *also* a candidate: the diff deliberately does not re-record a
+    pair a reviewer has settled, so a settled row has no entry in `items` to
+    borrow its statements from — and `items` is empty in precisely the case
+    this list is full. Two `distinct` verdicts between one edition pair give
+    `settled=2, items=0`, at which point ids alone leave a screen with nothing
+    to draw and a reviewer with no way back to a verdict they want to undo.
+    Deciding whether to reverse a verdict is answering the question that was
+    answered when it was made, and it needs the same two clauses in front of
+    it.
+    """
+
+    old: ObligationCitationOut
+    new: ObligationCitationOut
+    verdict: str
+    actor: str
+
+
+class PairingVerdictOut(BaseModel):
+    """What the POST recorded, echoed back.
+
+    Ids and not citations, and deliberately a different model from
+    `PairingSettledOut`: this is the canonical `:PairingDecision` read back, and
+    its job is to tell the caller which orientation the pair was stored in —
+    the route reverses a newer-first request, and `pairing_key` is directional,
+    so the orientation is the one thing the caller cannot infer from what it
+    sent. A screen posting a verdict already holds both clauses; the queue's
+    settled rows are the ones that need citations, and being drawn is their
+    whole purpose.
+    """
 
     old_id: str
     new_id: str

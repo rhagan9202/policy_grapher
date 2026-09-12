@@ -9,8 +9,8 @@ import type {
   IngestResult,
   ObligationsOut,
   PairingQueue,
-  PairingSettled,
   PairingVerdict,
+  PairingVerdictRecorded,
   QueryResult,
   RebuildStarted,
   RebuildStatus,
@@ -258,8 +258,8 @@ export function recordPairing(
   newId: string,
   verdict: PairingVerdict,
   rationale = '',
-): Promise<PairingSettled> {
-  return request<PairingSettled>(
+): Promise<PairingVerdictRecorded> {
+  return request<PairingVerdictRecorded>(
     `/pairings/${encodeURIComponent(oldId)}/${encodeURIComponent(newId)}`,
     { method: 'POST', body: JSON.stringify({ verdict, rationale }) },
   )

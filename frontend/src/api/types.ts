@@ -206,11 +206,27 @@ export interface PairingCandidate {
   taken_by: string[]
 }
 
-/** A pair a person has already ruled on. Carries ids rather than statements: it
- *  is listed so a verdict stays reversible, and a settled pair is deliberately
- *  not re-recorded as a candidate — a candidate edge re-asking a settled question
- *  would put it straight back in the queue. */
+/** A pair a person has already ruled on, listed so the verdict stays reversible.
+ *
+ *  Carries both citations rather than ids alone, because a settled pair is never
+ *  also a candidate: the diff does not re-record a pair a reviewer has settled, so
+ *  there is no row in `items` to borrow the statements from — and `items` is empty
+ *  in exactly the case this list is full. Two `distinct` verdicts between one
+ *  edition pair give `settled` two rows and `items` none. */
 export interface PairingSettled {
+  old: ObligationCitation
+  new: ObligationCitation
+  verdict: string
+  actor: string
+}
+
+/** What the POST echoes back: the canonical decision as it was stored.
+ *
+ *  Ids rather than citations, and a separate type from `PairingSettled` on
+ *  purpose. The route reverses a newer-first request before keying, and the key is
+ *  a directional hash, so the orientation it chose is the one thing the caller
+ *  cannot work out from what it sent — whereas the clauses it already has. */
+export interface PairingVerdictRecorded {
   old_id: string
   new_id: string
   verdict: string

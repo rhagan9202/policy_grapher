@@ -33,6 +33,7 @@ from policy_grapher.dependencies import get_app_settings, get_driver
 from policy_grapher.links.pairing import (
     CrossDocumentPair,
     PairingVerdict,
+    lock_edition_pair,
     read_settled,
     record_pairing,
 )
@@ -42,6 +43,7 @@ from policy_grapher.models import (
     PairingQueueOut,
     PairingSettledOut,
     PairingVerdictIn,
+    PairingVerdictOut,
 )
 from policy_grapher.obligations import primary_anchor
 
@@ -55,22 +57,28 @@ MATCH (v:DocumentVersion {version_id: $version_id}) RETURN count(v) AS total
 # effective date, then ingest time, then version id. The version_id tie-breaker
 # is this feature's addition — two undated editions ingested in one instant
 # otherwise tie, and neither orientation of the pair would pass the 400 below.
-# Strings throughout: effective_date is stored as an ISO string
-# (versions.merge_version), toString on the ingest datetime yields the ISO form
-# which orders lexically, and coalescing absent values to '' keeps a
-# fixture-built edition comparable at all.
-#
-# All three legs, in this order, are also what `migrate.py` orders a legacy
-# pair by. The two must not disagree: `pairing_key` is a directional hash, so a
-# pair the migration canonicalised one way and this route the other keys to two
-# nodes, and a re-verdict would sit beside the old decision instead of
+# Strings throughout, and `toString` on every leg: the ISO form orders
+# lexically, and coalescing absent values to '' keeps a fixture-built edition
+# comparable at all. `effective_date` is an ISO string today
+# (versions.merge_version), so `toString` is a no-op on it — which is the
+# point. `migrate.py` reads all three legs through `toString`, and the two must
+# agree by construction rather than by both happening to meet a string: the day
+# any path stores a real temporal type, an unwrapped read here would compare a
+# `Date` against `''` and order the pair differently from the migration. That
+# disagreement is silent and expensive, because `pairing_key` is a directional
+# hash — a pair the migration canonicalised one way and this route the other
+# keys to two nodes, so a re-verdict sits beside the old decision instead of
 # replacing it.
+#
+# The document is read here too, so the queue can refuse a cross-document pair
+# before the diff writes anything. See `queue`.
 ORDERING = """
 UNWIND [$from_version_id, $to_version_id] AS wanted
-MATCH (v:DocumentVersion {version_id: wanted})
-RETURN v.version_id                          AS version_id,
-       coalesce(v.effective_date, '')        AS effective_date,
-       coalesce(toString(v.ingested_at), '') AS ingested_at
+MATCH (doc:Document)-[:HAS_VERSION]->(v:DocumentVersion {version_id: wanted})
+RETURN v.version_id                              AS version_id,
+       doc.slug                                  AS document_slug,
+       coalesce(toString(v.effective_date), '')  AS effective_date,
+       coalesce(toString(v.ingested_at), '')     AS ingested_at
 """
 
 # One citation per side; see `obligations.primary_anchor` for why the anchor is
@@ -129,6 +137,51 @@ CANDIDATES = (
     .replace("--NEW-ANCHOR--", primary_anchor("new", "new_chunk"))
 )
 
+# Citations for the pairs `read_settled` returned. A separate query rather than
+# a widening of `read_settled`, so which decisions belong to an edition pair
+# stays decided in exactly one place (`links/pairing.py`'s `_SCOPE`) and this
+# only dresses the answer. Each side resolves its own document and edition
+# rather than binding the request's from/to: the decision's orientation is
+# canonical older→newer, which the request's is too, but a citation that
+# re-derived the edition from the request would print the wrong one the moment
+# those two ever disagreed.
+#
+# Both obligations are guaranteed present — `_SCOPE` matches through `:MANDATES`
+# on both, so a stranded decision is already absent from `settled` — and every
+# obligation `write_obligations` writes is `ANCHORED_IN` a chunk, which is what
+# lets the anchor be a plain (non-optional) join here.
+_SETTLED_TEMPLATE = """
+UNWIND $pairs AS pair
+MATCH (old:Obligation {obligation_id: pair.old_id})
+MATCH (new:Obligation {obligation_id: pair.new_id})
+--OLD-ANCHOR--
+--NEW-ANCHOR--
+MATCH (old_doc:Document)-[:HAS_VERSION]->(old_version:DocumentVersion)
+      -[:MANDATES]->(old)
+MATCH (new_doc:Document)-[:HAS_VERSION]->(new_version:DocumentVersion)
+      -[:MANDATES]->(new)
+RETURN pair.old_id            AS old_id,
+       old.statement          AS old_statement,
+       old.modality           AS old_modality,
+       old_doc.name           AS old_document,
+       old_version.version_id AS old_version_id,
+       old_chunk.section_path AS old_section_path,
+       old_chunk.page         AS old_page,
+       pair.new_id            AS new_id,
+       new.statement          AS new_statement,
+       new.modality           AS new_modality,
+       new_doc.name           AS new_document,
+       new_version.version_id AS new_version_id,
+       new_chunk.section_path AS new_section_path,
+       new_chunk.page         AS new_page
+"""
+
+SETTLED_CITATIONS = (
+    _SETTLED_TEMPLATE
+    .replace("--OLD-ANCHOR--", primary_anchor("old", "old_chunk"))
+    .replace("--NEW-ANCHOR--", primary_anchor("new", "new_chunk"))
+)
+
 # The page's own match, counted without the LIMIT — the review queue's PENDING
 # reason: the page is capped, and the number a reviewer needs is the backlog.
 # No anti-join here, unlike review's, because none is needed: the diff never
@@ -149,10 +202,10 @@ RETURN count(r) AS pending
 RESOLVE_EDITION = """
 MATCH (d:Document)-[:HAS_VERSION]->(v:DocumentVersion)
       -[:MANDATES]->(:Obligation {obligation_id: $obligation_id})
-RETURN d.slug                                AS document_slug,
-       v.version_id                          AS version_id,
-       coalesce(v.effective_date, '')        AS effective_date,
-       coalesce(toString(v.ingested_at), '') AS ingested_at
+RETURN d.slug                                   AS document_slug,
+       v.version_id                             AS version_id,
+       coalesce(toString(v.effective_date), '') AS effective_date,
+       coalesce(toString(v.ingested_at), '')    AS ingested_at
 """
 
 # A live paired verdict naming $obligation_id with a *different* partner whose
@@ -178,6 +231,25 @@ WHERE (d.old_obligation_id = $obligation_id
 RETURN d.old_obligation_id AS old_id, d.new_obligation_id AS new_id
 LIMIT 1
 """
+
+
+def _citation(record, side: str) -> ObligationCitationOut:
+    """One side of a pair, out of a record whose columns carry an `old_`/`new_`
+    prefix.
+
+    Shared by the candidate rows and the settled rows: both queries return the
+    same seven columns per side under the same two prefixes, and a citation
+    assembled twice is a citation that can come to disagree with itself.
+    """
+    return ObligationCitationOut(
+        obligation_id=record[f"{side}_id"],
+        statement=record[f"{side}_statement"],
+        modality=record[f"{side}_modality"],
+        document=record[f"{side}_document"],
+        version_id=record[f"{side}_version_id"],
+        section_path=record[f"{side}_section_path"],
+        page=record[f"{side}_page"],
+    )
 
 
 def _require_version(driver: Driver, database: str, version_id: str) -> None:
@@ -227,6 +299,32 @@ def queue(
         )
         for record in records
     }
+    documents = {
+        record["version_id"]: record["document_slug"] for record in records
+    }
+    # Refused before the diff runs, and that ordering is the point: the diff
+    # writes `:Change` nodes and `PAIRING_CANDIDATE` edges, so a cross-document
+    # request answered late leaves behind a derived assertion that one
+    # instrument's clause is the reworded form of another's — written as the
+    # side effect of a GET, which no POST would ever accept.
+    #
+    # This is the same argument that put the guard in `record_pairing` rather
+    # than in the POST alone: a rule enforced at one caller is a rule only that
+    # caller obeys, and without this the queue offered rows its own POST
+    # answers 404. Triage's willingness to diff any two editions is not cover —
+    # Triage has no settle action, so it cannot offer a row that cannot be
+    # settled.
+    if documents[from_version_id] != documents[to_version_id]:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "A pairing runs between two editions of one document; "
+                f"{from_version_id!r} belongs to "
+                f"{documents[from_version_id]!r} and {to_version_id!r} to "
+                f"{documents[to_version_id]!r}. Whether one document's clause "
+                "discharges another's is Review's question, not this one."
+            ),
+        )
     if not ordering[from_version_id] < ordering[to_version_id]:
         raise HTTPException(
             status_code=400,
@@ -258,36 +356,34 @@ def queue(
         settled = read_settled(
             tx, from_version_id=from_version_id, to_version_id=to_version_id
         )
+        citations = {}
+        if settled:
+            citations = {
+                (record["old_id"], record["new_id"]): dict(record)
+                for record in tx.run(
+                    SETTLED_CITATIONS,
+                    {
+                        "pairs": [
+                            {"old_id": entry["old_id"], "new_id": entry["new_id"]}
+                            for entry in settled
+                        ]
+                    },
+                )
+            }
         pending = tx.run(
             PENDING,
             {"from_version_id": from_version_id, "to_version_id": to_version_id},
         ).single()["pending"]
-        return counts, candidates, settled, pending
+        return counts, candidates, settled, citations, pending
 
     with driver.session(database=database) as session:
-        counts, candidates, settled, pending = session.execute_write(_work)
+        counts, candidates, settled, citations, pending = session.execute_write(_work)
 
     return PairingQueueOut(
         items=[
             PairingCandidateOut(
-                old=ObligationCitationOut(
-                    obligation_id=record["old_id"],
-                    statement=record["old_statement"],
-                    modality=record["old_modality"],
-                    document=record["old_document"],
-                    version_id=record["old_version_id"],
-                    section_path=record["old_section_path"],
-                    page=record["old_page"],
-                ),
-                new=ObligationCitationOut(
-                    obligation_id=record["new_id"],
-                    statement=record["new_statement"],
-                    modality=record["new_modality"],
-                    document=record["new_document"],
-                    version_id=record["new_version_id"],
-                    section_path=record["new_section_path"],
-                    page=record["new_page"],
-                ),
+                old=_citation(record, "old"),
+                new=_citation(record, "new"),
                 confidence=record["confidence"],
                 rationale=record["rationale"],
                 outcome=record["outcome"],
@@ -301,8 +397,16 @@ def queue(
         ],
         settled=[
             PairingSettledOut(
-                old_id=entry["old_id"],
-                new_id=entry["new_id"],
+                # Indexed, not `.get`-ed. `read_settled` decides which
+                # decisions belong to this edition pair and its scope matches
+                # both obligations through `:MANDATES`, so a pair it returned
+                # and this could not cite is a graph state neither query
+                # models. Failing loudly beats dropping the row: this list is
+                # the only route back to a recorded verdict, and a settled pair
+                # quietly missing from it is a verdict a reviewer can no longer
+                # undo.
+                old=_citation(citations[(entry["old_id"], entry["new_id"])], "old"),
+                new=_citation(citations[(entry["old_id"], entry["new_id"])], "new"),
                 verdict=entry["verdict"],
                 actor=entry["actor"],
             )
@@ -314,7 +418,7 @@ def queue(
 
 
 @router.post(
-    "/{old_obligation_id}/{new_obligation_id}", response_model=PairingSettledOut
+    "/{old_obligation_id}/{new_obligation_id}", response_model=PairingVerdictOut
 )
 def settle(
     old_obligation_id: str,
@@ -323,7 +427,7 @@ def settle(
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
     principal: Principal = Depends(require_principal),
-) -> PairingSettledOut:
+) -> PairingVerdictOut:
     """Record a pairing verdict. `actor` is `principal.name`; the body has no
     say in it.
 
@@ -398,10 +502,20 @@ def settle(
     new_edition = editions[new_id]["version_id"]
 
     def _write(tx):
-        # The conflict check runs in the transaction that records, not as a
-        # separate read: the 409 is the sole guard against the two-live-paired
-        # state the diff cannot arbitrate, so it must not lose a race to a
-        # concurrent verdict.
+        # The lock comes first, and it is what gives the conflict check below
+        # any force at all. Neo4j is read-committed and locks nothing for
+        # reads, and two verdicts on one clause MERGE two *different*
+        # `:PairingDecision` nodes — so merely putting the read in the same
+        # transaction as the write serialises nothing, and two concurrent
+        # verdicts both read an empty conflict and both commit. Taking the
+        # edition pair's lock before reading makes the second transaction block
+        # until the first commits, so it reads the first's decision and 409s.
+        # See `links.pairing.ACQUIRE_PAIR_LOCK` for why the scope is the
+        # edition pair and why the constraint in db.py is part of the
+        # mechanism.
+        lock_edition_pair(
+            tx, old_version_id=old_edition, new_version_id=new_edition
+        )
         if body.verdict == PairingVerdict.PAIRED:
             for obligation_id, partner_id, other_version_id in (
                 (old_id, new_id, new_edition),
@@ -454,6 +568,6 @@ def settle(
             ),
         )
 
-    return PairingSettledOut(
+    return PairingVerdictOut(
         old_id=old_id, new_id=new_id, verdict=body.verdict, actor=principal.name
     )

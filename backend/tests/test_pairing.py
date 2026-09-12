@@ -7,6 +7,7 @@ from policy_grapher.links.pairing import (
     CrossDocumentPair,
     count_stranded_pairings,
     pairing_key,
+    pairing_lock_key,
     read_pairings,
     read_settled,
     record_pairing,
@@ -288,6 +289,41 @@ def test_a_pairing_with_only_one_side_resolvable_still_records(
         "MATCH (d:PairingDecision) RETURN count(d) AS total", database_=database
     )
     assert records[0]["total"] == 2
+
+
+def test_the_pair_lock_key_is_one_per_edition_pair():
+    """Every caller settling a pair between two editions must compute the same
+    key, or they take different locks and serialise nothing. Distinct edition
+    pairs must get distinct keys, or settling between one pair blocks settling
+    between an unrelated one."""
+    assert pairing_lock_key("d@2018", "d@2020") == pairing_lock_key(
+        "d@2018", "d@2020"
+    )
+    assert pairing_lock_key("d@2018", "d@2020") != pairing_lock_key(
+        "d@2020", "d@2022"
+    )
+    # Not `pairing_key`'s value for the same two strings. The two keys index
+    # different labels so a collision could not merge a lock into a decision,
+    # but a shared value would make either one's appearance in a log or an
+    # export ambiguous about which it came from.
+    assert pairing_lock_key("a", "b") != pairing_key("a", "b")
+
+
+@pytest.mark.integration
+def test_the_pairing_lock_key_constraint_exists(driver, database):
+    """Not hygiene — half the locking mechanism. `ACQUIRE_PAIR_LOCK` is a bare
+    MERGE, and a MERGE racing itself creates a second node for the same key
+    unless a uniqueness constraint makes it lock the index entry first. Two
+    transactions then hold two different lock nodes, block on neither, and the
+    two-live-paired race the lock exists to close is open again. Measured: with
+    the constraint dropped, the concurrency test in `test_pairings.py` fails on
+    every run with the lock still in place."""
+    records, _, _ = driver.execute_query(
+        "SHOW CONSTRAINTS YIELD name RETURN collect(name) AS names",
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    assert "pairing_lock_key_unique" in set(records[0]["names"])
 
 
 @pytest.mark.integration

@@ -131,6 +131,36 @@ WHERE NOT EXISTS { MATCH (:Obligation {obligation_id: d.old_obligation_id}) }
 RETURN count(d) AS stranded
 """
 
+# The write lock that makes the pairing route's conflict check mean anything.
+#
+# Neo4j is read-committed and takes no locks for reads, and two verdicts on one
+# clause MERGE two *different* `:PairingDecision` nodes — so there is no node
+# the two transactions share, nothing for either to block on, and both conflict
+# reads return nothing. Reproduced with two barriered sessions before this
+# existed: both returned 200 and the graph was left holding two live `paired`
+# verdicts on one clause, which is the state `changes/diff.py` says it cannot
+# arbitrate. Co-locating the read with the write does not help, and neither
+# does re-reading after it: both transactions stay blind to the other's
+# uncommitted writes right up to commit.
+#
+# One node per *edition pair*, which is the scope the one-to-one rule itself has
+# — coarser than the conflict, deliberately. A single lock cannot deadlock,
+# where a lock per (clause, other edition) would need a total acquisition order
+# to be sure of it, and the cost is that two reviewers settling unrelated pairs
+# between the same two editions serialise. This is a human-driven review screen;
+# that is not a cost worth a deadlock argument.
+#
+# The `SET` is load-bearing, not bookkeeping. A MERGE that *matches* need not
+# take an exclusive lock on what it found, so without a write to the node the
+# second transaction would sail past. `pairing_lock_key_unique` (db.py) is the
+# other half: a bare MERGE under concurrency can create two nodes for one key,
+# and two transactions locking two different nodes is the race back again.
+ACQUIRE_PAIR_LOCK = """
+MERGE (lock:PairingLock {key: $key})
+SET lock.edition_pair = $edition_pair,
+    lock.at           = datetime()
+"""
+
 
 class CrossDocumentPair(ValueError):
     """`record_pairing` refusing a pair drawn from two `:Document`s.
@@ -158,6 +188,40 @@ def pairing_key(old_id: str, new_id: str) -> str:
     mis-ordered write replace a well-ordered verdict it does not match.
     """
     return hashlib.sha256(f"{old_id}|{new_id}".encode()).hexdigest()[:32]
+
+
+def pairing_lock_key(old_version_id: str, new_version_id: str) -> str:
+    """Identity for one edition pair's verdict lock.
+
+    Built from the two editions in canonical older→newer order, so every caller
+    settling a pair between them computes the same key and therefore takes the
+    same lock. Hashed for `pairing_key`'s reason and not for secrecy: a
+    `version_id` is user-supplied text, and a fixed-width key keeps the
+    uniqueness constraint's index predictable.
+    """
+    return hashlib.sha256(
+        f"pair-lock|{old_version_id}|{new_version_id}".encode()
+    ).hexdigest()[:32]
+
+
+def lock_edition_pair(
+    tx: ManagedTransaction, *, old_version_id: str, new_version_id: str
+) -> None:
+    """Take the edition pair's write lock, held until this transaction ends.
+
+    Must be called *before* the conflict check it protects, and in the same
+    transaction as the write: the lock is what makes the second of two
+    concurrent verdicts read the first one's committed decision rather than an
+    empty result. Nothing about the lock node is ever read back — its only
+    property is being locked.
+    """
+    tx.run(
+        ACQUIRE_PAIR_LOCK,
+        {
+            "key": pairing_lock_key(old_version_id, new_version_id),
+            "edition_pair": f"{old_version_id}|{new_version_id}",
+        },
+    ).consume()
 
 
 def record_pairing(

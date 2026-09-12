@@ -14,6 +14,7 @@ than passing over it.
 """
 
 import re
+import threading
 
 import pytest
 
@@ -26,6 +27,7 @@ from policy_grapher.extraction.schema import (
 )
 from policy_grapher.links.pairing import pairing_key
 from policy_grapher.obligations import write_obligations
+from policy_grapher.routers import pairings
 
 # The pair test_diff.py proves the wording pass auto-pairs: distinctive shared
 # vocabulary well over PAIRING_CONFIDENCE, seeded across two different sections
@@ -48,6 +50,10 @@ REWORDED_NEW = (
 BLANK_OLD = "They shall not do so."
 BLANK_NEW = "It must all be this."
 RIVAL = "They must not do it."
+# A second *old*-side clause with no content words either. The conflict rule
+# checks both roles, and the rival-on-the-old-side case needs a clause the
+# scorer will not pair with anything by accident.
+RIVAL_OLD = "They shall not have this."
 
 # The taker fixtures, scored by the real measure rather than a stub, because the
 # join under test is Cypher and only the API reaches it. Under
@@ -102,11 +108,17 @@ def _modality_of(statement: str) -> Modality:
     return found[0]
 
 
-def _seed(driver, database, *, doc_slug, version_id, entries):
+def _seed(driver, database, *, doc_slug, version_id, entries, effective_date=None):
     """`entries` is (section, statement) pairs; returns {statement: obligation_id}.
 
-    Editions are created bare — no effective_date, no ingested_at — so ordering
-    rests on the version_id tie-breaker; choose ids that sort chronologically.
+    Editions are created bare by default — no effective_date, no ingested_at —
+    so ordering rests on the version_id tie-breaker; choose ids that sort
+    chronologically.
+
+    `effective_date`, when given, is written as a Neo4j `date` — a real
+    temporal type rather than the ISO string the ingest path stores. That is
+    deliberately the awkward case: it is the only one that can tell the route's
+    `toString` apart from an unwrapped read of the same property.
     """
     driver.execute_query(
         "MERGE (d:Document {slug: $slug, name: $slug}) "
@@ -115,6 +127,13 @@ def _seed(driver, database, *, doc_slug, version_id, entries):
         {"slug": doc_slug, "vid": version_id},
         database_=database,
     )
+    if effective_date is not None:
+        driver.execute_query(
+            "MATCH (v:DocumentVersion {version_id: $vid}) "
+            "SET v.effective_date = date($effective)",
+            {"vid": version_id, "effective": effective_date},
+            database_=database,
+        )
     ids = {}
     with driver.session(database=database) as session:
         for section, statement in entries:
@@ -287,6 +306,85 @@ def test_a_reversed_pair_is_a_400_not_a_reversed_diff(client_with_auth):
 
 
 @pytest.mark.integration
+def test_a_temporally_typed_effective_date_orders_the_pair_and_beats_version_id(
+    client_with_auth,
+):
+    """Both writers must read the ordering's first leg the same way, and only a
+    real temporal type can show they do.
+
+    `migrate.py` reads all three legs through `toString`; so does this route.
+    They agree today whatever either does, because `versions.merge_version`
+    stores `effective_date` as an ISO string — which is exactly why an
+    unwrapped read here is invisible in every other test in this file.
+
+    **One edition dated and one not, which is what makes the types differ.**
+    Two `date`-typed editions compare perfectly well unwrapped, because
+    `Date < Date` is defined — the first version of this test made that mistake
+    and passed against the unwrapped read. It is the *mixed* pair that bites:
+    an absent date coalesces to `''`, so an unwrapped read compares a
+    `neo4j.time.Date` against a `str` and raises `TypeError: '<' not supported
+    between instances of 'Date' and 'str'` — a 500 on the GET, and a 500 on the
+    POST before any verdict is recorded.
+
+    That an undated edition sorts *before* a dated one is a consequence of
+    coalescing to `''`, not a preference anyone chose; what this pins is that
+    both writers reach the same consequence. The version ids sort against that
+    answer on purpose — `pol@aaa-2020` precedes `pol@zzz-nodate`
+    lexically — so a route that fell through to the tie-breaker, or failed to
+    compare the first leg at all, gets the pair backwards rather than right by
+    luck.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    older = _seed(
+        driver, database, doc_slug="pol", version_id="pol@zzz-nodate",
+        entries=[("3.2", BLANK_OLD)],
+    )
+    newer = _seed(
+        driver, database, doc_slug="pol", version_id="pol@aaa-2020",
+        entries=[("4.1", BLANK_NEW)], effective_date="2020-07-28",
+    )
+
+    forward = client_with_auth.get(
+        "/pairings/queue",
+        params={
+            "from_version_id": "pol@zzz-nodate",
+            "to_version_id": "pol@aaa-2020",
+        },
+    )
+    assert forward.status_code == 200, forward.text
+
+    backward = client_with_auth.get(
+        "/pairings/queue",
+        params={
+            "from_version_id": "pol@aaa-2020",
+            "to_version_id": "pol@zzz-nodate",
+        },
+    )
+    assert backward.status_code == 400, backward.text
+
+    # Posted newer-first, so the swap has to read the dates to get this right.
+    recorded = client_with_auth.post(
+        f"/pairings/{newer[BLANK_NEW]}/{older[BLANK_OLD]}",
+        json={"verdict": "paired"},
+    )
+    assert recorded.status_code == 200, recorded.text
+    assert recorded.json()["old_id"] == older[BLANK_OLD]
+    assert recorded.json()["new_id"] == newer[BLANK_NEW]
+
+    # The key the migration would compute for the same pair. This is the whole
+    # stake: `pairing_key` is directional, so two writers that ordered this
+    # pair differently would key a re-verdict to a second decision beside the
+    # first instead of replacing it.
+    records, _, _ = driver.execute_query(
+        "MATCH (d:PairingDecision) RETURN d.key AS key", database_=database
+    )
+    assert [record["key"] for record in records] == [
+        pairing_key(older[BLANK_OLD], newer[BLANK_NEW])
+    ]
+
+
+@pytest.mark.integration
 def test_a_verdict_needs_no_recorded_candidate(client_with_auth):
     """Admissibility is membership, not a recorded edge. These two statements
     have no content words, so `score_pair` never scores them at all — no
@@ -338,6 +436,79 @@ def test_a_cross_document_pair_is_a_404(client_with_auth):
     )
 
     assert response.status_code == 404
+    detail = response.json()["detail"]
+    # *Which* refusal fired, not merely that one did. Two guards now refuse
+    # this pair and they answer differently: `record_pairing`'s own guard
+    # raises `CrossDocumentPair`, which the route maps to 400 and which says
+    # "implements question"; this route's membership screen answers 404 and
+    # sends the reviewer to Review. The status code alone cannot tell them
+    # apart — deleting this screen still refuses the pair, just with the other
+    # code and the other next step — and the two prescribe different actions.
+    #
+    # Both slugs quoted, for the reason its sibling in `test_pairing.py`
+    # argues at length: unquoted, "pol" and "other" are satisfied by the
+    # refusal's own prose, and the ids in the message are content hashes, so
+    # naming the two instruments is what makes it actionable.
+    assert "'pol'" in detail
+    assert "'other'" in detail
+    assert "Review" in detail
+
+    records, _, _ = driver.execute_query(
+        "MATCH (d:PairingDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 0, "a refused verdict must leave no audit record"
+
+
+@pytest.mark.integration
+def test_the_queue_refuses_a_cross_document_pair_before_the_diff_writes(
+    client_with_auth,
+):
+    """The GET owes the same rule as the POST, and owes it *before* the diff.
+
+    Without this the queue served rows its own POST answers 404 — and served
+    them by writing them: `diff_versions` records a `:Change` and a
+    `PAIRING_CANDIDATE` edge, so a cross-document request left behind a derived
+    assertion that one instrument's clause is the reworded form of another's,
+    as the side effect of a GET. This is criterion 3's argument pointed at the
+    other caller: a rule enforced at one caller is a rule only that caller
+    obeys.
+
+    The two statements auto-pair on wording, so the mutant that drops the check
+    does not merely answer 200 — it writes the edge.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    _seed(
+        driver, database, doc_slug="pol", version_id="pol@2018",
+        entries=[("3.2", REWORDED_OLD)],
+    )
+    _seed(
+        driver, database, doc_slug="other", version_id="other@2020",
+        entries=[("4.1", REWORDED_NEW)],
+    )
+
+    response = client_with_auth.get(
+        "/pairings/queue",
+        params={"from_version_id": "pol@2018", "to_version_id": "other@2020"},
+    )
+
+    assert response.status_code == 404
+    detail = response.json()["detail"]
+    assert "'pol'" in detail
+    assert "'other'" in detail
+
+    # Refused before the diff, not after it. A 404 that had already written the
+    # derived record would leave the graph asserting the pairing it just
+    # declined to offer.
+    changes, _, _ = driver.execute_query(
+        "MATCH (c:Change) RETURN count(c) AS total", database_=database
+    )
+    assert changes[0]["total"] == 0
+    edges, _, _ = driver.execute_query(
+        "MATCH ()-[r:PAIRING_CANDIDATE]->() RETURN count(r) AS total",
+        database_=database,
+    )
+    assert edges[0]["total"] == 0
 
 
 @pytest.mark.integration
@@ -418,6 +589,212 @@ def test_a_second_paired_verdict_on_one_clause_in_one_pair_is_a_409(
 
 
 @pytest.mark.integration
+def test_a_second_paired_verdict_on_the_old_side_is_also_a_409(client_with_auth):
+    """The other role, and it was unpinned: two *old* clauses both paired to one
+    *new* clause.
+
+    `CONFLICTING` checks both roles because canonical direction puts a middle
+    edition's clause on the old side of one decision and the new side of
+    another — so a conflict rule written for one role only looks complete and
+    leaves half the shared-endpoint states reachable. Reducing the loop to its
+    first leg left every other test in this file green.
+
+    The state it admits is the same one `changes/diff.py` says it cannot
+    arbitrate: one clause consumed twice, with the loser decided by dict
+    iteration order and reported as a pass-1 pre-emption.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    old_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2018",
+        entries=[("3.2", BLANK_OLD), ("3.3", RIVAL_OLD)],
+    )
+    new_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2020",
+        entries=[("4.1", BLANK_NEW)],
+    )
+
+    first = client_with_auth.post(
+        f"/pairings/{old_ids[BLANK_OLD]}/{new_ids[BLANK_NEW]}",
+        json={"verdict": "paired"},
+    )
+    assert first.status_code == 200
+
+    second = client_with_auth.post(
+        f"/pairings/{old_ids[RIVAL_OLD]}/{new_ids[BLANK_NEW]}",
+        json={"verdict": "paired"},
+    )
+
+    assert second.status_code == 409
+    detail = second.json()["detail"]
+    assert "distinct" in detail
+    # The pairing to undo is named by the clause that already holds the new
+    # side — the old one, here, which is the half this role adds.
+    assert old_ids[BLANK_OLD] in detail
+
+    live, _, _ = driver.execute_query(
+        "MATCH (d:PairingDecision {verdict: 'paired'}) RETURN count(d) AS total",
+        database_=database,
+    )
+    assert live[0]["total"] == 1
+
+
+@pytest.mark.integration
+def test_the_remedy_the_409_prescribes_can_actually_be_followed(client_with_auth):
+    """The refusal names a next step; this walks it end to end.
+
+    "Mark that pairing distinct first, then re-record this one" is only
+    followable because `CONFLICTING` filters on `verdict: 'paired'`. Drop that
+    filter and every test in this file still passes, while the remedy becomes
+    impossible: the `distinct` verdict the reviewer is told to record stays a
+    conflict, so the retry 409s for ever and the message sends them round a
+    loop with no exit.
+
+    The reversal is also the reason `distinct` must not be refused by the same
+    rule — it is the only way out of a mis-pairing.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    old_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2018",
+        entries=[("3.2", BLANK_OLD)],
+    )
+    new_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2020",
+        entries=[("4.1", BLANK_NEW), ("5.1", RIVAL)],
+    )
+
+    paired = client_with_auth.post(
+        f"/pairings/{old_ids[BLANK_OLD]}/{new_ids[BLANK_NEW]}",
+        json={"verdict": "paired"},
+    )
+    assert paired.status_code == 200
+
+    refused = client_with_auth.post(
+        f"/pairings/{old_ids[BLANK_OLD]}/{new_ids[RIVAL]}",
+        json={"verdict": "paired"},
+    )
+    assert refused.status_code == 409
+    # The remedy, read out of the refusal rather than assumed: the message
+    # names the pairing to mark distinct, and that is the pair this follows.
+    assert new_ids[BLANK_NEW] in refused.json()["detail"]
+
+    undone = client_with_auth.post(
+        f"/pairings/{old_ids[BLANK_OLD]}/{new_ids[BLANK_NEW]}",
+        json={"verdict": "distinct", "rationale": "not the same duty after all"},
+    )
+    assert undone.status_code == 200
+
+    retried = client_with_auth.post(
+        f"/pairings/{old_ids[BLANK_OLD]}/{new_ids[RIVAL]}",
+        json={"verdict": "paired"},
+    )
+    assert retried.status_code == 200, (
+        "the 409's own prescribed remedy must leave the retry able to succeed"
+    )
+
+    records, _, _ = driver.execute_query(
+        "MATCH (d:PairingDecision) "
+        "RETURN d.new_obligation_id AS new_id, d.verdict AS verdict "
+        "ORDER BY d.verdict",
+        database_=database,
+    )
+    assert [(r["new_id"], r["verdict"]) for r in records] == [
+        (new_ids[BLANK_NEW], "distinct"),
+        (new_ids[RIVAL], "paired"),
+    ]
+
+
+@pytest.mark.integration
+def test_two_concurrent_paired_verdicts_on_one_clause_cannot_both_land(
+    client_with_auth, monkeypatch
+):
+    """The 409 has to hold under concurrency, and co-locating the read with the
+    write does not make it.
+
+    Neo4j is read-committed and takes no locks for reads, and two verdicts on
+    one clause MERGE two *different* `:PairingDecision` nodes — so there is no
+    node the two transactions share and nothing for either to block on. Without
+    the edition-pair lock both requests answer 200 and the graph is left
+    holding two live `paired` verdicts on one clause. Re-reading the conflict
+    *after* recording does not fix it either: both transactions stay blind to
+    the other's uncommitted writes right up to commit.
+
+    **Two synchronisation points, and the second is what makes this a test
+    rather than a coin toss.** Barriering only the two requests leaves the
+    outcome to timing — measured against the unlocked route, that version
+    passed one run in three, which is a false green on the one invariant the
+    409 exists to hold. So the write is gated too: each request waits at a
+    barrier *after* its conflict read and *before* recording. An unlocked route
+    then has both reads complete before either write, deterministically, and
+    both verdicts land. A locked one cannot reach that barrier twice — the
+    second transaction is still blocked on the lock — so the first times out,
+    commits, and the second then reads the committed decision and refuses. The
+    timeout is the healthy path's cost and is paid on every green run.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    old_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2018",
+        entries=[("3.2", BLANK_OLD)],
+    )
+    new_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2020",
+        entries=[("4.1", BLANK_NEW), ("5.1", RIVAL)],
+    )
+
+    start = threading.Barrier(2)
+    # Wrapping `record_pairing` where the route calls it puts the gate exactly
+    # between the conflict read and the write, which is the window under test.
+    before_write = threading.Barrier(2)
+    real_record_pairing = pairings.record_pairing
+
+    def gated_record_pairing(tx, **kwargs):
+        try:
+            before_write.wait(timeout=2)
+        except threading.BrokenBarrierError:
+            # The expected path when the lock works: the other transaction is
+            # blocked on it and will never arrive. Proceed and commit, which is
+            # what lets it read this decision.
+            pass
+        return real_record_pairing(tx, **kwargs)
+
+    monkeypatch.setattr(pairings, "record_pairing", gated_record_pairing)
+
+    outcomes = {}
+
+    def settle(name, new_id):
+        start.wait()
+        outcomes[name] = client_with_auth.post(
+            f"/pairings/{old_ids[BLANK_OLD]}/{new_id}",
+            json={"verdict": "paired"},
+        ).status_code
+
+    threads = [
+        threading.Thread(target=settle, args=("alice", new_ids[BLANK_NEW])),
+        threading.Thread(target=settle, args=("bob", new_ids[RIVAL])),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert sorted(outcomes.values()) == [200, 409], outcomes
+
+    # The assertion that matters is the graph's, not the status codes'. A
+    # second live `paired` verdict on one clause is the state the diff cannot
+    # arbitrate: the first pops the shared clause, the second's lookup misses,
+    # and a reviewer's verdict is reported as a pass-1 pre-emption in
+    # `pairings_unapplied`.
+    live, _, _ = driver.execute_query(
+        "MATCH (d:PairingDecision {verdict: 'paired'}) "
+        "RETURN count(d) AS total, collect(d.new_obligation_id) AS partners",
+        database_=database,
+    )
+    assert live[0]["total"] == 1, live[0]["partners"]
+
+
+@pytest.mark.integration
 def test_a_middle_edition_pairs_into_both_adjacent_pairs(client_with_auth):
     """The scope on the 409 is what makes this legal. B's clause pairs to its
     A-predecessor and to its C-successor — the very case the MANDATES-scoped
@@ -479,16 +856,29 @@ def test_a_distinct_pair_stays_reachable_after_a_rediff(client_with_auth):
         params={"from_version_id": "pol@2018", "to_version_id": "pol@2020"},
     ).json()
 
-    assert body["settled"] == [
-        {
-            "old_id": old_ids[REWORDED_OLD],
-            "new_id": new_ids[REWORDED_NEW],
-            "verdict": "distinct",
-            "actor": "tester",
-        }
-    ]
+    assert len(body["settled"]) == 1
+    row = body["settled"][0]
+    assert row["verdict"] == "distinct"
+    assert row["actor"] == "tester"
+    assert row["old"]["obligation_id"] == old_ids[REWORDED_OLD]
+    assert row["new"]["obligation_id"] == new_ids[REWORDED_NEW]
     assert body["items"] == []
     assert body["pending"] == 0
+
+    # The settled row has to be renderable on its own. `items` is empty here —
+    # a settled pair is deliberately never re-recorded as a candidate — so
+    # there is no candidate row to borrow the statements from, and ids alone
+    # would leave a screen nothing to draw and a reviewer no way back to the
+    # verdict they want to undo. The document name in particular: without it a
+    # screen has to split `version_id` on '@' and guess.
+    assert row["old"]["document"] == "pol"
+    assert row["new"]["document"] == "pol"
+    assert row["old"]["statement"] == REWORDED_OLD
+    assert row["new"]["statement"] == REWORDED_NEW
+    assert row["old"]["version_id"] == "pol@2018"
+    assert row["new"]["version_id"] == "pol@2020"
+    assert row["old"]["section_path"] == ["3.2"]
+    assert row["new"]["section_path"] == ["4.1"]
 
     reversed_verdict = client_with_auth.post(
         f"/pairings/{old_ids[REWORDED_OLD]}/{new_ids[REWORDED_NEW]}",
