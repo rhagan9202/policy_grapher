@@ -482,7 +482,7 @@ export default function DocumentDetail() {
               {/* The list is capped at 20 by the worker and the count is not, so
                   a list of 20 over 213 refusals looks like a complete account of
                   a modest problem. ADR-030's silent drop, one level up. */}
-              {(run.rejections_total ?? 0) > run.rejections.length && (
+              {run.rejections_total > run.rejections.length && (
                 <p>
                   Showing {run.rejections.length} of {run.rejections_total}{' '}
                   refusals; the list is capped and the count is not.

@@ -6,6 +6,7 @@ from rq.job import JobStatus
 
 from policy_grapher.ingest import ingest_file
 from policy_grapher.jobs.rebuild import rebuild_edition
+from policy_grapher.models import RebuildStatus
 
 SAMPLES = Path(__file__).resolve().parents[2] / "data" / "samples"
 
@@ -328,3 +329,33 @@ def test_a_live_worker_pruned_from_the_global_registry_is_still_alive(
         assert body["state"] != "failed", body.get("error")
     finally:
         worker.register_death()
+
+
+def test_the_rebuild_status_payload_carries_exactly_these_fields():
+    """Not a test of the field names. A test that changing one is deliberate.
+
+    `frontend/src/api/types.ts` declares `RebuildStatus` by hand and the rebuild
+    panel reads eleven of its fields, `counts` keys included. TypeScript catches
+    only the direction where a stale screen meets a renamed `types.ts` and `tsc`
+    fails with TS2339; a field added HERE reaches a hand-written interface that
+    never hears about it, so the panel cannot read it and nothing in either
+    language goes red. `rejections_total` sat in this payload undeclared on the
+    other side from 2026-08-28 until the pairing screen's work, which is the
+    whole argument for this test: the count of refusals a capped list left out
+    was reported by the API and shown to nobody. `ReviewQueueOut`, `TriageOut`
+    and the four pairing payloads carry the same guard. Changing this set is
+    fine; changing it without opening `types.ts` is the defect.
+    """
+    assert set(RebuildStatus.model_fields) == {
+        "run_id",
+        "version_id",
+        "state",
+        "chunks_done",
+        "chunks_total",
+        "counts",
+        "rejections",
+        "rejections_total",
+        "extractor_adapter",
+        "embedder_adapter",
+        "error",
+    }

@@ -2,12 +2,17 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import type { RebuildStatus } from '../api/types'
 
 const getDocument = vi.fn()
 const listVersions = vi.fn()
 const listChunks = vi.fn()
 const startRebuild = vi.fn()
-const getRebuild = vi.fn()
+// Typed, unlike its neighbours, because this payload is the one the panel reads
+// field by field. An untyped mock accepts a fixture missing `rejections_total`
+// — 21 of the 24 here did — and a screen reading a field no fixture supplies is
+// tested against a response the backend never sends.
+const getRebuild = vi.fn<(runId: string) => Promise<RebuildStatus>>()
 const listDocuments = vi.fn()
 const listObligations = vi.fn()
 vi.mock('../api/client', () => ({
@@ -106,6 +111,7 @@ beforeEach(() => {
     chunks_total: 0,
     counts: {},
     rejections: [],
+    rejections_total: 0,
     extractor_adapter: '',
     embedder_adapter: '',
     error: null,
@@ -269,7 +275,8 @@ describe('DocumentDetail — building the derived layer', () => {
     })
     getRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'started',
-      chunks_done: 0, chunks_total: 34, counts: {}, rejections: [], error: null,
+      chunks_done: 0, chunks_total: 34, counts: {}, rejections: [],
+      rejections_total: 0, extractor_adapter: '', embedder_adapter: '', error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -288,7 +295,8 @@ describe('DocumentDetail — building the derived layer', () => {
     })
     getRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'v', state: 'started',
-      chunks_done: 0, chunks_total: 34, counts: {}, rejections: [], error: null,
+      chunks_done: 0, chunks_total: 34, counts: {}, rejections: [],
+      rejections_total: 0, extractor_adapter: '', embedder_adapter: '', error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -307,7 +315,8 @@ describe('DocumentDetail — building the derived layer', () => {
     startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'v', state: 'started',
-      chunks_done: 5, chunks_total: 34, counts: {}, rejections: [], error: null,
+      chunks_done: 5, chunks_total: 34, counts: {}, rejections: [],
+      rejections_total: 0, extractor_adapter: '', embedder_adapter: '', error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -327,7 +336,8 @@ describe('DocumentDetail — building the derived layer', () => {
       run_id: 'r1', version_id: 'v', state: 'finished',
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 0, proposed: 0, chunks_rejected: 0 },
-      rejections: [], extractor_adapter: 'null', embedder_adapter: 'null', error: null,
+      rejections: [], rejections_total: 0,
+      extractor_adapter: 'null', embedder_adapter: 'null', error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -345,7 +355,8 @@ describe('DocumentDetail — building the derived layer', () => {
       run_id: 'r1', version_id: 'v', state: 'finished',
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 115, proposed: 265, chunks_rejected: 0 },
-      rejections: [], extractor_adapter: 'local', embedder_adapter: 'null', error: null,
+      rejections: [], rejections_total: 0,
+      extractor_adapter: 'local', embedder_adapter: 'null', error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -363,6 +374,7 @@ describe('DocumentDetail — building the derived layer', () => {
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 121, proposed: 313, chunks_rejected: 1 },
       rejections: [{ chunk_id: 'c9', reason: 'modality: Input should be SHALL, MUST, WILL, SHOULD or MAY' }],
+      rejections_total: 1, extractor_adapter: 'local', embedder_adapter: 'local',
       error: null,
     })
     renderAt()
@@ -382,6 +394,7 @@ describe('DocumentDetail — building the derived layer', () => {
     getRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'v', state: 'failed',
       chunks_done: 5, chunks_total: 38, counts: {}, rejections: [],
+      rejections_total: 0, extractor_adapter: 'local', embedder_adapter: 'local',
       error: 'model output did not match the obligation schema',
     })
     renderAt()
@@ -399,7 +412,8 @@ describe('DocumentDetail — building the derived layer', () => {
     startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
       run_id: 'r1', version_id: 'v', state: 'started',
-      chunks_done: 0, chunks_total: 0, counts: {}, rejections: [], error: null,
+      chunks_done: 0, chunks_total: 0, counts: {}, rejections: [],
+      rejections_total: 0, extractor_adapter: '', embedder_adapter: '', error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -420,6 +434,7 @@ describe('DocumentDetail — building the derived layer', () => {
       rejections: [
         { chunk_id: 'c9', reason: 'modality: Input should be SHALL, MUST, WILL, SHOULD or MAY' },
       ],
+      rejections_total: 2, extractor_adapter: 'local', embedder_adapter: 'local',
       error: null,
     })
     renderAt()
@@ -434,9 +449,8 @@ describe('DocumentDetail — building the derived layer', () => {
   it('says how many refusals the capped list left out', async () => {
     // The worker keeps 20 reasons and counts every one. DoDD 5143.01's rebuild
     // showed 20 against 213 refusals and nothing said so, which is the silent
-    // drop ADR-030 made a defect — the backend has sent `rejections_total`
-    // since STORY-057 and the hand-written `RebuildStatus` never declared it,
-    // so no screen could read it.
+    // drop ADR-030 made a defect; `rejections_total` was added to the status
+    // payload for it.
     loaded()
     startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
@@ -488,7 +502,8 @@ describe('DocumentDetail — building the derived layer', () => {
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 115, proposed: 265,
                 chunks_rejected: 0, decisions_repointed: 2, unpromotable: 3 },
-      rejections: [], extractor_adapter: 'local', embedder_adapter: 'null', error: null,
+      rejections: [], rejections_total: 0,
+      extractor_adapter: 'local', embedder_adapter: 'null', error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -507,7 +522,8 @@ describe('DocumentDetail — building the derived layer', () => {
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 115, proposed: 265,
                 chunks_rejected: 0, decisions_repointed: 0, unpromotable: 0 },
-      rejections: [], extractor_adapter: 'local', embedder_adapter: 'null', error: null,
+      rejections: [], rejections_total: 0,
+      extractor_adapter: 'local', embedder_adapter: 'null', error: null,
     })
     renderAt()
     await screen.findByRole('article')
@@ -708,6 +724,7 @@ describe('DocumentDetail build state', () => {
       chunks_total: 37,
       counts: {},
       rejections: [],
+      rejections_total: 0,
       extractor_adapter: 'local',
       embedder_adapter: 'local',
       error: null,
@@ -780,9 +797,19 @@ describe('DocumentDetail build state', () => {
 // entries — which is worse than either number alone.
 
 describe('DocumentDetail rebuild reporting', () => {
-  const finishedRun = (counts: Record<string, number>, rejections: unknown[]) => ({
+  const finishedRun = (
+    counts: Record<string, number>,
+    rejections: RebuildStatus['rejections'],
+  ): RebuildStatus => ({
     run_id: 'r', version_id: versions[1].version_id, state: 'finished',
     chunks_done: 38, chunks_total: 38, counts, rejections,
+    // Every refusal, against the capped list — kept consistent here rather than
+    // per fixture, so none of them can describe a run reporting fewer refusals
+    // than it counted.
+    rejections_total: Math.max(
+      rejections.length,
+      (counts.chunks_rejected ?? 0) + (counts.items_dropped ?? 0),
+    ),
     extractor_adapter: 'local', embedder_adapter: 'local', error: null,
   })
 
@@ -863,9 +890,10 @@ describe('pollDelayMs', () => {
 // proposal returns to the queue with no sign it was already refused.
 
 describe('DocumentDetail, stranded rejections', () => {
-  const finished = (counts: Record<string, number>) => ({
+  const finished = (counts: Record<string, number>): RebuildStatus => ({
     run_id: 'r', version_id: versions[1].version_id, state: 'finished',
     chunks_done: 37, chunks_total: 37, counts, rejections: [],
+    rejections_total: (counts.chunks_rejected ?? 0) + (counts.items_dropped ?? 0),
     extractor_adapter: 'local', embedder_adapter: 'local', error: null,
   })
 
@@ -912,9 +940,10 @@ describe('DocumentDetail, stranded rejections', () => {
 // counts reached this payload and neither was drawn.
 
 describe('DocumentDetail, pairing decisions across a rebuild', () => {
-  const finished = (counts: Record<string, number>) => ({
+  const finished = (counts: Record<string, number>): RebuildStatus => ({
     run_id: 'r', version_id: versions[1].version_id, state: 'finished',
     chunks_done: 37, chunks_total: 37, counts, rejections: [],
+    rejections_total: (counts.chunks_rejected ?? 0) + (counts.items_dropped ?? 0),
     extractor_adapter: 'local', embedder_adapter: 'local', error: null,
   })
 
@@ -987,7 +1016,8 @@ describe('DocumentDetail after a build finishes', () => {
     run_id: 'r', version_id: versions[1].version_id, state: 'finished',
     chunks_done: 41, chunks_total: 41,
     counts: { chunks_written: 41, obligations_written: 113 },
-    rejections: [], extractor_adapter: 'local', embedder_adapter: 'local',
+    rejections: [], rejections_total: 0,
+    extractor_adapter: 'local', embedder_adapter: 'local',
     error: null,
   }
 
