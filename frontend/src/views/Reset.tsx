@@ -84,9 +84,9 @@ export default function Reset() {
 
       <p>
         Empties the graph: every document, edition, chunk, obligation, proposal and
-        recorded decision. <strong>There is no undo.</strong> Take a copy first if
-        you might want one — the export below is a readable snapshot, not a
-        restore.
+        recorded decision — review verdicts and pairing decisions alike.{' '}
+        <strong>There is no undo.</strong> Take a copy first if you might want one —
+        the export below is a readable snapshot, not a restore.
       </p>
 
       <p>
@@ -121,9 +121,9 @@ export default function Reset() {
         <div role="dialog" aria-label="Confirm emptying the graph">
           <p>
             This <strong>cannot be undone</strong>. Every document, edition, chunk,
-            obligation, proposal and recorded review decision is deleted — including
-            decisions, which a rebuild replays and therefore cannot bring back once
-            they are gone.
+            obligation, proposal and recorded decision is deleted — review verdicts
+            and pairing decisions alike, both of which a rebuild replays and
+            therefore cannot bring back once they are gone.
           </p>
           <p>
             The Neo4j <strong>vector index</strong> is not deleted, because a reset

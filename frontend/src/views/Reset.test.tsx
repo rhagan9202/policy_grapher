@@ -114,6 +114,23 @@ describe('Reset', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/unreachable/i)
   })
+
+  it('names pairing decisions among what is deleted', async () => {
+    // The export gained a `pairing_decisions` category when `:PairingDecision`
+    // became the second canonical node. A screen that enumerates what Reset
+    // destroys while omitting one of the two records a machine cannot
+    // regenerate promises a copy the export was not taking — the exact
+    // wrongness the confirm dialog's own comment warns about.
+    render(<Reset />)
+
+    expect(screen.getByText(/empties the graph/i)).toHaveTextContent(
+      /pairing decisions/i,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /empty the graph/i }))
+
+    expect(screen.getByRole('dialog')).toHaveTextContent(/pairing decisions/i)
+  })
 })
 
 
