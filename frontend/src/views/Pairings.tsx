@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   getPairingQueue,
   listDocuments,
@@ -116,7 +116,14 @@ export default function Pairings() {
   const [toVersionId, setToVersionId] = useState('')
   const [queue, setQueue] = useState<PairingQueue | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Which queue request the screen is still waiting for. This GET runs the diff,
+  // so it is slow by construction and a reviewer can change edition twice before
+  // the first answers; an answer that arrives after they moved on would draw one
+  // pair's candidates under another pair's label, and verdicts recorded from
+  // those rows would settle pairs the reviewer never looked at.
+  const request = useRef(0)
   // Keyed by pair, not one box for the screen. Every candidate is on screen at
   // once here, and a single shared field files the reason typed against one pair
   // with whichever pair is clicked next — the defect Review's walkthrough found,
@@ -135,10 +142,15 @@ export default function Pairings() {
         setDocuments(found.filter((d) => d.version_count > 1))
         setCorpusEmpty(found.length === 0)
       })
+      // Its own state, not the queue's. A corpus that could not be listed is not
+      // a queue that failed to load: the reviewer has not asked for a queue yet,
+      // and saying one failed points them at a question they never put.
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setLoadError(
-            cause instanceof Error ? cause.message : 'Failed to load documents.',
+          setCatalogError(
+            `Could not load the documents: ${
+              cause instanceof Error ? cause.message : 'the request failed.'
+            }`,
           )
         }
       })
@@ -156,8 +168,10 @@ export default function Pairings() {
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setLoadError(
-            cause instanceof Error ? cause.message : 'Failed to load editions.',
+          setCatalogError(
+            `Could not load the editions of ${slug}: ${
+              cause instanceof Error ? cause.message : 'the request failed.'
+            }`,
           )
         }
       })
@@ -175,15 +189,21 @@ export default function Pairings() {
   // synchronous one and fails the lint gate, while a setState inside a promise
   // callback is the shape the rule allows.
   const load = useCallback((): Promise<void> => {
+    // Bumped even when nothing is fetched: clearing the pair has to invalidate
+    // whatever is already in flight, or choosing a different document mid-request
+    // lands the old pair's queue on the new one's screen.
+    const mine = (request.current += 1)
     if (!fromVersionId || !toVersionId || fromVersionId === toVersionId) {
       return Promise.resolve()
     }
     return getPairingQueue(fromVersionId, toVersionId)
       .then((found) => {
+        if (request.current !== mine) return
         setQueue(found)
         setLoadError(null)
       })
       .catch((cause: unknown) => {
+        if (request.current !== mine) return
         // Cleared, not left standing: a stale queue under an error banner is the
         // previous pair's question wearing this pair's heading.
         setQueue(null)
@@ -199,6 +219,11 @@ export default function Pairings() {
 
   useEffect(() => {
     void load()
+    // The pair being asked about has changed, so the answer to the previous
+    // question is no longer an answer to anything on screen.
+    return () => {
+      request.current += 1
+    }
   }, [load])
 
   // Clearing what a choice invalidates belongs in the handler that made the
@@ -222,7 +247,10 @@ export default function Pairings() {
     setError(null)
   }
 
-  async function settle(pair: Pair, verdict: PairingVerdict) {
+  // `recorded` is the reason already on the decision, for a pair that has one.
+  // Sending '' where the reviewer edited nothing would erase it: the recorder
+  // SETs `rationale` on every write.
+  async function settle(pair: Pair, verdict: PairingVerdict, recorded = '') {
     // `pending` gates every button for the whole round trip. A re-verdict
     // replaces rather than appends, so a double-click would silently overwrite
     // one judgement with whichever button was pressed last.
@@ -234,7 +262,7 @@ export default function Pairings() {
         pair.old.obligation_id,
         pair.new.obligation_id,
         verdict,
-        rationales[key] ?? '',
+        rationales[key] ?? recorded,
       )
       setRationales((current) => {
         const next = { ...current }
@@ -256,13 +284,26 @@ export default function Pairings() {
   // verdict outside the closed pair of words has no "other" to offer, and
   // re-recording the same one with a corrected reason is a thing a reviewer may
   // legitimately want — the record keeps the latest rationale.
-  function verdictButtons(pair: Pair, paired: string, distinct: string) {
+  function verdictButtons(
+    pair: Pair,
+    paired: string,
+    distinct: string,
+    recorded = '',
+  ) {
     return (
       <p>
-        <button type="button" disabled={pending} onClick={() => settle(pair, 'paired')}>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => settle(pair, 'paired', recorded)}
+        >
           {paired}
         </button>{' '}
-        <button type="button" disabled={pending} onClick={() => settle(pair, 'distinct')}>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => settle(pair, 'distinct', recorded)}
+        >
           {distinct}
         </button>
       </p>
@@ -359,6 +400,7 @@ export default function Pairings() {
           {loadError && (
             <div role="alert">Could not load the pairing queue: {loadError}</div>
           )}
+          {catalogError && <div role="alert">{catalogError}</div>}
           {error && <div role="alert">Could not record that: {error}</div>}
 
           {queue && (
@@ -395,10 +437,16 @@ export default function Pairings() {
                             <Side heading="Older clause" of={item.old} />
                             <Side heading="Newer clause" of={item.new} />
                           </div>
-                          <p>
-                            {Math.round(item.confidence * 100)}% confidence.{' '}
-                            {item.rationale}
-                          </p>
+                          {/* Two sentences from two authors, so two paragraphs.
+                              The measure's rationale is a lowercase fragment
+                              that restates the same percentage — "they share 88%
+                              of the shorter clause's distinctive wording (…)" —
+                              and concatenating them onto the confidence reads as
+                              a sentence beginning in lower case with its number
+                              said twice. Review keeps them apart for the same
+                              reason. */}
+                          <p>{Math.round(item.confidence * 100)}% confidence.</p>
+                          <p>{item.rationale}</p>
                           {/* The ids as they came. `taken_by` names obligations,
                               the queue is capped, and the winner is routinely
                               outside the page — so there is nothing on this
@@ -444,7 +492,7 @@ export default function Pairings() {
                     a decision, so a pair settled here stays on this list whichever
                     way it is answered.
                   </p>
-                  <ul>
+                  <ul aria-label="Settled pairs">
                     {queue.settled.map((settled) => (
                       <li key={pairKey(settled)}>
                         <div className="panes">
@@ -455,8 +503,15 @@ export default function Pairings() {
                           <strong>{settled.verdict}</strong>, recorded by{' '}
                           {settled.actor}.
                         </p>
+                        {/* Prefilled with the reason on record, not blank. The
+                            reversal overwrites `rationale`, so a box that starts
+                            empty erases the justification of the verdict being
+                            reversed — and the reviewer would never have seen
+                            what they erased. Clearing it deliberately still
+                            works: '' is a value, and `??` only falls through for
+                            a pair nobody has typed into. */}
                         <Reason
-                          value={rationales[pairKey(settled)] ?? ''}
+                          value={rationales[pairKey(settled)] ?? settled.rationale}
                           onChange={(next) =>
                             setRationales((current) => ({
                               ...current,
@@ -464,7 +519,12 @@ export default function Pairings() {
                             }))
                           }
                         />
-                        {verdictButtons(settled, 'Mark paired', 'Mark distinct')}
+                        {verdictButtons(
+                          settled,
+                          'Mark paired',
+                          'Mark distinct',
+                          settled.rationale,
+                        )}
                       </li>
                     ))}
                   </ul>

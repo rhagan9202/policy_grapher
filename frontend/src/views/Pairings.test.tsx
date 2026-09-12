@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,7 +19,20 @@ vi.mock('../api/client', () => ({
 import Pairings from './Pairings'
 
 const OLDER = 'dodd-5000-01@2018-08-31'
+const MIDDLE = 'dodd-5000-01@2020-01-15'
 const NEWER = 'dodd-5000-01@2022-07-28'
+
+/** A promise this test resolves by hand, to hold one request open while another
+ *  overtakes it. Two queue requests in flight is the ordinary case on this
+ *  screen — the GET runs a whole diff — so the order they answer in cannot be
+ *  left to chance in the test either. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
 
 const documents = [
   {
@@ -28,7 +41,7 @@ const documents = [
     is_external: false,
     references: [],
     referenced_by: [],
-    version_count: 2,
+    version_count: 3,
   },
 ]
 
@@ -39,6 +52,13 @@ const versions = [
     checksum: '65e873',
     source_uri: 'file:///data/samples/500001p_2018.pdf',
     supersedes: null,
+  },
+  {
+    version_id: MIDDLE,
+    effective_date: '2020-01-15',
+    checksum: '31cd08',
+    source_uri: 'file:///data/samples/500001p_2020.pdf',
+    supersedes: OLDER,
   },
   {
     version_id: NEWER,
@@ -69,7 +89,10 @@ const candidate: PairingCandidate = {
     page: 9,
   },
   confidence: 0.62,
-  rationale: 'They share 62% of the shorter clause (comptroller, director, notify).',
+  // As the measure really writes them: a lowercase fragment restating the same
+  // percentage. Capitalised prose whose number happened to differ from the
+  // confidence was the one arrangement in which concatenating the two read well.
+  rationale: "they share 62% of the shorter clause's distinctive wording (comptroller, director, notify).",
   outcome: 'below_threshold',
   taken_by: [],
 }
@@ -82,7 +105,7 @@ const takenCandidate: PairingCandidate = {
   // Its own sentence, not the spread one: two candidates quoting the same
   // percentage would make every "which pair is this?" assertion ambiguous, and a
   // query that matches two elements fails for a reason unrelated to the screen.
-  rationale: 'They share 81% of the shorter clause (components, records, retain).',
+  rationale: "they share 81% of the shorter clause's distinctive wording (components, records, retain).",
   outcome: 'partner_taken',
   // `new-9` is deliberately not an obligation on this page. `taken_by` carries
   // ids, the queue is capped, and the winner frequently falls outside the cap.
@@ -113,6 +136,27 @@ const settledPair: PairingSettled = {
   },
   verdict: 'distinct',
   actor: 'tester',
+  rationale: 'One is an inventory, the other a publication duty.',
+}
+
+// A second settled row, and its verdict is the other word on purpose: with one
+// fixture reading `distinct`, printing a constant `distinct` satisfies every
+// assertion about it — and a reviewer who cannot see which verdict is on record
+// cannot know what they are undoing.
+const settledPaired: PairingSettled = {
+  old: {
+    ...settledPair.old,
+    obligation_id: 'old-8',
+    statement: 'Heads of components shall appoint a records officer.',
+  },
+  new: {
+    ...settledPair.new,
+    obligation_id: 'new-8',
+    statement: 'Each component head will designate a records officer.',
+  },
+  verdict: 'paired',
+  actor: 'auditor',
+  rationale: '',
 }
 
 // Verbatim from `routers/pairings.py`. The refusal names its own remedy, and
@@ -188,7 +232,9 @@ describe('Pairings', () => {
 
     expect(await screen.findByText(candidate.old.statement)).toBeInTheDocument()
     expect(screen.getByText(candidate.new.statement)).toBeInTheDocument()
-    expect(screen.getByText(/62%/)).toBeInTheDocument()
+    // Two elements, deliberately: a real rationale repeats the percentage, so a
+    // bare /62%/ would match both the confidence line and the rationale.
+    expect(screen.getByText('62% confidence.')).toBeInTheDocument()
     expect(screen.getByText(/share 62% of the shorter clause/)).toBeInTheDocument()
     expect(screen.getAllByText(OLDER).length).toBeGreaterThan(0)
     expect(screen.getAllByText(NEWER).length).toBeGreaterThan(0)
@@ -220,19 +266,48 @@ describe('Pairings', () => {
     // is answering the question that was answered when it was made, which needs
     // the same two clauses in front of the reader.
     getPairingQueue.mockResolvedValue(
-      q({ items: [], settled: [settledPair], pending: 0 }),
+      q({ items: [], settled: [settledPair, settledPaired], pending: 0 }),
     )
     await choosePair()
 
-    const settled = await screen.findByRole('list')
+    const settled = await screen.findByRole('list', { name: /settled pairs/i })
     expect(within(settled).getByText('old-7')).toBeInTheDocument()
     expect(within(settled).getByText('new-7')).toBeInTheDocument()
     expect(within(settled).getByText(settledPair.old.statement)).toBeInTheDocument()
     expect(within(settled).getByText(settledPair.new.statement)).toBeInTheDocument()
-    // Exact strings: "Mark distinct" is a button in this same list, and a
+    // Both verdict words, from two rows: the value has to be read off the row
+    // rather than assumed, or a reviewer cannot tell what they are undoing.
+    // Exact strings, because "Mark distinct" is a button in this same list and a
     // /distinct/ regex would match both it and the recorded verdict.
     expect(within(settled).getByText('distinct')).toBeInTheDocument()
+    expect(within(settled).getByText('paired')).toBeInTheDocument()
     expect(within(settled).getByText(/recorded by tester/i)).toBeInTheDocument()
+    expect(within(settled).getByText(/recorded by auditor/i)).toBeInTheDocument()
+  })
+
+  it('shows the reason already recorded and re-posts it when nobody edits it', async () => {
+    // Re-recording a verdict overwrites `rationale`. A box that starts empty
+    // therefore erases the justification of the verdict being reversed, and the
+    // reviewer never saw what they erased.
+    getPairingQueue.mockResolvedValue(
+      q({ items: [], settled: [settledPair], pending: 0 }),
+    )
+    recordPairing.mockResolvedValue({
+      old_id: 'old-7', new_id: 'new-7', verdict: 'paired', actor: 'tester',
+    })
+    await choosePair()
+    const settled = await screen.findByRole('list', { name: /settled pairs/i })
+
+    expect(screen.getByLabelText(/reason/i)).toHaveValue(settledPair.rationale)
+
+    await userEvent.click(within(settled).getByRole('button', { name: /mark paired/i }))
+
+    expect(recordPairing).toHaveBeenCalledWith(
+      'old-7',
+      'new-7',
+      'paired',
+      settledPair.rationale,
+    )
   })
 
   it('takes a settled verdict back to the other answer', async () => {
@@ -246,8 +321,11 @@ describe('Pairings', () => {
       old_id: 'old-7', new_id: 'new-7', verdict: 'paired', actor: 'tester',
     })
     await choosePair()
-    const settled = await screen.findByRole('list')
+    const settled = await screen.findByRole('list', { name: /settled pairs/i })
 
+    // Cleared first: the box carries the reason on record, and a reversal with a
+    // new reason replaces it rather than appending to it.
+    await userEvent.clear(screen.getByLabelText(/reason/i))
     await userEvent.type(screen.getByLabelText(/reason/i), 'Same duty after all.')
     await userEvent.click(within(settled).getByRole('button', { name: /mark paired/i }))
 
@@ -260,9 +338,21 @@ describe('Pairings', () => {
   })
 
   it('records a paired verdict older-first and reloads the queue', async () => {
+    // The reload returns the pair as settled, which is what the route really
+    // does: the verdict moves it out of `items` and into `settled`, never out of
+    // the response. A fixture that reloaded to an empty screen would assert the
+    // pair vanishing — the defect the settled list exists to prevent — as the
+    // success state.
+    const nowSettled: PairingSettled = {
+      old: candidate.old,
+      new: candidate.new,
+      verdict: 'paired',
+      actor: 'tester',
+      rationale: 'Same duty, reworded.',
+    }
     getPairingQueue
       .mockResolvedValueOnce(q())
-      .mockResolvedValue(q({ items: [], pending: 0 }))
+      .mockResolvedValue(q({ items: [], settled: [nowSettled], pending: 0 }))
     recordPairing.mockResolvedValue({
       old_id: 'old-1', new_id: 'new-1', verdict: 'paired', actor: 'tester',
     })
@@ -282,6 +372,30 @@ describe('Pairings', () => {
     // a screen that kept showing the pre-verdict queue would be showing a
     // question that has been answered.
     expect(await screen.findByText(/nothing is waiting to be paired/i)).toBeInTheDocument()
+    // And the pair is still reachable, now as a settled row.
+    const settled = screen.getByRole('list', { name: /settled pairs/i })
+    expect(within(settled).getByText(candidate.old.statement)).toBeInTheDocument()
+    expect(within(settled).getByText('paired')).toBeInTheDocument()
+  })
+
+  it('shows the candidates and the settled pairs at once', async () => {
+    // The journey neither single-list test walks: mid-queue, some pairs settled
+    // and some still waiting. The settled ones must not be mixed into the
+    // candidates — they are answered — and must not push the unanswered ones off.
+    getPairingQueue.mockResolvedValue(
+      q({ items: [candidate], settled: [settledPair], pending: 1 }),
+    )
+    await choosePair()
+
+    await screen.findByText(candidate.old.statement)
+    const settled = screen.getByRole('list', { name: /settled pairs/i })
+    expect(within(settled).getByText(settledPair.old.statement)).toBeInTheDocument()
+    expect(
+      within(settled).queryByText(candidate.old.statement),
+    ).not.toBeInTheDocument()
+    // The candidate keeps its own verdict buttons, which the settled row's
+    // "Mark paired" must not be mistaken for.
+    expect(screen.getByRole('button', { name: /^paired$/i })).toBeEnabled()
   })
 
   it('records a distinct verdict on the same pair', async () => {
@@ -340,6 +454,60 @@ describe('Pairings', () => {
     await choosePair()
 
     expect(await screen.findByText(/1 recorded pairing/i)).toBeInTheDocument()
+  })
+
+  it('says nothing about unapplied pairings when the diff applied them all', async () => {
+    // Without this the sentence above can be rendered unconditionally and still
+    // satisfy its test, so every load would read "0 recorded pairings could not
+    // be applied" — a warning present on every screen is one nobody reads, which
+    // is the state reporting the count exists to escape.
+    getPairingQueue.mockResolvedValue(q())
+    await choosePair()
+
+    await screen.findByText(candidate.old.statement)
+    expect(screen.queryByText(/recorded pairing/i)).not.toBeInTheDocument()
+  })
+
+  it('ignores a queue that arrives after the reviewer changed edition', async () => {
+    // This GET runs the diff, so it is slow by construction and two requests are
+    // routinely in flight. Answered in the order they were asked, the first
+    // reply lands last and draws the previous pair's candidates under the
+    // current pair's label — and a verdict recorded from one of those rows
+    // settles a pair the reviewer never chose to look at.
+    const stale = deferred<PairingQueue>()
+    const current = deferred<PairingQueue>()
+    getPairingQueue.mockImplementation((_from: string, to: string) =>
+      to === NEWER ? stale.promise : current.promise,
+    )
+    await choosePair()
+    await userEvent.selectOptions(screen.getByLabelText(/newer edition/i), MIDDLE)
+
+    current.resolve(q({ items: [takenCandidate], pending: 1 }))
+    await screen.findByText(takenCandidate.old.statement)
+
+    await act(async () => {
+      stale.resolve(q({ items: [candidate], pending: 1 }))
+    })
+
+    expect(screen.getByText(takenCandidate.old.statement)).toBeInTheDocument()
+    expect(screen.queryByText(candidate.old.statement)).not.toBeInTheDocument()
+  })
+
+  it('reports a corpus it could not list as that, not as a queue that failed', async () => {
+    // Two failures, two claims. Reporting "could not load the pairing queue"
+    // beside an empty document picker describes a request the reviewer has not
+    // made yet — the same mislabelling the two queue states exist to avoid.
+    listDocuments.mockRejectedValue(new Error('Failed to fetch'))
+    render(
+      <MemoryRouter>
+        <Pairings />
+      </MemoryRouter>,
+    )
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/could not load the documents/i)
+    expect(alert).toHaveTextContent(/failed to fetch/i)
+    expect(screen.queryByText(/pairing queue/i)).not.toBeInTheDocument()
   })
 
   it('says a corpus with no two-edition document cannot be paired yet', async () => {
