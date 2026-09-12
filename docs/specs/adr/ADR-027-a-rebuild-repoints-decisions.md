@@ -87,11 +87,12 @@ that does exist.
 > unrepaired — a moved statement, or a statement two obligations share — and the requirement
 > below that the count be on screen rather than merely returned.
 >
-> **That requirement is not yet met for the new count.** `unpromotable` and
-> `rejections_stranded` are rendered on the rebuild panel; `pairing_decisions_stranded` is
-> returned by the rebuild and displayed nowhere. By this ADR's own argument that is the state it
-> exists to forbid — a rebuild that repaired most decisions and said nothing about the rest looks
-> complete in exactly the case where it is not. The pairing screen task owes it.
+> **Met on 2026-09-12**, with the pairing screen. `pairing_decisions_stranded` and
+> `pairing_decisions_repointed` are drawn on the rebuild panel beside `unpromotable` and
+> `rejections_stranded` (`frontend/src/views/DocumentDetail.tsx`), each only when non-zero — a
+> line that appears on every rebuild is one a reader stops seeing. What a stranded pairing costs
+> is said there too, because it differs from both link-side losses: the pair returns to the
+> pairing queue unanswered, with nothing to say it was settled before.
 
 The count that does exist is why this ADR requires `unpromotable` to be on screen rather than
 merely returned by the API — a rebuild that silently repaired most decisions and said nothing
