@@ -15,6 +15,7 @@ than passing over it.
 
 import re
 import threading
+from collections import Counter
 
 import pytest
 
@@ -475,24 +476,40 @@ def test_the_queue_refuses_a_cross_document_pair_before_the_diff_writes(
 
     The two statements auto-pair on wording, so the mutant that drops the check
     does not merely answer 200 — it writes the edge.
+
+    **The pair is deliberately WELL-ORIENTED, and that is what makes the
+    no-write assertions below capable of failing.** Both editions are bare, so
+    ordering falls through to the version_id tie-breaker, and
+    `'other@2018' < 'pol@2020'` — so the reversed-pair 400 does not fire and the
+    document check is the only guard that can refuse this request. The first
+    version of this test had it the other way round (`pol@2018` → `other@2020`,
+    which the tie-breaker reads as reversed): with the document check deleted
+    that request was refused by the 400 *before the diff ran*, so `changes == 0`
+    and `edges == 0` held for a reason that had nothing to do with the finding,
+    and moving the document check to after the write would have passed too.
+    Measured on the mis-oriented fixture: guard deleted,
+    `status=400 changes=0 edges=0`. On this one: `status=200 changes=1 edges=1`.
+
+    `status_code == 404` is therefore also the assertion that the orientation is
+    still right — a fixture that drifted back to reversed would answer 400 here.
     """
     driver = client_with_auth.app.state.driver
     database = client_with_auth.app.state.settings.neo4j_database
     _seed(
-        driver, database, doc_slug="pol", version_id="pol@2018",
+        driver, database, doc_slug="other", version_id="other@2018",
         entries=[("3.2", REWORDED_OLD)],
     )
     _seed(
-        driver, database, doc_slug="other", version_id="other@2020",
+        driver, database, doc_slug="pol", version_id="pol@2020",
         entries=[("4.1", REWORDED_NEW)],
     )
 
     response = client_with_auth.get(
         "/pairings/queue",
-        params={"from_version_id": "pol@2018", "to_version_id": "other@2020"},
+        params={"from_version_id": "other@2018", "to_version_id": "pol@2020"},
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 404, response.text
     detail = response.json()["detail"]
     assert "'pol'" in detail
     assert "'other'" in detail
@@ -705,6 +722,92 @@ def test_the_remedy_the_409_prescribes_can_actually_be_followed(client_with_auth
     ]
 
 
+# Every barrier in the race harness below uses this, and both of them use it —
+# symmetry is the point. A thread that dies before an untimed barrier hangs the
+# run instead of failing it, and a hung suite reports nothing at all.
+BARRIER_TIMEOUT = 2
+
+
+def _race_two_paired_verdicts(
+    client, monkeypatch, *, old_id, first_new_id, second_new_id
+):
+    """Post two `paired` verdicts naming `old_id` at once; return the statuses.
+
+    **Two synchronisation points, and the second is what makes this a test
+    rather than a coin toss.** Barriering only the two requests leaves the
+    outcome to timing — measured against the unlocked route, that version
+    passed one run in three, which is a false green on the one invariant the
+    409 exists to hold. So the write is gated too: wrapping `record_pairing`
+    where the route calls it puts the gate exactly between the conflict read
+    and the write, which is the window under test.
+
+    An unlocked route then has both reads complete before either write,
+    deterministically, and both verdicts land. A locked one cannot reach that
+    barrier twice — the second transaction is still blocked on the lock — so the
+    first times out, commits, and the second then reads the committed decision
+    and refuses. The timeout is the healthy path's cost and is paid on every
+    green run.
+
+    Statuses come back as a `Counter` rather than a sorted list because a
+    thread that never started records a string, and `sorted` on mixed ints and
+    strings raises `TypeError` — which would replace a readable failure with a
+    confusing one.
+    """
+    start = threading.Barrier(2)
+    before_write = threading.Barrier(2)
+    real_record_pairing = pairings.record_pairing
+
+    def gated_record_pairing(tx, **kwargs):
+        try:
+            before_write.wait(timeout=BARRIER_TIMEOUT)
+        except threading.BrokenBarrierError:
+            # The expected path when the lock works: the other transaction is
+            # blocked on it and will never arrive. Proceed and commit, which is
+            # what lets it read this decision.
+            pass
+        return real_record_pairing(tx, **kwargs)
+
+    monkeypatch.setattr(pairings, "record_pairing", gated_record_pairing)
+
+    outcomes = {}
+
+    def settle(name, new_id):
+        try:
+            start.wait(timeout=BARRIER_TIMEOUT)
+        except threading.BrokenBarrierError:
+            outcomes[name] = "never started"
+            return
+        outcomes[name] = client.post(
+            f"/pairings/{old_id}/{new_id}", json={"verdict": "paired"}
+        ).status_code
+
+    threads = [
+        threading.Thread(target=settle, args=("alice", first_new_id)),
+        threading.Thread(target=settle, args=("bob", second_new_id)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return Counter(outcomes.values()), outcomes
+
+
+def _live_paired(driver, database):
+    records, _, _ = driver.execute_query(
+        "MATCH (d:PairingDecision {verdict: 'paired'}) "
+        "RETURN count(d) AS total, collect(d.new_obligation_id) AS partners",
+        database_=database,
+    )
+    return records[0]
+
+
+def _lock_count(driver, database):
+    records, _, _ = driver.execute_query(
+        "MATCH (lock:PairingLock) RETURN count(lock) AS total", database_=database
+    )
+    return records[0]["total"]
+
+
 @pytest.mark.integration
 def test_two_concurrent_paired_verdicts_on_one_clause_cannot_both_land(
     client_with_auth, monkeypatch
@@ -720,17 +823,11 @@ def test_two_concurrent_paired_verdicts_on_one_clause_cannot_both_land(
     *after* recording does not fix it either: both transactions stay blind to
     the other's uncommitted writes right up to commit.
 
-    **Two synchronisation points, and the second is what makes this a test
-    rather than a coin toss.** Barriering only the two requests leaves the
-    outcome to timing — measured against the unlocked route, that version
-    passed one run in three, which is a false green on the one invariant the
-    409 exists to hold. So the write is gated too: each request waits at a
-    barrier *after* its conflict read and *before* recording. An unlocked route
-    then has both reads complete before either write, deterministically, and
-    both verdicts land. A locked one cannot reach that barrier twice — the
-    second transaction is still blocked on the lock — so the first times out,
-    commits, and the second then reads the committed decision and refuses. The
-    timeout is the healthy path's cost and is paid on every green run.
+    This is the **MERGE-create** half of the lock: `clean_graph` empties the
+    graph before every integration test, so no `:PairingLock` exists when these
+    two requests arrive and the blocking is done by the uniqueness constraint's
+    index entry. The match half — every verdict after the first in an edition
+    pair, which is the production-normal case — is the test below.
     """
     driver = client_with_auth.app.state.driver
     database = client_with_auth.app.state.settings.neo4j_database
@@ -743,55 +840,99 @@ def test_two_concurrent_paired_verdicts_on_one_clause_cannot_both_land(
         entries=[("4.1", BLANK_NEW), ("5.1", RIVAL)],
     )
 
-    start = threading.Barrier(2)
-    # Wrapping `record_pairing` where the route calls it puts the gate exactly
-    # between the conflict read and the write, which is the window under test.
-    before_write = threading.Barrier(2)
-    real_record_pairing = pairings.record_pairing
+    assert _lock_count(driver, database) == 0, (
+        "this test is the MERGE-create path; a pre-existing lock would make it "
+        "the other one and leave the create path uncovered"
+    )
 
-    def gated_record_pairing(tx, **kwargs):
-        try:
-            before_write.wait(timeout=2)
-        except threading.BrokenBarrierError:
-            # The expected path when the lock works: the other transaction is
-            # blocked on it and will never arrive. Proceed and commit, which is
-            # what lets it read this decision.
-            pass
-        return real_record_pairing(tx, **kwargs)
+    statuses, outcomes = _race_two_paired_verdicts(
+        client_with_auth,
+        monkeypatch,
+        old_id=old_ids[BLANK_OLD],
+        first_new_id=new_ids[BLANK_NEW],
+        second_new_id=new_ids[RIVAL],
+    )
 
-    monkeypatch.setattr(pairings, "record_pairing", gated_record_pairing)
-
-    outcomes = {}
-
-    def settle(name, new_id):
-        start.wait()
-        outcomes[name] = client_with_auth.post(
-            f"/pairings/{old_ids[BLANK_OLD]}/{new_id}",
-            json={"verdict": "paired"},
-        ).status_code
-
-    threads = [
-        threading.Thread(target=settle, args=("alice", new_ids[BLANK_NEW])),
-        threading.Thread(target=settle, args=("bob", new_ids[RIVAL])),
-    ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-    assert sorted(outcomes.values()) == [200, 409], outcomes
+    assert statuses == Counter([200, 409]), outcomes
 
     # The assertion that matters is the graph's, not the status codes'. A
     # second live `paired` verdict on one clause is the state the diff cannot
     # arbitrate: the first pops the shared clause, the second's lookup misses,
     # and a reviewer's verdict is reported as a pass-1 pre-emption in
     # `pairings_unapplied`.
-    live, _, _ = driver.execute_query(
-        "MATCH (d:PairingDecision {verdict: 'paired'}) "
-        "RETURN count(d) AS total, collect(d.new_obligation_id) AS partners",
-        database_=database,
+    live = _live_paired(driver, database)
+    assert live["total"] == 1, live["partners"]
+
+
+@pytest.mark.integration
+def test_a_race_against_an_existing_lock_node_is_also_refused(
+    client_with_auth, monkeypatch
+):
+    """The lock's other half, and the one production actually spends its time
+    on.
+
+    `ACQUIRE_PAIR_LOCK` blocks by two different mechanisms depending on whether
+    the lock node exists. On **create** — the only state a test starting from
+    `clean_graph` can reach — the uniqueness constraint's index entry does the
+    blocking. On **match**, which is every verdict after the first in an edition
+    pair, the index entry is not touched and the only thing taking an exclusive
+    lock is the `SET`: a MERGE that merely matches need not lock what it found.
+
+    So the `SET` was load-bearing and unpinned. Measured with it removed: the
+    test above passes 5/5 on an empty graph, while this race against a
+    pre-existing lock gives `statuses={'alice': 200, 'bob': 200}
+    live_paired=2 locks=1` — two live `paired` verdicts, one lock node, 5/5.
+    Anyone deleting the `SET` as decoration would have kept the whole suite
+    green and left the second reviewer of every edition pair unprotected.
+
+    The lock here is created by a real prior verdict rather than seeded, so
+    what is under test is the sequence a second reviewer actually meets. The
+    prior verdict is `distinct` on a different pair: it takes the lock through
+    the production path without leaving a live `paired` verdict that would
+    confound the conflict check.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    old_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2018",
+        entries=[("3.2", BLANK_OLD), ("3.3", RIVAL_OLD)],
     )
-    assert live[0]["total"] == 1, live[0]["partners"]
+    new_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2020",
+        entries=[("4.1", BLANK_NEW), ("5.1", RIVAL)],
+    )
+
+    prior = client_with_auth.post(
+        f"/pairings/{old_ids[RIVAL_OLD]}/{new_ids[RIVAL]}",
+        json={"verdict": "distinct", "rationale": "unrelated duties"},
+    )
+    assert prior.status_code == 200, prior.text
+
+    # The whole point of the test: the racing verdicts below must find the lock
+    # node already there, so `ACQUIRE_PAIR_LOCK` matches instead of creating and
+    # the `SET` is the only thing that can serialise them.
+    assert _lock_count(driver, database) == 1, (
+        "a prior verdict in this edition pair must have left its lock node "
+        "behind, or this test is the create path again"
+    )
+
+    statuses, outcomes = _race_two_paired_verdicts(
+        client_with_auth,
+        monkeypatch,
+        old_id=old_ids[BLANK_OLD],
+        first_new_id=new_ids[BLANK_NEW],
+        second_new_id=new_ids[RIVAL],
+    )
+
+    assert statuses == Counter([200, 409]), outcomes
+
+    live = _live_paired(driver, database)
+    assert live["total"] == 1, live["partners"]
+
+    # Still one lock node: a second one for the same key would mean the two
+    # transactions had locked different nodes, which is the unconstrained
+    # failure mode wearing a passing status code.
+    assert _lock_count(driver, database) == 1
 
 
 @pytest.mark.integration
