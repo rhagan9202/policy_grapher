@@ -7,6 +7,8 @@ from policy_grapher.changes.propagate import KIND_WEIGHT, MODALITY_WEIGHT, triag
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
+from policy_grapher.links.decisions import record_decision, replay_decisions
+from policy_grapher.links.pairing import PairingVerdict, record_pairing
 from policy_grapher.models import TriageOut
 from policy_grapher.obligations import write_obligations
 
@@ -793,8 +795,6 @@ def test_the_triage_get_reports_a_verdict_it_could_not_apply(client_with_auth):
     down. And the verdict itself must survive: a count is a report, not a
     retraction.
     """
-    from policy_grapher.links.pairing import record_pairing
-
     driver = client_with_auth.app.state.driver
     database = client_with_auth.app.state.settings.neo4j_database
     persisting = "Components shall retain records for seven years."
@@ -862,3 +862,131 @@ def test_the_triage_payload_carries_exactly_these_fields():
         "from_obligations",
         "to_obligations",
     }
+
+
+# --- end to end ---------------------------------------------------------------
+
+# The rewrite no measure can see, which is what makes this end-to-end rather than
+# a second run of the wording pass. `_pair_by_wording` scores through
+# `links.propose.score_pairing`, whose shared `_score` returns None once the
+# overlap falls below `MIN_CONFIDENCE`; this statement shares no content word at
+# all with HIGHER_OLD — `document`, `cybersecurity` and `strategy` against
+# `program`, `offices`, `record`, `protection` and `approach` — so it scores 0,
+# is never offered, and gets no `PAIRING_CANDIDATE` edge. The section rule cannot
+# reach it either: the clause moved from 3.2 to 7.1. A `paired` verdict is the
+# only thing in the system that can turn the two into one `MODIFIED`, and the
+# problem section names this class — a complete rewording — as the case a human
+# most obviously beats the measure on.
+REWORDED = "Program offices will record the protection approach."
+
+
+@pytest.mark.integration
+def test_a_confirmed_pairing_carries_the_previous_statement_into_triage(
+    client_with_auth,
+):
+    """The whole feature, through the API a reader actually uses.
+
+    A cross-document `IMPLEMENTS` over a confirmed pairing has to produce a
+    Triage row whose `previous_statement` is the paired older clause. Every leg
+    is load-bearing and each has failed on its own: the pairing verdict has to
+    reach `_plan_changes` scoped to these two editions, the `MODIFIED` it emits
+    has to `AFFECTS` the *new* obligation (which is the one a reviewer must now
+    act on, and the end the `IMPLEMENTS` edge points at), and the traversal's
+    `document <> higher_document` guard has to let a genuinely cross-document row
+    through rather than suppressing every row.
+
+    The run before the verdict is asserted rather than described, because it is
+    the whole claim: this pair is one the diff declines, so the
+    `previous_statement` below can only be there because a person said so. If a
+    later edit to REWORDED brought the pair within reach of the wording pass,
+    every assertion after the verdict would still hold and prove nothing — the
+    two changes here are what notices.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+
+    old_ids = _seed_version(
+        driver, database, version_id="higher-v1", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("3.2", HIGHER_OLD, Modality.SHALL)],
+    )
+    new_ids = _seed_version(
+        driver, database, version_id="higher-v2", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("7.1", REWORDED, Modality.WILL)],
+    )
+    our_ids = _seed_version(
+        driver, database, version_id="ours-v1", doc_slug="ours",
+        doc_name="ORG 1.0", entries=[("2.4", OURS, Modality.SHALL)],
+    )
+
+    with driver.session(database=database) as session:
+        # The implements question, settled by a person and answering something
+        # else entirely from the pairing below: our clause discharges the higher
+        # duty. Recorded and replayed rather than MERGEd directly, because
+        # `replay_decisions` is the only writer of `IMPLEMENTS` anywhere in the
+        # codebase and a test that writes the edge itself is testing a path
+        # production does not have.
+        session.execute_write(
+            record_decision,
+            source_id=our_ids[OURS],
+            target_id=new_ids[REWORDED],
+            verdict="approve",
+            actor="tester",
+            rationale="Our plan clause discharges the protection duty.",
+        )
+        replayed = session.execute_write(replay_decisions)
+    # The fixture must actually have the edge. A replay that promoted nothing
+    # would leave every assertion below testing an empty traversal, and an empty
+    # traversal agrees with almost anything.
+    assert replayed["promoted"] == 1
+
+    params = {"to_version_id": "higher-v2", "from_version_id": "higher-v1"}
+    before = client_with_auth.get("/triage", params=params).json()
+
+    # What the machine makes of this edition pair on its own, and why the row
+    # below is worth asserting: a duty vanished and an unrelated one appeared.
+    # The addition is the row a reviewer sees, carrying no previous statement;
+    # the removal reaches nothing of ours and is only a count.
+    assert before["total_changes"] == 2
+    assert before["unlinked_changes"] == 1
+    assert [row["kind"] for row in before["rows"]] == ["ADDED"]
+    assert before["rows"][0]["previous_statement"] is None
+
+    with driver.session(database=database) as session:
+        # The pairing question, settled by the same person: the newer clause is
+        # the older one reworded. Recorded older→newer, which is the direction
+        # the key hashes and the only orientation a later POST on this pair
+        # would compute.
+        session.execute_write(
+            record_pairing,
+            old_id=old_ids[HIGHER_OLD],
+            new_id=new_ids[REWORDED],
+            verdict=PairingVerdict.PAIRED,
+            actor="tester",
+            rationale="The re-issue renamed the duty; it is the same obligation.",
+        )
+
+    body = client_with_auth.get("/triage", params=params).json()
+
+    # One change, not two: the verdict consumed both clauses before the section
+    # rule and the wording pass could see them — and it was applied, not merely
+    # reported as one pass 1 had pre-empted.
+    assert body["total_changes"] == 1
+    assert body["unlinked_changes"] == 0
+    assert body["pairings_unapplied"] == 0
+    assert len(body["rows"]) == 1
+
+    row = body["rows"][0]
+    assert row["kind"] == "MODIFIED"
+    assert row["previous_statement"] == HIGHER_OLD
+    assert row["higher"]["statement"] == REWORDED
+    assert row["higher"]["document"] == "DoDI 5000.88"
+    # The new obligation on the higher side, three ways: its id, the section it
+    # moved to, and its modality. `higher.statement` above is the `:Change`'s own
+    # property and says nothing about which obligation the change `AFFECTS`;
+    # these are read off the obligation and its anchor, and every one of them
+    # differs between the two editions' clauses.
+    assert row["higher"]["obligation_id"] == new_ids[REWORDED]
+    assert row["higher"]["section_path"] == ["7.1"]
+    assert row["modality"] == "WILL"
+    assert row["ours"]["statement"] == OURS
+    assert row["ours"]["document"] == "ORG 1.0"
