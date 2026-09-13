@@ -47,6 +47,7 @@ ZEROS = {
     "implements_deleted": 0,
     "proposals_deleted": 0,
     "decisions_missing_documents": 0,
+    "decisions_missing_obligations": 0,
 }
 
 
@@ -229,11 +230,16 @@ def test_a_newer_to_older_approval_converts_re_oriented(clean_graph, database):
 def test_replay_recreates_no_same_document_implements_after_migration(
     clean_graph, database
 ):
-    """`PROMOTE` has no document predicate, so a same-document approval left
-    under the live label resurrects its edge on every review POST and every
-    rebuild — into Ask's undirected traversal, which no shipped guard reaches.
-    The migration must take the decision out of `PROMOTE`'s match by
-    retirement, not delete around it."""
+    """A same-document approval left under the live label is matched by `PROMOTE`
+    on every review POST and every rebuild. The migration must take the decision
+    out of that match by *retirement*, not by deleting around it — a decision
+    whose label survived its own conversion would resurrect the edge the
+    conversion had just deleted.
+
+    `PROMOTE` now screens the pair itself (links/decisions.py), which is why the
+    legacy edge below is written raw rather than promoted into being: that screen
+    is the first guard and this retirement the second, and the file's whole
+    subject is a state the current writers can no longer produce."""
     (older_id,) = _seed_edition(
         clean_graph, database, version_id="doc@2018-08-31",
         effective_date="2018-08-31", statements=[OLD_WORDING],
@@ -243,9 +249,15 @@ def test_replay_recreates_no_same_document_implements_after_migration(
         effective_date="2022-07-28", statements=[NEW_WORDING],
     )
     _legacy_decision(clean_graph, database, source_id=newer_id, target_id=older_id)
-    # The legacy promotion, through the one real writer of IMPLEMENTS.
-    replayed = _replay(clean_graph, database)
-    assert replayed["promoted"] == 1
+    # The edge the legacy replay promoted, before `PROMOTE` screened documents.
+    clean_graph.execute_query(
+        "MATCH (source:Obligation {obligation_id: $source}) "
+        "MATCH (target:Obligation {obligation_id: $target}) "
+        "MERGE (source)-[:IMPLEMENTS]->(target)",
+        {"source": newer_id, "target": older_id},
+        database_=database,
+    )
+    assert _replay(clean_graph, database)["promoted"] == 0
 
     counts = migrate_pairing_decisions(clean_graph, database)
     assert counts["implements_deleted"] == 1
@@ -310,14 +322,26 @@ def test_a_same_edition_approval_is_retired_with_its_edge_gone(clean_graph, data
     (ADR-014 honoured in letter and spirit), the promoted edge deleted in the
     same transaction — and still gone after a replay, because the spec's
     Testing bullet asks for converted and same-edition finds alike to be taken
-    out of `PROMOTE`'s match rather than deleted around."""
+    out of `PROMOTE`'s match rather than deleted around.
+
+    The edge is written raw: both clauses belong to one edition of one document,
+    so `PROMOTE`'s document predicate refuses to promote it now
+    (links/decisions.py). An edge from before that screen existed is exactly what
+    this migration inherits.
+    """
     first, second = _seed_edition(
         clean_graph, database, version_id="doc@2018-08-31",
         effective_date="2018-08-31", statements=[OLD_WORDING, SECOND_OLD],
     )
     _legacy_decision(clean_graph, database, source_id=first, target_id=second)
-    replayed = _replay(clean_graph, database)
-    assert replayed["promoted"] == 1
+    clean_graph.execute_query(
+        "MATCH (source:Obligation {obligation_id: $source}) "
+        "MATCH (target:Obligation {obligation_id: $target}) "
+        "MERGE (source)-[:IMPLEMENTS]->(target)",
+        {"source": first, "target": second},
+        database_=database,
+    )
+    assert _replay(clean_graph, database)["promoted"] == 0
 
     counts = migrate_pairing_decisions(clean_graph, database)
 
@@ -770,6 +794,75 @@ def test_decisions_whose_obligations_lost_their_document_are_counted_not_touched
     assert migrate_pairing_decisions(clean_graph, database) == {
         **ZEROS,
         "decisions_missing_documents": 1,
+    }
+
+
+@pytest.mark.integration
+def test_a_decision_whose_obligation_is_gone_is_counted_not_reported_clean(
+    clean_graph, database
+):
+    """The run that reported eight zeros over a graph it could not read.
+
+    `SAME_DOCUMENT_DECISIONS` and `DECISIONS_MISSING_DOCUMENTS` both open by
+    matching *both* obligations, so a decision missing one matched neither: not
+    converted, not retired, and — until `decisions_missing_obligations` existed —
+    not counted by the census whose own zero the other counts' completeness rests
+    on. The operator was told the legacy state was clean while a same-document
+    `approve` sat in the graph, waiting for a rebuild to reproduce the clause's
+    content-derived id.
+
+    Reproduced the way the state actually arises: the obligation node is deleted,
+    which is what a re-extraction that moved the clause's section or wording
+    leaves behind (ADR-027).
+    """
+    (older_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    (newer_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING],
+    )
+    _legacy_decision(clean_graph, database, source_id=newer_id, target_id=older_id)
+    clean_graph.execute_query(
+        "MATCH (o:Obligation {obligation_id: $id}) DETACH DELETE o",
+        {"id": older_id},
+        database_=database,
+    )
+
+    counts = migrate_pairing_decisions(clean_graph, database)
+
+    assert counts == {**ZEROS, "decisions_missing_obligations": 1}
+    # Left exactly as it was, because `repoint_decisions` may still repair it and
+    # retiring it here would destroy that repair.
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN d.verdict AS verdict, "
+        "d.retired_reason AS reason",
+        database_=database,
+    )
+    assert len(records) == 1
+    assert records[0]["verdict"] == "approve"
+    assert records[0]["reason"] is None
+
+    # And the edge it used to promote does not come back when the clause does:
+    # re-creating the obligation under the same id is what a rebuild does, and
+    # `PROMOTE`'s document predicate is what keeps the replay from minting a
+    # same-document IMPLEMENTS in the window before the next boot converts it.
+    _seed_edition(
+        clean_graph, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    assert _replay(clean_graph, database)["promoted"] == 0
+    edges, _, _ = clean_graph.execute_query(
+        "MATCH ()-[r:IMPLEMENTS]->() RETURN count(r) AS total", database_=database
+    )
+    assert edges[0]["total"] == 0
+    # The next boot finds both obligations again and converts the verdict into
+    # the pairing decision it always was, which is the repair this census points
+    # an operator at.
+    assert migrate_pairing_decisions(clean_graph, database) == {
+        **ZEROS,
+        "converted": 1,
     }
 
 

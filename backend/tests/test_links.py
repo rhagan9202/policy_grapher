@@ -1306,3 +1306,44 @@ def test_a_cross_document_decision_still_records(clean_graph, database):
         "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
     )
     assert records[0]["total"] == 1
+
+
+@pytest.mark.integration
+def test_a_same_document_approval_already_in_the_graph_promotes_nothing(
+    clean_graph, database
+):
+    """`replay_decisions` is the only writer of `IMPLEMENTS`, so this is where
+    "cross-document only" is true of the graph rather than of recent verdicts.
+
+    `record_decision` refuses the pair, and the startup migration converts what
+    it finds — but a same-document `approve` can still be sitting there. One
+    recorded before the split whose obligation node was absent when the migration
+    ran matches neither the conversion query nor its census, both of which open
+    by matching both obligations; a rebuild re-extracting that clause reproduces
+    the same content-derived id, and the next replay — every review POST, every
+    rebuild — found the decision again and promoted the edge. Nothing downstream
+    catches it: `changes/propagate.py` keeps it out of Triage, while Ask's hybrid
+    traversal follows `IMPLEMENTS` undirected and would answer that a document
+    implements its own predecessor.
+    """
+    older, newer = _seed_two_editions(clean_graph, database)
+    clean_graph.execute_query(
+        "CREATE (:LinkDecision {key: $key, source_obligation_id: $source, "
+        "target_obligation_id: $target, verdict: 'approve', actor: 'legacy', "
+        "rationale: 'recorded before the split', at: datetime()})",
+        {"key": decision_key(newer, older), "source": newer, "target": older},
+        database_=database,
+    )
+
+    counts = _replay(clean_graph, database)
+
+    assert counts["promoted"] == 0
+    assert _implements(clean_graph, database) == set()
+    # Not counted as unpromotable either: both obligations exist, so this is a
+    # refusal rather than a loss, and the decision is still there for the next
+    # boot's migration to convert into the pairing verdict it always was.
+    assert counts["unpromotable"] == 0
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 1

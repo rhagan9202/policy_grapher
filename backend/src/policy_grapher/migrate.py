@@ -61,10 +61,11 @@ RETURN d.key AS key,
 
 # Decisions whose obligations both exist but do not both resolve through a
 # `:Document`. Every other query in this module routes through `:Document`, so
-# these are invisible to all of them — and a same-document one among them stays
-# under `:LinkDecision`, where `PROMOTE` resurrects its edge on every replay.
-# `delete_document` produces the state: it removes the document, its versions
-# and their chunks, and leaves the obligations behind (documents.py).
+# these are invisible to all of them, and a same-document one among them stays
+# under `:LinkDecision` — where only `PROMOTE`'s own document predicate now
+# stops its edge coming back (links/decisions.py). `delete_document` produces the
+# state: it removes the document, its versions and their chunks, and leaves the
+# obligations behind (documents.py).
 #
 # Counted, never touched. Without documents there is no way to tell a
 # same-document verdict from a cross-document one, and retiring a legitimate
@@ -81,6 +82,26 @@ WHERE NOT EXISTS {
    OR NOT EXISTS {
         MATCH (:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(target)
       }
+RETURN count(d) AS missing
+"""
+
+# Decisions one of whose obligation NODES is gone entirely. Counted because
+# every other query here — including the census above — opens by matching both
+# obligations, so a decision missing one is invisible to all of them: not
+# converted, not retired, and, until this existed, not reported either. A run
+# returned eight zeros over a graph holding a same-document `approve` it could
+# not see.
+#
+# Untouched, like the census above, and for a stronger reason: this is the class
+# `repoint_decisions` exists to repair, and `unpromotable`/`rejections_stranded`
+# report on the rebuild path. Retiring one here would destroy a repair the next
+# rebuild may yet make. What it buys is that the boot's counts stop reading as a
+# clean graph, and that is all it is for — the same-document edge such a decision
+# could resurrect is refused at `PROMOTE` itself (links/decisions.py), not here.
+DECISIONS_MISSING_OBLIGATIONS = """
+MATCH (d:LinkDecision)
+WHERE NOT EXISTS { MATCH (:Obligation {obligation_id: d.source_obligation_id}) }
+   OR NOT EXISTS { MATCH (:Obligation {obligation_id: d.target_obligation_id}) }
 RETURN count(d) AS missing
 """
 
@@ -392,6 +413,7 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
     # counts only those where at least one does not. So it is always a census
     # of what the run could not see, never a second count of what it just did.
     missing_documents = tx.run(DECISIONS_MISSING_DOCUMENTS).single()["missing"]
+    missing_obligations = tx.run(DECISIONS_MISSING_OBLIGATIONS).single()["missing"]
 
     return {
         "converted": converted,
@@ -402,6 +424,7 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
         "implements_deleted": implements_deleted,
         "proposals_deleted": proposals_deleted,
         "decisions_missing_documents": missing_documents,
+        "decisions_missing_obligations": missing_obligations,
     }
 
 
@@ -432,22 +455,37 @@ def migrate_pairing_decisions(driver: Driver, database: str) -> dict[str, int]:
     - `implements_deleted` — promoted same-document edges removed with their
       decisions.
     - `proposals_deleted` — same-document `IMPLEMENTS_PROPOSED` edges removed.
-    - `decisions_missing_documents` — decisions this run could not classify at
-      all, because their obligations no longer resolve to a `:Document`.
-      Reported, never touched. **Non-zero means the graph may still hold
-      same-document `IMPLEMENTS` edges this migration could not reach**, so it
-      is the one count whose zero is load-bearing for the others' completeness,
-      and `main.lifespan` logs it at WARNING rather than leaving it in the
-      dict. Narrower than "every decision this run could not reach": both this
-      and `SAME_DOCUMENT_DECISIONS` require both obligations to *exist*, so a
-      decision whose obligation nodes are gone entirely is counted by neither.
-      That class is `unpromotable`/`rejections_stranded`, which the repoint
-      path owns; this census covers the outlived-document case only.
+    - `decisions_missing_documents` — decisions this run could not classify
+      because their obligations no longer resolve to a `:Document`, the state
+      `DELETE /documents/{slug}` leaves behind. Reported, never touched: without
+      documents there is no way to tell a same-document verdict from a
+      cross-document one, and retiring a legitimate implements verdict would be
+      this migration's own data loss. `main.lifespan` logs it at WARNING rather
+      than leaving it in the dict.
+    - `decisions_missing_obligations` — decisions one of whose obligation *nodes*
+      is gone. Every other query here matches both obligations, so such a
+      decision is converted by nothing, retired by nothing, and was reported by
+      nothing: a run returned eight zeros over a graph that still held a
+      same-document `approve`. Reported, never touched — this is the class
+      `repoint_decisions` repairs and `unpromotable`/`rejections_stranded` report
+      on the rebuild path, so retiring it here would destroy a repair that is
+      still possible. It carries no WARNING of its own for that reason: unlike
+      the census above it has an owner and a routine cause, and a line printed
+      on every boot of a graph with one stranded verdict is a line readers learn
+      to skip.
+
+    **The two censuses' zeros are load-bearing together**, and neither alone:
+    between them they cover every `:LinkDecision` this run's conversion query
+    could not read, so two zeros are what make the other six counts a complete
+    account. Non-zero in either means the graph may still hold a same-document
+    decision the migration could not classify — which `PROMOTE`'s document
+    predicate keeps from becoming an `IMPLEMENTS` edge (links/decisions.py),
+    while the next boot converts it once the missing node or document is back.
 
     A second run returns zeros: nothing a run converts or retires still
-    matches the queries that found it. `decisions_missing_documents` is the
-    exception and reports the same number every boot, because it is a census
-    rather than a unit of work.
+    matches the queries that found it. The two censuses are the exception and
+    report the same number every boot, because they are censuses rather than
+    units of work.
     """
     with driver.session(database=database) as session:
         return session.execute_write(_migrate)

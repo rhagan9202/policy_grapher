@@ -7,7 +7,10 @@ the edge is derived, so a property on it would be dropped with it.
 
 `replay_decisions` is the **only** writer of `IMPLEMENTS` anywhere in the codebase.
 Nothing promotes a link directly, so there is exactly one code path to audit: a
-proposal exists, a human verdicts it, replay applies the verdict.
+proposal exists, a human verdicts it, replay applies the verdict. `IMPLEMENTS` is
+cross-document only, and because this is the single writer, `PROMOTE`'s document
+predicate is what makes that true of the graph rather than only of the verdicts
+recorded since the rule existed.
 """
 
 import hashlib
@@ -75,12 +78,34 @@ class SameDocumentPair(ValueError):
     """
 
 
-# Approvals whose obligations both still exist. Written as a MERGE so replay is
-# idempotent, and scoped by the decision so nothing else can reach this edge type.
+# Approvals whose obligations both still exist, and belong to two different
+# documents. Written as a MERGE so replay is idempotent, and scoped by the
+# decision so nothing else can reach this edge type.
+#
+# The document predicate is here and not only in `record_decision`, because this
+# is the only writer of `IMPLEMENTS` anywhere and a rule held at the recorder is
+# a rule only about decisions recorded since. A same-document `approve` can still
+# be *in* the graph: one recorded before the split whose obligation was absent
+# when the startup migration ran matches neither the migration's conversion query
+# nor its census, and a rebuild re-extracting that clause reproduces its
+# content-derived id — at which point this query would promote the edge back.
+# `changes/propagate.py` keeps such an edge out of Triage; nothing keeps it out of
+# Ask, whose hybrid traversal follows `IMPLEMENTS` undirected, so it would answer
+# that a document implements its own predecessor.
+#
+# Phrased as "I can see one document holding both" and negated, never as "I
+# cannot see two documents": a decision whose obligations a re-extraction
+# stranded resolves to no document at all, and the second phrasing would refuse
+# to promote every legitimate cross-document verdict the moment one side moved.
+# `SAME_DOCUMENT` above is the same shape for the same reason.
 PROMOTE = """
 MATCH (d:LinkDecision {verdict: 'approve'})
 MATCH (source:Obligation {obligation_id: d.source_obligation_id})
 MATCH (target:Obligation {obligation_id: d.target_obligation_id})
+WHERE NOT EXISTS {
+        MATCH (doc:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(source)
+        MATCH (doc)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(target)
+      }
 MERGE (source)-[:IMPLEMENTS]->(target)
 RETURN count(*) AS promoted
 """
