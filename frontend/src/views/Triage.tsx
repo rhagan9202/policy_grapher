@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { getTriage, listDocuments, listVersions } from '../api/client'
 import type {
   DocumentOut,
@@ -14,7 +15,8 @@ function Citation({ heading, of }: { heading: string; of: TriageCitation }) {
       <h4>{heading}</h4>
       <blockquote>{of.statement}</blockquote>
       <cite>
-        {of.document} · {of.section_path.join('/')} · p. {of.page}
+        {of.document} · <code>{of.version_id}</code> ·{' '}
+        {of.section_path.join('/')} · p. {of.page}
       </cite>
     </div>
   )
@@ -190,6 +192,24 @@ export default function Triage() {
             <p>
               {result.unlinked_changes} of {result.total_changes} changes have no
               reviewed link to anything of ours, so they do not appear below.
+            </p>
+          )}
+
+          {/*
+            Not gated on `bothSidesExtracted`, unlike the line above: this counts
+            a person's verdicts rather than the diff's findings, and a shelved
+            verdict is shelved whether or not both editions were extracted. The
+            decision stands — the diff simply had nothing to attach it to,
+            because pass 1 matched the clause unchanged in both editions — so
+            saying nothing leaves it indistinguishable from one that took effect.
+          */}
+          {result.pairings_unapplied > 0 && (
+            <p>
+              {result.pairings_unapplied} recorded pairing
+              {result.pairings_unapplied === 1 ? '' : 's'} could not be applied to
+              this diff: the clause each names is matched unchanged in both
+              editions, so there is no rewording for the verdict to attach to.
+              They are still recorded, on <Link to="/pairings">Pairings</Link>.
             </p>
           )}
 

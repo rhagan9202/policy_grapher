@@ -8,6 +8,9 @@ import type {
   GraphOut,
   IngestResult,
   ObligationsOut,
+  PairingQueue,
+  PairingVerdict,
+  PairingVerdictRecorded,
   QueryResult,
   RebuildStarted,
   RebuildStatus,
@@ -223,6 +226,51 @@ export function recordVerdict(
 ): Promise<Record<string, number>> {
   return request<Record<string, number>>(
     `/review/${encodeURIComponent(sourceId)}/${encodeURIComponent(targetId)}`,
+    { method: 'POST', body: JSON.stringify({ verdict, rationale }) },
+  )
+}
+
+// The queue runs the diff itself, exactly as `GET /triage` does — a queue reading
+// only what a Triage visit happened to write would be empty for any edition pair
+// nobody had opened, and a verdict would take effect the next time someone loaded
+// that screen. Both ends are required: the route 400s a from/to that is not
+// older→newer by the corpus's own ordering, which is what stops a reversed pair
+// serving a reviewer a queue whose question is upside down.
+// `outcome` narrows the page to one of the diff's labels, and the screen cannot
+// reach a decline without it: every pair at or above the pairing bar is recorded,
+// the page is ordered by confidence and capped, and a declined pair never
+// outscores the one that beat it — so the cap cuts declines first. An options
+// object rather than two more positional parameters, because a bare
+// `getPairingQueue(a, b, undefined, 'contested')` at a call site says nothing
+// about either argument.
+export function getPairingQueue(
+  fromVersionId: string,
+  toVersionId: string,
+  options: { limit?: number; outcome?: string } = {},
+): Promise<PairingQueue> {
+  const params = new URLSearchParams({
+    from_version_id: fromVersionId,
+    to_version_id: toVersionId,
+  })
+  if (options.limit !== undefined) params.set('limit', String(options.limit))
+  // Falsy rather than undefined: '' is how the screen spells "every outcome",
+  // and sending it would be an unknown label the route refuses with a 400.
+  if (options.outcome) params.set('outcome', options.outcome)
+  return request<PairingQueue>(`/pairings/queue?${params.toString()}`)
+}
+
+// A write, and therefore dependent on the ADR-018 header that `request` adds.
+// Ordered older-first in the path because the record's key is a directional hash
+// of the two ids: a pair sent the other way round would key to a second decision
+// beside the first rather than replacing it.
+export function recordPairing(
+  oldId: string,
+  newId: string,
+  verdict: PairingVerdict,
+  rationale = '',
+): Promise<PairingVerdictRecorded> {
+  return request<PairingVerdictRecorded>(
+    `/pairings/${encodeURIComponent(oldId)}/${encodeURIComponent(newId)}`,
     { method: 'POST', body: JSON.stringify({ verdict, rationale }) },
   )
 }

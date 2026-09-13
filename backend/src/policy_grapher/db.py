@@ -58,6 +58,25 @@ CONSTRAINTS: tuple[str, ...] = (
         "CREATE CONSTRAINT link_decision_key_unique IF NOT EXISTS "
         "FOR (d:LinkDecision) REQUIRE d.key IS UNIQUE"
     ),
+    # :PairingDecision is the same kind of thing for the other question — a
+    # same-document pairing verdict, canonical for the same ADR-014 reason.
+    # Uniqueness on the directional key is what lets a re-verdict update in
+    # place, and the repoint path's collision screening assumes it.
+    (
+        "CREATE CONSTRAINT pairing_decision_key_unique IF NOT EXISTS "
+        "FOR (d:PairingDecision) REQUIRE d.key IS UNIQUE"
+    ),
+    # :PairingLock is the write lock serialising verdicts within one edition
+    # pair, and this constraint is half of the mechanism rather than hygiene
+    # around it. `links.pairing.ACQUIRE_PAIR_LOCK` is a bare MERGE, and a MERGE
+    # racing itself creates a second node for the same key unless a uniqueness
+    # constraint makes it lock the index entry first — two transactions then
+    # lock two different nodes, block on neither, and the two-live-paired race
+    # this lock exists to close is open again with the lock in place.
+    (
+        "CREATE CONSTRAINT pairing_lock_key_unique IF NOT EXISTS "
+        "FOR (lock:PairingLock) REQUIRE lock.key IS UNIQUE"
+    ),
     (
         "CREATE CONSTRAINT change_id_unique IF NOT EXISTS "
         "FOR (c:Change) REQUIRE c.change_id IS UNIQUE"

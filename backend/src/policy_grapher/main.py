@@ -10,12 +10,14 @@ from policy_grapher.embedding import build_embedder
 from policy_grapher.extraction import build_extractor
 from policy_grapher.ingest import ingest_file
 from policy_grapher.jobs.queue import build_queue
+from policy_grapher.migrate import migrate_pairing_decisions
 from policy_grapher.models import IngestResult
 from policy_grapher.routers import (
     admin,
     ask,
     documents,
     graph,
+    pairings,
     rebuilds,
     review,
     triage,
@@ -62,6 +64,48 @@ async def lifespan(app: FastAPI):
     driver = create_driver(settings)
     driver.verify_connectivity()
     apply_schema(driver, settings.neo4j_database)
+    # After apply_schema on purpose: the migration MERGEs on
+    # :PairingDecision.key and needs pairing_decision_key_unique in place
+    # before its first write. Idempotent, so every boot runs it; only a boot
+    # that finds legacy same-document decisions or proposals does any work.
+    migrated = migrate_pairing_decisions(driver, settings.neo4j_database)
+    logger.info("Pairing decision migration: %s", migrated)
+    # Its own record, and the argument is that a number nobody reads is the same
+    # as not reporting it. The other counters report work done, and a zero among
+    # them is ordinary. This one means a decision node carried a verdict
+    # `record_decision` could not have written — corruption, worth investigating
+    # — and it is announced exactly once, because the node is retired and the
+    # next boot reports zero. One line among nine counters is not an
+    # announcement of that.
+    corrupt = migrated["retired_unknown_verdict"]
+    if corrupt:
+        logger.warning(
+            "Pairing decision migration: %d link decision(s) carried a verdict "
+            "no vocabulary recognises and were retired unconverted. "
+            "`record_decision` has always refused any value outside its own "
+            "verdicts, so a node holding one was written around it. The verdict "
+            "survives under :RetiredLinkDecision with retired_reason "
+            "'unknown_verdict' and is in the export; this is the only boot that "
+            "will report it.",
+            corrupt,
+        )
+    # Its own record too, and for a different reason from the one above: this is
+    # a census rather than a repair, so unlike the counters that go quiet once
+    # the work is done it prints on every boot for as long as the condition
+    # lasts. Inside the INFO dict that makes it indistinguishable from noise — a
+    # line the reader learns to skip. The sentence is here rather than only in
+    # the docstring because an operator is standing in a log, not in the source.
+    unreadable = migrated["decisions_missing_documents"]
+    if unreadable:
+        logger.warning(
+            "Pairing decision migration: %d link decision(s) could not be "
+            "classified, because their obligations no longer resolve to a "
+            "document. Nothing was changed for them, so the graph may still "
+            "hold same-document IMPLEMENTS edges this migration could not "
+            "reach. Repairing that means document deletion cascading to its "
+            "obligations, which is a separate concern.",
+            unreadable,
+        )
     # Built here for its side effect of validating the configuration: an unknown
     # EXTRACTOR_ADAPTER raises, and boot is where that is cheap to notice. Nothing
     # drives extraction yet — phase 4's rebuild is the caller — so the instance is
@@ -122,6 +166,7 @@ app.include_router(admin.router)
 app.include_router(ask.router)
 app.include_router(documents.router)
 app.include_router(graph.router)
+app.include_router(pairings.router)
 app.include_router(rebuilds.router)
 app.include_router(review.router)
 app.include_router(triage.router)

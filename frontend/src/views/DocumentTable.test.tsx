@@ -679,7 +679,10 @@ describe('DocumentTable when a duplicate is merged', () => {
     renderTable()
     await screen.findByRole('table')
 
-    await userEvent.click(screen.getByRole('button', { name: /these are different/i }))
+    // The duplicates panel loads from its own, separate fetch (`listDuplicates`)
+    // that `findByRole('table')` above does nothing to wait for — a synchronous
+    // `getByRole` here is a race against that fetch, not a guarantee.
+    await userEvent.click(await screen.findByRole('button', { name: /these are different/i }))
 
     // Nothing ceased to exist, so nothing is refetched — the decision is recorded
     // against the pair and both documents are still in the corpus.

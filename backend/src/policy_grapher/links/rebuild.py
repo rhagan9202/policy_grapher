@@ -40,6 +40,7 @@ from policy_grapher.links.decisions import (
     replay_decisions,
     repoint_decisions,
 )
+from policy_grapher.links.pairing import PAIRING_SCHEMA, count_stranded_pairings
 from policy_grapher.links.propose import propose_links
 from policy_grapher.obligations import drop_obligations, write_obligations
 from policy_grapher.sources import pdf
@@ -159,8 +160,35 @@ def _write_rebuild(
         if seen[normalize(statement)] == 1
     }
     repointed = repoint_decisions(tx, before=before, after=after)
+    # The same before/after maps serve both canonical shapes: a re-key strands
+    # a pairing verdict exactly as it strands a link verdict, and the statement
+    # is the same handle for both (ADR-027, spec §5).
+    pairings_repointed = repoint_decisions(
+        tx, before=before, after=after, schema=PAIRING_SCHEMA
+    )
 
     replayed = replay_decisions(tx)
+    # The rebuild-side loss for the pairing vocabulary, counted beside the
+    # replay for the replay's reason: a rebuild reporting only its happy counts
+    # would look complete in exactly the case where a human verdict had quietly
+    # stopped being representable.
+    #
+    # One count where the link side has two, and that is a decision rather than
+    # an omission. `unpromotable` and `rejections_stranded` are split because
+    # those two losses differ in what happens next: a stranded approval leaves a
+    # link missing and the reviewer meets the proposal again, a stranded
+    # rejection leaves a suppression nobody applies and the proposal returns
+    # with nothing saying it was already refused. Both pairing verdicts lose
+    # identically — the obligation the verdict named is gone, so the question it
+    # answered no longer exists and the reviewer is asked afresh about whatever
+    # replaced the clause. `count_stranded_pairings` therefore filters no
+    # verdict, and this number covers `paired` and `distinct` alike: it is the
+    # analogue of `unpromotable` and `rejections_stranded` together, not of
+    # either one. Splitting it would name two halves of one event.
+    #
+    # The diff-side count, `pairings_unapplied`, is a different event with a
+    # different cause and lives with the diff (spec §3).
+    pairings_stranded = count_stranded_pairings(tx)
     return {
         "changes_dropped": changes_dropped,
         "chunks_dropped": chunks_dropped,
@@ -169,6 +197,8 @@ def _write_rebuild(
         "obligations_written": obligations_written,
         "proposed": proposed,
         "decisions_repointed": repointed,
+        "pairing_decisions_repointed": pairings_repointed,
+        "pairing_decisions_stranded": pairings_stranded,
         **replayed,
     }
 

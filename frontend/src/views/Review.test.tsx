@@ -18,14 +18,14 @@ import Review from './Review'
 
 // STORY-090 changed `GET /review/queue` from a bare list to a payload carrying
 // the counts that say *why* a queue is empty. `q` keeps the fixtures reading as
-// lists; the two counts default to "both sides exist", which is what every test
-// about the queue's contents assumes.
+// lists; the two counts default to "both sides exist" — two documents holding
+// obligations — which is what every test about the queue's contents assumes.
 const q = (
   items: unknown[],
   editions_with_obligations = 2,
-  documents_comparable = 1,
+  documents_with_obligations = 2,
   pending = items.length,
-) => ({ items, editions_with_obligations, documents_comparable, pending })
+) => ({ items, editions_with_obligations, documents_with_obligations, pending })
 
 
 // EmptyState links to the Ingest screen, so any view that can render it
@@ -325,15 +325,27 @@ describe('Review, why the queue is empty', () => {
     expect(screen.queryByText(/nothing is waiting/i)).not.toBeInTheDocument()
   })
 
-  it('says a proposal needs both sides when only one edition is built', async () => {
-    getReviewQueue.mockResolvedValue(q([], 1, 0))
+  it('says a proposal needs a second document when only one holds obligations', async () => {
+    // The old advice — build a second edition of a document that already has
+    // one — became exactly the action that can no longer produce a proposal:
+    // same-document pairs belong to the diff now. The screen must send the
+    // reader to a second *document*.
+    getReviewQueue.mockResolvedValue(q([], 1, 1))
 
     render(<Review />)
 
     expect(
-      await screen.findByText(/no document has two editions holding them/i),
+      await screen.findByText(/only one document holds any/i),
     ).toBeInTheDocument()
+    expect(screen.queryByText(/build a second edition/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/nothing is waiting/i)).not.toBeInTheDocument()
+    // Two corpora reach this state and the instruction has to fit both: one
+    // document, and several where only one has an extracted edition. "Ingest a
+    // second document" on its own tells the second reader to fetch a document
+    // they already have.
+    expect(
+      screen.getByText(/build and extract an edition of a second document/i),
+    ).toBeInTheDocument()
   })
 
   it('still says the queue is clear when it genuinely is', async () => {
@@ -365,7 +377,7 @@ describe('Review, from the sprint-12 walkthrough', () => {
     // The queue is capped at 50 server-side. "Proposal 1 of 50" over a backlog
     // of 119 is the graph view's "23 of 23" wearing a different hat: true of
     // what was fetched, silent about what was left out.
-    getReviewQueue.mockResolvedValue(q([item, { ...item }], 2, 1, 119))
+    getReviewQueue.mockResolvedValue(q([item, { ...item }], 2, 2, 119))
     listDocuments.mockResolvedValue([{ slug: 'a' }])
     showReview()
 

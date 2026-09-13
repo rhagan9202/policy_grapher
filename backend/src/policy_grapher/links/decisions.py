@@ -7,11 +7,16 @@ the edge is derived, so a property on it would be dropped with it.
 
 `replay_decisions` is the **only** writer of `IMPLEMENTS` anywhere in the codebase.
 Nothing promotes a link directly, so there is exactly one code path to audit: a
-proposal exists, a human verdicts it, replay applies the verdict.
+proposal exists, a human verdicts it, replay applies the verdict. `IMPLEMENTS` is
+cross-document only, and because this is the single writer, `PROMOTE`'s document
+predicate is what makes that true of the graph rather than only of the verdicts
+recorded since the rule existed.
 """
 
 import hashlib
 from collections import Counter
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
 
 from neo4j import ManagedTransaction
@@ -38,12 +43,69 @@ SET d.source_obligation_id = $source_id,
     d.at                   = datetime()
 """
 
-# Approvals whose obligations both still exist. Written as a MERGE so replay is
-# idempotent, and scoped by the decision so nothing else can reach this edge type.
+# Membership, read in the transaction the verdict would land in. Two obligations
+# `:MANDATES`-ed by editions of one `:Document` are the pairing question wearing
+# the wrong vocabulary — an edition does not discharge its predecessor — and
+# `IMPLEMENTS` is cross-document only (spec §8). A pair that does not BOTH
+# resolve is allowed through: `:LinkDecision` outlives its obligations by design
+# (`repoint_decisions` repairs them, `unpromotable` counts them), and refusing
+# an unresolvable id here would make a stranded verdict unrecordable.
+SAME_DOCUMENT = """
+MATCH (source:Obligation {obligation_id: $source_id})
+MATCH (target:Obligation {obligation_id: $target_id})
+MATCH (doc:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(source)
+MATCH (doc)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(target)
+RETURN doc.slug AS slug
+LIMIT 1
+"""
+
+
+class SameDocumentPair(ValueError):
+    """`record_decision` refusing a pair that resolves to one `:Document`.
+
+    A type rather than a message, because the route has to tell a refusal it can
+    explain to a person from a fault it cannot. `ValueError` alone cannot carry
+    that distinction: the driver raises a bare `ValueError` out of
+    `execute_write` when a parameter cannot be packed, so an `except ValueError`
+    in the route would answer a serialisation bug with "these two clauses are in
+    the same document" — a 400 blaming a reviewer's data for a defect in ours.
+    That today's five parameters are all `str` is a fact about five variables,
+    not a structural guarantee, and it is not what should be holding this up.
+
+    Subclasses `ValueError` so nothing that already catches or expects one has
+    to change: the narrowing is in what the route catches, not in what
+    `record_decision` promises its callers.
+    """
+
+
+# Approvals whose obligations both still exist, and belong to two different
+# documents. Written as a MERGE so replay is idempotent, and scoped by the
+# decision so nothing else can reach this edge type.
+#
+# The document predicate is here and not only in `record_decision`, because this
+# is the only writer of `IMPLEMENTS` anywhere and a rule held at the recorder is
+# a rule only about decisions recorded since. A same-document `approve` can still
+# be *in* the graph: one recorded before the split whose obligation was absent
+# when the startup migration ran matches neither the migration's conversion query
+# nor its census, and a rebuild re-extracting that clause reproduces its
+# content-derived id — at which point this query would promote the edge back.
+# `changes/propagate.py` keeps such an edge out of Triage; nothing keeps it out of
+# Ask, whose hybrid traversal follows `IMPLEMENTS` undirected, so it would answer
+# that a document implements its own predecessor.
+#
+# Phrased as "I can see one document holding both" and negated, never as "I
+# cannot see two documents": a decision whose obligations a re-extraction
+# stranded resolves to no document at all, and the second phrasing would refuse
+# to promote every legitimate cross-document verdict the moment one side moved.
+# `SAME_DOCUMENT` above is the same shape for the same reason.
 PROMOTE = """
 MATCH (d:LinkDecision {verdict: 'approve'})
 MATCH (source:Obligation {obligation_id: d.source_obligation_id})
 MATCH (target:Obligation {obligation_id: d.target_obligation_id})
+WHERE NOT EXISTS {
+        MATCH (doc:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(source)
+        MATCH (doc)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(target)
+      }
 MERGE (source)-[:IMPLEMENTS]->(target)
 RETURN count(*) AS promoted
 """
@@ -64,10 +126,10 @@ RETURN count(d) AS suppressed
 # cannot express it, and a caller has to be told rather than left to assume the
 # replay was complete.
 #
-# Approvals only. A stranded *rejection* is counted by nothing, here or anywhere
-# — see ADR-027's consequences and STORY-076. Widening this would need a
-# different name: "unpromotable" is about promotion, and a rejection was never
-# going to promote anything.
+# Approvals only. A stranded *rejection* is counted by `REJECTIONS_STRANDED`
+# below, which STORY-076 added for exactly that gap. Widening this query instead
+# would need a different name: "unpromotable" is about promotion, and a
+# rejection was never going to promote anything.
 UNPROMOTABLE = """
 MATCH (d:LinkDecision {verdict: 'approve'})
 WHERE NOT EXISTS { MATCH (:Obligation {obligation_id: d.source_obligation_id}) }
@@ -101,27 +163,76 @@ MATCH (:DocumentVersion {version_id: $version_id})-[:MANDATES]->(o:Obligation)
 RETURN o.obligation_id AS obligation_id, o.statement AS statement
 """
 
+
+@dataclass(frozen=True)
+class DecisionSchema:
+    """One canonical decision shape, as the repair path needs to see it.
+
+    Two decision types answer two different questions — `:LinkDecision` whether
+    a clause discharges a higher duty, `:PairingDecision` whether a newer
+    clause is the older one reworded — but a re-key strands both identically,
+    so `repoint_decisions` is written against this shape rather than against
+    either label. `key_of` is the directional content hash whose uniqueness
+    constraint the collision screen in `repoint_decisions` exists to protect.
+    """
+
+    label: str
+    source_prop: str
+    target_prop: str
+    key_of: Callable[[str, str], str]
+
+    def __post_init__(self) -> None:
+        # Enforced, not merely documented. These three fields are interpolated
+        # into Cypher as text, so a schema built from anything a caller
+        # controls — `DecisionSchema(label=body["label"], ...)` type-checks — is
+        # an injection into the one query path that rewrites human verdicts.
+        # Refusing here, while the value is still a Python string, is what lets
+        # the templates below claim safety as a property of this type rather
+        # than as an observation about the two instances that exist today.
+        #
+        # `isidentifier` is stricter than Cypher, which will accept anything
+        # inside backticks. Deliberately: no label or property name in this
+        # schema needs to be anything but a plain identifier, and the narrower
+        # rule is the one that cannot be talked around.
+        for field, value in (
+            ("label", self.label),
+            ("source_prop", self.source_prop),
+            ("target_prop", self.target_prop),
+        ):
+            if not isinstance(value, str) or not value.isidentifier():
+                raise ValueError(
+                    f"{field} {value!r} is not a plain identifier. It is "
+                    f"interpolated into Cypher, which cannot parameterise a "
+                    f"label or a property name."
+                )
+
+
+# .format templates, not query parameters: Cypher cannot parameterise a label or
+# a property name. Every interpolated value is a `DecisionSchema` field, and
+# `DecisionSchema.__post_init__` refuses anything but a plain identifier, so a
+# format field cannot carry a fragment of a statement however the schema was
+# built. Cypher's own map braces are doubled so str.format leaves them alone.
 READ_DECISIONS_FOR = """
 UNWIND $ids AS id
-MATCH (d:LinkDecision)
-WHERE d.source_obligation_id = id OR d.target_obligation_id = id
+MATCH (d:{label})
+WHERE d.{source_prop} = id OR d.{target_prop} = id
 RETURN DISTINCT d.key AS key,
-       d.source_obligation_id AS source_id,
-       d.target_obligation_id AS target_id
+       d.{source_prop} AS source_id,
+       d.{target_prop} AS target_id
 """
 
 APPLY_REPOINT = """
 UNWIND $moves AS m
-MATCH (d:LinkDecision {key: m.old_key})
-SET d.source_obligation_id = m.source_id,
-    d.target_obligation_id = m.target_id,
-    d.key                  = m.new_key
+MATCH (d:{label} {{key: m.old_key}})
+SET d.{source_prop} = m.source_id,
+    d.{target_prop} = m.target_id,
+    d.key = m.new_key
 RETURN count(d) AS repointed
 """
 
 EXISTING_KEYS = """
 UNWIND $keys AS key
-MATCH (d:LinkDecision {key: key})
+MATCH (d:{label} {{key: key}})
 RETURN collect(d.key) AS present
 """
 
@@ -139,8 +250,39 @@ def read_obligation_statements(tx: ManagedTransaction, *, version_id: str) -> di
     }
 
 
+def decision_key(source_id: str, target_id: str) -> str:
+    """Identity for a verdict on one directed pair.
+
+    Content-derived from two obligation ids, which are themselves content-derived
+    (extraction.schema.obligation_id) — so the key survives a re-extraction that
+    reproduces the same obligations. A key built from an internal node id would
+    not: the node is dropped and recreated on every rebuild.
+
+    Directional. "A implements B" is not "B implements A", and a symmetric key
+    would let a verdict on one direction silently decide the other.
+    """
+    return hashlib.sha256(f"{source_id}|{target_id}".encode()).hexdigest()[:32]
+
+
+# `repoint_decisions`' default, and the only schema its callers name implicitly:
+# every `:LinkDecision` repair in this codebase and its tests goes through the
+# function without a `schema=` argument. So this instance is what holds link
+# behaviour fixed — change a value here and the implements vocabulary's repair
+# changes with it, at no call site and in no test signature.
+LINK_SCHEMA = DecisionSchema(
+    label="LinkDecision",
+    source_prop="source_obligation_id",
+    target_prop="target_obligation_id",
+    key_of=decision_key,
+)
+
+
 def repoint_decisions(
-    tx: ManagedTransaction, *, before: dict[str, str], after: dict[str, str]
+    tx: ManagedTransaction,
+    *,
+    before: dict[str, str],
+    after: dict[str, str],
+    schema: DecisionSchema = LINK_SCHEMA,
 ) -> int:
     """Carry recorded verdicts across a change of obligation identity (ADR-027).
 
@@ -148,6 +290,11 @@ def repoint_decisions(
     maps each normalized statement to the id the rebuild has just written for
     it. A statement that did not move produces the same id on both sides and is
     skipped.
+
+    `schema` names which canonical decision shape is being repaired. Both
+    vocabularies strand identically under a re-key, so the machinery is shared;
+    the default is `LINK_SCHEMA`, under which this behaves exactly as the
+    unparameterised version did.
 
     **A statement two obligations share maps neither of them.** `obligation_id`
     hashes `version_id | section_path | statement`, so one sentence appearing in
@@ -162,10 +309,19 @@ def repoint_decisions(
     A decision whose new key already belongs to another decision — one that
     existed before this batch, or one this batch has already accepted — is left
     exactly as it was. Merging two human verdicts into one is the single
-    outcome this must not have, and an unrepaired approval is still counted by
-    `replay_decisions` as `unpromotable`. (A stranded *rejection* is counted
-    nowhere; see ADR-027's consequences.)
+    outcome this must not have, and the screen protects whichever uniqueness
+    constraint holds the schema's label (`link_decision_key_unique`,
+    `pairing_decision_key_unique`): a colliding write would violate it and roll
+    the caller's whole transaction back. An unrepaired decision is still
+    counted, in all three flavours: an approval by `replay_decisions` as
+    `unpromotable`, a rejection by it as `rejections_stranded` (STORY-076), a
+    pairing of either verdict by `count_stranded_pairings`.
     """
+    fields = {
+        "label": schema.label,
+        "source_prop": schema.source_prop,
+        "target_prop": schema.target_prop,
+    }
     ambiguous = {
         statement for statement, count in Counter(before.values()).items() if count > 1
     }
@@ -179,7 +335,9 @@ def repoint_decisions(
     if not moved:
         return 0
 
-    decisions = list(tx.run(READ_DECISIONS_FOR, {"ids": list(moved)}))
+    decisions = list(
+        tx.run(READ_DECISIONS_FOR.format(**fields), {"ids": list(moved)})
+    )
     if not decisions:
         return 0
 
@@ -187,7 +345,7 @@ def repoint_decisions(
     for record in decisions:
         source_id = moved.get(record["source_id"], record["source_id"])
         target_id = moved.get(record["target_id"], record["target_id"])
-        new_key = decision_key(source_id, target_id)
+        new_key = schema.key_of(source_id, target_id)
         if new_key == record["key"]:
             continue
         proposed.append(
@@ -202,12 +360,15 @@ def repoint_decisions(
         return 0
 
     taken = set(
-        tx.run(EXISTING_KEYS, {"keys": [m["new_key"] for m in proposed]}).single()["present"]
+        tx.run(
+            EXISTING_KEYS.format(**fields),
+            {"keys": [m["new_key"] for m in proposed]},
+        ).single()["present"]
     )
     # `taken` grows as moves are accepted, not only from the pre-batch read: two
     # moves within one batch can compute the same new key, and screening each
     # against the pre-batch set alone lets both through — `APPLY_REPOINT` then
-    # violates `link_decision_key_unique` and rolls the whole rebuild back
+    # violates the schema's key constraint and rolls the whole rebuild back
     # (STORY-074). A collision inside the batch resolves the way one against a
     # pre-existing decision does: the first move lands, the loser is unrepaired.
     moves = []
@@ -219,21 +380,9 @@ def repoint_decisions(
     if not moves:
         return 0
 
-    return tx.run(APPLY_REPOINT, {"moves": moves}).single()["repointed"]
-
-
-def decision_key(source_id: str, target_id: str) -> str:
-    """Identity for a verdict on one directed pair.
-
-    Content-derived from two obligation ids, which are themselves content-derived
-    (extraction.schema.obligation_id) — so the key survives a re-extraction that
-    reproduces the same obligations. A key built from an internal node id would
-    not: the node is dropped and recreated on every rebuild.
-
-    Directional. "A implements B" is not "B implements A", and a symmetric key
-    would let a verdict on one direction silently decide the other.
-    """
-    return hashlib.sha256(f"{source_id}|{target_id}".encode()).hexdigest()[:32]
+    return tx.run(
+        APPLY_REPOINT.format(**fields), {"moves": moves}
+    ).single()["repointed"]
 
 
 def record_decision(
@@ -251,10 +400,25 @@ def record_decision(
     one current verdict, not two contradictory records for a replay to choose
     between. The history that a control framework might want is not kept here —
     see ADR-014 on what `:LinkDecision`'s shape leaves open.
+
+    A pair inside one document is refused. `PROMOTE` has no document predicate,
+    so a same-document approval recorded here would resurrect a same-document
+    `IMPLEMENTS` on every replay; the question between two editions of one
+    instrument is pairing, and it has its own canonical node (spec §4, §8).
     """
     if verdict not in set(Verdict):
         raise ValueError(
             f"unknown verdict {verdict!r}; expected one of {[v.value for v in Verdict]}"
+        )
+    same_document = tx.run(
+        SAME_DOCUMENT, {"source_id": source_id, "target_id": target_id}
+    ).single()
+    if same_document is not None:
+        raise SameDocumentPair(
+            f"{source_id!r} and {target_id!r} are both mandated by editions of "
+            f"{same_document['slug']!r}. Within one document the question is "
+            "pairing, not implementation — record that verdict on the Pairings "
+            "screen instead."
         )
     tx.run(
         RECORD_DECISION,

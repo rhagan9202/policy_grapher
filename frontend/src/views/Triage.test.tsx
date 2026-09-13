@@ -58,6 +58,7 @@ const triage: TriageOut = {
   to_version_id: 'dodi-5000-88@2020-11-18',
   total_changes: 3,
   unlinked_changes: 2,
+  pairings_unapplied: 0,
   from_obligations: 96,
   to_obligations: 115,
   rows: [
@@ -72,6 +73,7 @@ const triage: TriageOut = {
         obligation_id: 'ours-1',
         statement: 'The Program Manager shall document the strategy.',
         document: 'ORG 1.0',
+        version_id: 'org@2019-06-01',
         section_path: ['2', '2.4'],
         page: 7,
       },
@@ -79,6 +81,7 @@ const triage: TriageOut = {
         obligation_id: 'higher-1',
         statement: 'Components shall document the cybersecurity strategy annually.',
         document: 'DoDI 5000.88',
+        version_id: 'dodi-5000-88@2020-11-18',
         section_path: ['3', '3.2'],
         page: 12,
       },
@@ -123,6 +126,22 @@ describe('Triage', () => {
     expect(screen.getByText('MODIFIED')).toBeInTheDocument()
   })
 
+  it('names the edition each quoted clause is from', async () => {
+    // Triage puts two editions of one instrument on screen at once, so the
+    // document name alone matches a clause in either of them. This is
+    // `ObligationCitation.version_id`'s reasoning arriving on the screen that
+    // needs it most — the field was carried to the browser to be read.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    getTriage.mockResolvedValue(triage)
+    showTriage()
+
+    await chooseAnEdition()
+
+    expect(await screen.findByText(/org@2019-06-01/)).toBeInTheDocument()
+    expect(screen.getByText(/dodi-5000-88@2020-11-18/)).toBeInTheDocument()
+  })
+
   it('shows what the clause used to say, so the change is visible', async () => {
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue(versions)
@@ -148,6 +167,40 @@ describe('Triage', () => {
 
     expect(await screen.findByText(/2 of 3/)).toBeInTheDocument()
     expect(screen.getByText(/no reviewed link/i)).toBeInTheDocument()
+  })
+
+  it('says which recorded pairings this diff could not apply', async () => {
+    // The count reaches this screen and was rendered nowhere. A reviewer's
+    // pairing verdict that the diff could not act on is not a retraction — the
+    // decision stands — but a shelved verdict nobody is told about is
+    // indistinguishable from one that took effect.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    getTriage.mockResolvedValue({ ...triage, pairings_unapplied: 2 })
+    showTriage()
+
+    await chooseAnEdition()
+
+    expect(await screen.findByText(/2 recorded pairings/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /pairings/i })).toHaveAttribute(
+      'href',
+      '/pairings',
+    )
+  })
+
+  it('says nothing about unapplied pairings when the diff applied them all', async () => {
+    // Without this the sentence above can be rendered unconditionally and still
+    // satisfy its test — a warning that fires on every diff is one a reader
+    // learns to skip, which is the state it exists to prevent.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    getTriage.mockResolvedValue(triage)
+    showTriage()
+
+    await chooseAnEdition()
+
+    await screen.findByText(/document the strategy/)
+    expect(screen.queryByText(/recorded pairing/i)).not.toBeInTheDocument()
   })
 
   it('reads an empty result as nothing linked yet, never as nothing affected', async () => {

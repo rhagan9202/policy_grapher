@@ -114,6 +114,40 @@ describe('Reset', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/unreachable/i)
   })
+
+  it('names pairing decisions among what is deleted', async () => {
+    // The export gained a `pairing_decisions` category when `:PairingDecision`
+    // became the second canonical node. A screen that enumerates what Reset
+    // destroys while omitting one of the two records a machine cannot
+    // regenerate promises a copy the export was not taking — the exact
+    // wrongness the confirm dialog's own comment warns about.
+    render(<Reset />)
+
+    expect(screen.getByText(/empties the graph/i)).toHaveTextContent(
+      /pairing decisions/i,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /empty the graph/i }))
+
+    expect(screen.getByRole('dialog')).toHaveTextContent(/pairing decisions/i)
+  })
+
+  it('does not tell the reader a rebuild replays a pairing decision', async () => {
+    // Nothing replays a `:PairingDecision`. `replay_decisions` matches
+    // `:LinkDecision` only, and a rebuild deliberately does not re-run the diff —
+    // it repoints pairing verdicts and counts them, and the verdict takes effect
+    // the next time two editions are compared. The dialog's conclusion (gone is
+    // gone) was right and its mechanism was not, on the one screen whose job is
+    // to be believed, about the very distinction this feature exists to draw.
+    render(<Reset />)
+
+    await userEvent.click(screen.getByRole('button', { name: /empty the graph/i }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveTextContent(/which a rebuild replays onto freshly proposed links/i)
+    expect(dialog).toHaveTextContent(/pairing decisions, which the diff reads/i)
+    expect(dialog).not.toHaveTextContent(/both of which a rebuild replays/i)
+  })
 })
 
 

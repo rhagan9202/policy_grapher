@@ -115,7 +115,7 @@ def test_the_workflow_proves_the_stack_builds(workflow):
 
     # A literal "docker compose build" substring does not survive `-f` file flags
     # (`docker compose -f a.yml -f b.yml build ...`), which docker compose requires
-    # between "compose" and "build" — and Task 6 (STORY-080) added a second `-f` to
+    # between "compose" and "build" — and STORY-080 added a second `-f` to
     # point this job at the lean stack. The check follows the subcommand rather than
     # a contiguous string so a legitimate `-f` does not read as "no step builds".
     assert any(

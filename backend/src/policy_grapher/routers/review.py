@@ -10,7 +10,12 @@ from neo4j import Driver, RoutingControl
 from policy_grapher.auth import Principal, require_principal
 from policy_grapher.config import Settings
 from policy_grapher.dependencies import get_app_settings, get_driver
-from policy_grapher.links.decisions import Verdict, record_decision, replay_decisions
+from policy_grapher.links.decisions import (
+    SameDocumentPair,
+    Verdict,
+    record_decision,
+    replay_decisions,
+)
 from policy_grapher.models import (
     ObligationCitationOut,
     ReviewItemOut,
@@ -86,17 +91,20 @@ RETURN count(*) AS total
 """
 
 
-# An edition counts only if it actually mandates something; a document is
-# comparable only if two of its editions do. Those are the two facts that separate
-# "caught up" from "nothing could be here yet".
+# An edition counts only if it actually mandates something. What separates
+# "caught up" from "nothing could be here yet" is no longer editions of one
+# document — `propose_links` skips same-document pairs, so two editions of one
+# instrument can never yield a proposal again — but documents: a proposal is
+# impossible below two distinct documents holding an obligation in any edition.
+# Only impossible-below, not possible-at: two documents with no distinctive
+# vocabulary in common are counted here and still propose nothing, because the
+# proposer's floor decides that and this query cannot see it.
 WHY_EMPTY = """
 OPTIONAL MATCH (v:DocumentVersion)-[:MANDATES]->(:Obligation)
 WITH count(DISTINCT v) AS editions_with_obligations
-OPTIONAL MATCH (d:Document)-[:HAS_VERSION]->(ev:DocumentVersion)-[:MANDATES]->(:Obligation)
-WITH editions_with_obligations, d, count(DISTINCT ev) AS per_document
-WITH editions_with_obligations,
-     count(DISTINCT CASE WHEN per_document > 1 THEN d END) AS documents_comparable
-RETURN editions_with_obligations, documents_comparable
+OPTIONAL MATCH (d:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(:Obligation)
+RETURN editions_with_obligations,
+       count(DISTINCT d) AS documents_with_obligations
 """
 
 
@@ -154,7 +162,7 @@ def queue(
     return ReviewQueueOut(
         items=items,
         editions_with_obligations=why[0]["editions_with_obligations"],
-        documents_comparable=why[0]["documents_comparable"],
+        documents_with_obligations=why[0]["documents_with_obligations"],
         pending=counted[0]["pending"],
     )
 
@@ -212,5 +220,19 @@ def decide(
         )
         return replay_decisions(tx)
 
-    with driver.session(database=settings.neo4j_database) as session:
-        return session.execute_write(_write)
+    try:
+        with driver.session(database=settings.neo4j_database) as session:
+            return session.execute_write(_write)
+    except SameDocumentPair as exc:
+        # record_decision's same-document refusal (spec §8): the pair is a
+        # pairing question, and the verdict belongs on the pairings route.
+        #
+        # Caught by type, not as `ValueError`. The driver raises a bare
+        # `ValueError` out of `execute_write` when a parameter cannot be packed,
+        # and a 400 carrying this refusal's wording would tell a reviewer their
+        # two clauses share a document when what actually broke was ours to fix
+        # — a lie about their data, and one that sends them to the wrong screen.
+        # A fault we cannot explain must stay a 500. The unknown-verdict
+        # `ValueError` cannot arrive here either: it is screened above, before
+        # the transaction opens.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

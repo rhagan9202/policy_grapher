@@ -8,15 +8,23 @@ from policy_grapher.extraction.schema import (
     obligation_id,
 )
 from policy_grapher.links.decisions import (
+    LINK_SCHEMA,
+    DecisionSchema,
     decision_key,
     record_decision,
     replay_decisions,
+)
+from policy_grapher.links.pairing import (
+    PAIRING_SCHEMA,
+    pairing_key,
+    record_pairing,
 )
 from policy_grapher.links.propose import (
     content_words,
     designators,
     propose_links,
     score_pair,
+    score_pairing,
 )
 from policy_grapher.obligations import write_obligations
 
@@ -97,6 +105,70 @@ def test_confidence_never_exceeds_one():
     result = score_pair(org, org)
     assert result is not None
     assert result.confidence <= 1.0
+
+
+def test_the_proposal_rationale_wording_is_pinned_verbatim():
+    """This sentence is stored on every `IMPLEMENTS_PROPOSED` edge and shown in
+    the review queue; the pairing split rewrites the *pairing* sentence, not
+    this one. Byte-for-byte on purpose — a looser test would pass a paraphrase
+    that still changes what live proposals say."""
+    result = score_pair(
+        "The Director shall assess cybersecurity risk in accordance with DoDI 5000.88.",
+        "Components must comply with DoDI 5000.88 when assessing cybersecurity risk.",
+    )
+    assert result is not None
+    assert result.rationale == (
+        "Both cite DoDI 5000.88; they share 60% of the shorter clause's "
+        "distinctive wording (cybersecurity, dodi, risk). Confirm the org "
+        "clause actually discharges the higher duty before approving."
+    )
+
+
+def test_score_pairing_and_score_pair_agree_on_the_measure():
+    """One measurement serves both reviewers. The shorter clause here is wholly
+    contained in the longer, which only the min() denominator scores at 1.0 —
+    so this pins the denominator as well as the agreement."""
+    after = (
+        "The Program Manager shall document the cybersecurity strategy for "
+        "each acquisition program."
+    )
+    before = "The Program Manager must document the cybersecurity strategy."
+
+    paired = score_pairing(after, before)
+    proposed = score_pair(after, before)
+
+    assert paired is not None and proposed is not None
+    assert paired.confidence == proposed.confidence
+    assert paired.confidence == 1.0
+
+
+def test_score_pairing_keeps_the_proposers_floor():
+    """Both statements carry content words but share none, which lands on the
+    `MIN_CONFIDENCE` floor rather than the empty-statement branch. Below the
+    floor there is nothing a rationale could honestly say the clauses share."""
+    assert (
+        score_pairing(
+            "The Program Manager must document the cybersecurity strategy.",
+            "Travel vouchers may be submitted electronically.",
+        )
+        is None
+    )
+
+
+def test_the_pairing_rationale_asks_the_pairing_question():
+    """The reviewer on the pairing screen decides whether one clause is the
+    other reworded — not whether anything discharges anything. The implements
+    advisory would tell them to verify a relationship nobody is claiming."""
+    result = score_pairing(
+        "The Director shall assess cybersecurity risk in accordance with DoDI 5000.88.",
+        "Components must comply with DoDI 5000.88 when assessing cybersecurity risk.",
+    )
+    assert result is not None
+    assert "DoDI 5000.88" in result.rationale
+    assert "cybersecurity" in result.rationale
+    assert "reworded" in result.rationale
+    assert "discharges" not in result.rationale
+    assert "approving" not in result.rationale
 
 
 # --- proposing into the graph ------------------------------------------------
@@ -233,27 +305,39 @@ def test_an_obligation_with_no_counterpart_yields_no_proposal(clean_graph, datab
 
 @pytest.mark.integration
 def test_an_obligation_is_never_proposed_against_itself(clean_graph, database):
-    """Naming a version as its own candidate must not link every clause to itself."""
-    section_path = _seed_version(
-        clean_graph, database, version_id="org", statements=[ORG, HIGHER]
-    )
+    """Naming a version as its own candidate must not link every clause to itself.
+
+    Counted, not shaped. The assertion used to read "no row has source ==
+    target", which an empty result satisfies vacuously — and this result is now
+    always empty: a version has exactly one parent :Document, so every pair in
+    this fixture is also a same-document pair and the document check covers all
+    of them, whichever check the loop reaches first.
+
+    Two mutants tell the forms apart, both run. Deleting the document check
+    alone leaves the two cross-statement pairs, which the row form passed
+    because neither row is self-directed and the count catches at 2. Deleting
+    both leaves 4, which both forms catch. Deleting the self-comparison alone
+    is caught by neither — the document check empties the result either way —
+    and no test here can close that, which is why `propose.py` says at the line
+    itself what keeps it.
+    """
+    _seed_version(clean_graph, database, version_id="org", statements=[ORG, HIGHER])
 
     with clean_graph.session(database=database) as session:
-        session.execute_write(
+        written = session.execute_write(
             propose_links,
             org_version_id="org",
             candidate_version_ids=["org"],
             proposer="lexical-v1",
         )
 
-    self_id = obligation_id("org", section_path, ORG)
+    assert written == 0
     records, _, _ = clean_graph.execute_query(
         "MATCH (a:Obligation)-[:IMPLEMENTS_PROPOSED]->(b:Obligation) "
         "RETURN a.obligation_id AS source, b.obligation_id AS target",
         database_=database,
     )
-    assert all(r["source"] != r["target"] for r in records)
-    assert all(r["source"] != self_id or r["target"] != self_id for r in records)
+    assert records == []
 
 
 # --- decisions and promotion -------------------------------------------------
@@ -691,3 +775,575 @@ def test_a_rejection_the_replay_can_still_apply_is_not_stranded(
 
     assert result["rejections_stranded"] == 0
     assert result["suppressed"] >= 1
+
+
+# --- IMPLEMENTS is cross-document only (pairing design §1) ---------------------
+
+
+def _seed_second_edition(driver, database, *, of, version_id, statements):
+    """A second edition of a document `_seed_version` already created.
+
+    `_seed_version` keys one document per version id, so the same-document
+    shape — two editions under one :Document — has to be built here.
+    """
+    driver.execute_query(
+        "MATCH (d:Document {slug: $slug}) "
+        "MERGE (d)-[:HAS_VERSION]->(:DocumentVersion {version_id: $vid, "
+        "checksum: $vid, source_uri: 'file:///x.pdf'})",
+        {"slug": of, "vid": version_id},
+        database_=database,
+    )
+    chunk = chunk_pages(["1.1. DUTIES.\nBody.\n"], version_id=version_id)[-1]
+    obligations = [
+        ExtractedObligation(
+            statement=s,
+            modality=Modality.MUST,
+            actor=None,
+            deadline=None,
+            conditions=None,
+            confidence=0.9,
+        )
+        for s in statements
+    ]
+    with driver.session(database=database) as session:
+        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+        session.execute_write(
+            write_obligations,
+            version_id=version_id,
+            chunk_id=chunk.chunk_id,
+            section_path=chunk.section_path,
+            obligations=obligations,
+        )
+
+
+@pytest.mark.integration
+def test_a_pair_inside_one_document_is_never_proposed(clean_graph, database):
+    """Two editions of one instrument are the pairing question, not the
+    implements one — an edition does not discharge its predecessor. These two
+    statements produce a proposal across two documents elsewhere in this file,
+    so a written count of zero here can only be the document skip."""
+    _seed_version(clean_graph, database, version_id="org", statements=[ORG])
+    _seed_second_edition(
+        clean_graph, database, of="org", version_id="org@2024", statements=[HIGHER]
+    )
+
+    with clean_graph.session(database=database) as session:
+        written = session.execute_write(
+            propose_links,
+            org_version_id="org",
+            candidate_version_ids=["org@2024"],
+            proposer="lexical-v1",
+        )
+
+    assert written == 0
+    records, _, _ = clean_graph.execute_query(
+        "MATCH ()-[r:IMPLEMENTS_PROPOSED]->() RETURN count(r) AS total",
+        database_=database,
+    )
+    assert records[0]["total"] == 0
+
+
+@pytest.mark.integration
+def test_the_cross_document_pair_is_still_proposed_beside_a_skipped_one(
+    clean_graph, database
+):
+    """The skip must not be a clause too wide. The same statement is offered
+    from a sibling edition and from another document; exactly the
+    cross-document pair survives."""
+    _seed_version(clean_graph, database, version_id="org", statements=[ORG])
+    _seed_second_edition(
+        clean_graph, database, of="org", version_id="org@2024", statements=[HIGHER]
+    )
+    _seed_version(clean_graph, database, version_id="higher", statements=[HIGHER])
+
+    with clean_graph.session(database=database) as session:
+        written = session.execute_write(
+            propose_links,
+            org_version_id="org",
+            candidate_version_ids=["org@2024", "higher"],
+            proposer="lexical-v1",
+        )
+
+    assert written == 1
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (:Obligation)-[:IMPLEMENTS_PROPOSED]->(t:Obligation)"
+        "<-[:MANDATES]-(v:DocumentVersion) RETURN v.version_id AS version",
+        database_=database,
+    )
+    assert [r["version"] for r in records] == ["higher"]
+
+
+# --- the repoint refactor serves the pairing vocabulary too (spec §5) ---------
+
+
+@pytest.mark.integration
+def test_a_pairing_decision_survives_its_obligations_being_re_keyed(
+    clean_graph, database
+):
+    """`repoint_decisions` is parameterised by `DecisionSchema` so the pairing
+    vocabulary rides the same ADR-027 repair path as `:LinkDecision`. Under
+    `PAIRING_SCHEMA` it must read, re-key and rewrite `:PairingDecision` nodes —
+    a label or property name hardcoded anywhere in the path would silently
+    repoint nothing and strand the verdict."""
+    from policy_grapher.links.decisions import repoint_decisions
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing,
+            old_id="old-old-id",
+            new_id="old-new-id",
+            verdict="paired",
+            actor="reviewer",
+            rationale="the reworded duty",
+        )
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={
+                "old-old-id": "the director shall report",
+                "old-new-id": "the director reports",
+            },
+            after={
+                "the director shall report": "new-old-id",
+                "the director reports": "new-new-id",
+            },
+            schema=PAIRING_SCHEMA,
+        )
+
+    assert repointed == 1
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.old_obligation_id AS old, "
+        "p.new_obligation_id AS new, p.key AS key, p.verdict AS verdict",
+        database_=database,
+    )
+    assert len(records) == 1
+    assert records[0]["old"] == "new-old-id"
+    assert records[0]["new"] == "new-new-id"
+    assert records[0]["key"] == pairing_key("new-old-id", "new-new-id")
+    # The verdict is what must survive. Re-pointing that dropped it would be
+    # worse than not re-pointing at all.
+    assert records[0]["verdict"] == "paired"
+
+
+@pytest.mark.integration
+def test_two_pairing_repoints_that_would_collide_do_not_abort_the_batch(
+    clean_graph, database
+):
+    """`pairing_decision_key_unique` constrains `:PairingDecision.key` exactly as
+    `link_decision_key_unique` constrains `:LinkDecision.key`, so the STORY-074
+    hazard transfers whole: two moves in one batch computing the same new key
+    cannot both be written, and screening each proposed key only against the
+    pre-batch set would let `APPLY_REPOINT` violate the constraint and roll the
+    caller's whole transaction back. Same resolution as a collision against a
+    pre-existing decision: the first move lands, the loser is left unrepaired
+    for `count_stranded_pairings`.
+    """
+    from policy_grapher.links.decisions import repoint_decisions
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing, old_id="old-a", new_id="target",
+            verdict="paired", actor="reviewer", rationale="first",
+        )
+        session.execute_write(
+            record_pairing, old_id="old-b", new_id="target",
+            verdict="distinct", actor="reviewer", rationale="second",
+        )
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={"old-a": "statement one", "old-b": "statement two"},
+            after={"statement one": "new-x", "statement two": "new-x"},
+            schema=PAIRING_SCHEMA,
+        )
+
+    assert repointed == 1, "one move lands; the colliding one is left unrepaired"
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.old_obligation_id AS old, p.key AS key",
+        database_=database,
+    )
+    assert len(records) == 2, "both human verdicts still exist"
+    moved = [r for r in records if r["key"] == pairing_key("new-x", "target")]
+    assert len(moved) == 1
+    # The winner's obligation id moved, not merely its key: a repair that
+    # re-keyed without rewriting the property would leave a decision whose key
+    # no longer describes the pair it points at, and every remaining assertion
+    # here reads the loser, which is untouched by construction.
+    assert moved[0]["old"] == "new-x"
+    stranded = [r for r in records if r["key"] != pairing_key("new-x", "target")]
+    assert stranded[0]["old"] in {"old-a", "old-b"}
+    assert stranded[0]["key"] == pairing_key(stranded[0]["old"], "target")
+
+
+@pytest.mark.integration
+def test_a_pairing_repoint_that_would_collide_leaves_the_existing_verdict_alone(
+    clean_graph, database
+):
+    """The *other* collision mode, and the one `EXISTING_KEYS` screens: not two
+    moves racing inside one batch, but one move landing on a `:PairingDecision`
+    that was already there before the batch began.
+
+    Both modes end in the same violated constraint and the same rolled-back
+    rebuild, and they are screened by two different pieces of code — the
+    pre-batch read here, the growing `taken` set there — so covering one proves
+    nothing about the other. Under a label hardcoded back to `:LinkDecision`,
+    `EXISTING_KEYS` reads an empty set and this move is accepted onto a key
+    another human verdict already holds.
+    """
+    from policy_grapher.links.decisions import repoint_decisions
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing, old_id="old-a", new_id="old-b",
+            verdict="paired", actor="reviewer", rationale="stale",
+        )
+        session.execute_write(
+            record_pairing, old_id="new-a", new_id="new-b",
+            verdict="distinct", actor="reviewer", rationale="current",
+        )
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={"old-a": "statement one", "old-b": "statement two"},
+            after={"statement one": "new-a", "statement two": "new-b"},
+            schema=PAIRING_SCHEMA,
+        )
+
+    assert repointed == 0
+
+    # Both verdicts intact, the stale one left exactly where it was for
+    # `count_stranded_pairings` to report. Asserting the whole pair rather than
+    # only the winner: a repair that deleted the loser, or overwrote the
+    # winner's verdict with it, would satisfy a check on either one alone.
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.old_obligation_id AS old, "
+        "p.new_obligation_id AS new, p.verdict AS verdict, p.key AS key "
+        "ORDER BY p.old_obligation_id",
+        database_=database,
+    )
+    assert [(r["old"], r["new"], r["verdict"]) for r in records] == [
+        ("new-a", "new-b", "distinct"),
+        ("old-a", "old-b", "paired"),
+    ]
+    assert [r["key"] for r in records] == [
+        pairing_key("new-a", "new-b"),
+        pairing_key("old-a", "old-b"),
+    ]
+
+
+@pytest.mark.integration
+def test_a_key_an_unrelated_link_decision_holds_does_not_strand_a_pairing(
+    clean_graph, database
+):
+    """`EXISTING_KEYS` is scoped by label, and that is load-bearing rather than
+    decorative: `decision_key` and `pairing_key` have byte-identical bodies, so
+    a `:LinkDecision` can hold the exact key string a `:PairingDecision` is
+    about to move onto. The two uniqueness constraints are per-label, so both
+    keys may coexist, and the pairing verdict is perfectly repairable.
+
+    Dropping the label from that query looks like a tidy — a key alone appears
+    to identify a decision — and the failure it causes is silent and plausible:
+    the pairing collides with a link decision that merely shares a hash input,
+    is skipped, and is then reported to a reviewer as a verdict that could not
+    be repaired. Nothing about the two decisions was related; only the label in
+    that query stands between the reviewer and a false report.
+    """
+    from policy_grapher.links.decisions import repoint_decisions
+
+    # The premise, asserted rather than assumed. If the two key functions ever
+    # stop agreeing there is no collision left to screen and this test proves
+    # nothing — it should be revisited then, not deleted, because the property
+    # it guards is that `EXISTING_KEYS` never reads another label's keys.
+    assert pairing_key("new-a", "new-b") == decision_key("new-a", "new-b")
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing, old_id="old-a", new_id="old-b",
+            verdict="paired", actor="reviewer", rationale="the reworded duty",
+        )
+        # Unrelated in every way except the hash of its two ids.
+        session.execute_write(
+            record_decision, source_id="new-a", target_id="new-b",
+            verdict="approve", actor="someone else", rationale="another question",
+        )
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={"old-a": "statement one", "old-b": "statement two"},
+            after={"statement one": "new-a", "statement two": "new-b"},
+            schema=PAIRING_SCHEMA,
+        )
+
+    assert repointed == 1, "a foreign label's key is not this schema's collision"
+
+    pairings, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.old_obligation_id AS old, "
+        "p.new_obligation_id AS new, p.key AS key, p.verdict AS verdict",
+        database_=database,
+    )
+    assert [(r["old"], r["new"], r["verdict"]) for r in pairings] == [
+        ("new-a", "new-b", "paired")
+    ]
+    assert pairings[0]["key"] == pairing_key("new-a", "new-b")
+
+    # And the link decision it now shares a key string with is untouched. Both
+    # rows exist at once, which is what the per-label constraints permit and
+    # what an unlabelled screen would have read as one decision.
+    links, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN d.source_obligation_id AS s, "
+        "d.target_obligation_id AS t, d.key AS key, d.verdict AS verdict",
+        database_=database,
+    )
+    assert [(r["s"], r["t"], r["verdict"]) for r in links] == [
+        ("new-a", "new-b", "approve")
+    ]
+    assert links[0]["key"] == decision_key("new-a", "new-b")
+
+
+def _tagged_key(source_id: str, target_id: str) -> str:
+    """A key function no real schema would use, so a repoint that calls a
+    production key function instead of the schema's own is visible in the key
+    it stores."""
+    return f"tagged|{source_id}|{target_id}"
+
+
+@pytest.mark.integration
+def test_the_schemas_own_key_function_is_the_one_that_gets_used(
+    clean_graph, database
+):
+    """`key_of` is one of `DecisionSchema`'s four contracted fields, and it is
+    the only one nothing else can pin, because the two real key functions have
+    byte-identical bodies: `decision_key` and `pairing_key` both sha256
+    `f"{a}|{b}"`. A `repoint_decisions` that ignored `schema.key_of` and called
+    either one directly computes the same string in every other test in this
+    file, so the parameterisation would be accidentally redundant rather than
+    observably correct. This schema's key function is distinguishable from both.
+    """
+    from policy_grapher.links.decisions import repoint_decisions
+
+    tagged = DecisionSchema(
+        label="PairingDecision",
+        source_prop="old_obligation_id",
+        target_prop="new_obligation_id",
+        key_of=_tagged_key,
+    )
+
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing,
+            old_id="old-old-id", new_id="old-new-id",
+            verdict="paired", actor="reviewer", rationale="the reworded duty",
+        )
+        repointed = session.execute_write(
+            repoint_decisions,
+            before={
+                "old-old-id": "the director shall report",
+                "old-new-id": "the director reports",
+            },
+            after={
+                "the director shall report": "new-old-id",
+                "the director reports": "new-new-id",
+            },
+            schema=tagged,
+        )
+
+    assert repointed == 1
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.key AS key", database_=database
+    )
+    assert records[0]["key"] == "tagged|new-old-id|new-new-id"
+    assert records[0]["key"] != pairing_key("new-old-id", "new-new-id")
+
+
+def test_a_schema_refuses_a_label_or_property_that_is_not_an_identifier():
+    """The three name fields are interpolated into Cypher as text, because
+    Neo4j cannot parameterise a label or a property name. Refusing at
+    construction is what makes the safety claim above those templates a property
+    of the type rather than an observation about the two instances that happen
+    to exist: `DecisionSchema(label=body["label"], ...)` would otherwise
+    type-check and inject. The failure has to land here, where the value is
+    still a Python string, not at query time where it is already statement text.
+    """
+    injections = [
+        {"label": "LinkDecision) DETACH DELETE (d"},
+        {"label": "Link Decision"},
+        {"label": ""},
+        {"source_prop": "source_obligation_id} REMOVE d:LinkDecision //"},
+        {"target_prop": "target obligation id"},
+    ]
+    for override in injections:
+        fields = {
+            "label": "LinkDecision",
+            "source_prop": "source_obligation_id",
+            "target_prop": "target_obligation_id",
+            "key_of": decision_key,
+            **override,
+        }
+        with pytest.raises(ValueError, match="identifier"):
+            DecisionSchema(**fields)
+
+    # And the rule must not be one the real schemas cannot satisfy.
+    assert LINK_SCHEMA.label == "LinkDecision"
+    assert PAIRING_SCHEMA.label == "PairingDecision"
+
+
+# --- IMPLEMENTS is cross-document only, enforced at the recorder (spec §8) ----
+
+
+def _seed_two_editions(driver, database):
+    """One document, two editions, one obligation each — the configuration whose
+    IMPLEMENTS question `record_decision` must refuse. Returns the two
+    obligation ids, older edition first."""
+    ids = []
+    for version_id, statement in (("doc@2018", ORG), ("doc@2022", HIGHER)):
+        driver.execute_query(
+            "MERGE (d:Document {slug: 'doc', name: 'DOC'}) "
+            "MERGE (d)-[:HAS_VERSION]->(:DocumentVersion {version_id: $vid, "
+            "checksum: $vid, source_uri: 'file:///x.pdf'})",
+            {"vid": version_id},
+            database_=database,
+        )
+        chunk = chunk_pages(["1.1. DUTIES.\nBody.\n"], version_id=version_id)[-1]
+        with driver.session(database=database) as session:
+            session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+            session.execute_write(
+                write_obligations,
+                version_id=version_id,
+                chunk_id=chunk.chunk_id,
+                section_path=chunk.section_path,
+                obligations=[
+                    ExtractedObligation(
+                        statement=statement,
+                        modality=Modality.MUST,
+                        actor=None,
+                        deadline=None,
+                        conditions=None,
+                        confidence=0.9,
+                    )
+                ],
+            )
+        ids.append(obligation_id(version_id, chunk.section_path, statement))
+    return tuple(ids)
+
+
+@pytest.mark.integration
+def test_a_same_document_pair_is_refused_by_record_decision(clean_graph, database):
+    """`IMPLEMENTS` is cross-document only (spec §8). Between two editions of one
+    document the question is pairing, and a verdict recorded here would be
+    matched by `PROMOTE` — which has no document predicate — on every review
+    POST and every rebuild."""
+    older, newer = _seed_two_editions(clean_graph, database)
+
+    with pytest.raises(ValueError, match="pairing") as refusal:
+        _decide(clean_graph, database, source=newer, target=older, verdict="approve")
+
+    # Quoted, and the quotes are load-bearing rather than cosmetic: every
+    # phrasing of this refusal contains the word "document", so a bare "doc"
+    # is satisfied by the prose alone — including the prose of a guard that
+    # refuses every pair it cannot prove cross-document, which is the
+    # wrong-way-round implementation this assertion exists to catch. Written
+    # unquoted it passes on that mutant and pins nothing.
+    #
+    # Naming the instrument at all is what makes the refusal actionable: the
+    # two ids in the message are content hashes.
+    assert "'doc'" in str(refusal.value)
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 0
+
+
+@pytest.mark.integration
+def test_a_decision_on_ids_the_graph_cannot_resolve_still_records(
+    clean_graph, database
+):
+    """The repoint tests above record verdicts on ids that resolve to nothing,
+    and ADR-027's whole repair path depends on that staying possible: a decision
+    stranded by a re-extraction is still a fact a human established, and must
+    remain recordable and re-recordable. Only a pair that BOTH resolves and
+    resolves to one document is refused."""
+    _decide(clean_graph, database, source="gone-a", target="gone-b", verdict="approve")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN d.verdict AS verdict", database_=database
+    )
+    assert [r["verdict"] for r in records] == ["approve"]
+
+
+@pytest.mark.integration
+def test_a_decision_with_only_one_side_resolvable_still_records(clean_graph, database):
+    """Half-stranded, which is the shape ADR-027 actually produces: a
+    re-extraction drops one obligation of a pair and leaves the other, which is
+    why `UNPROMOTABLE` joins its two absence checks with `OR` and not `AND`.
+
+    Not covered by the both-gone test above, and the difference is a whole
+    implementation: a guard phrased as "the obligations I can see belong to one
+    document" refuses this pair, because the one surviving side belongs to
+    exactly one document. Both orientations, so a guard anchored on only the
+    source or only the target is caught as well.
+    """
+    section_path = _seed_version(
+        clean_graph, database, version_id="org", statements=[ORG]
+    )
+    alive = obligation_id("org", section_path, ORG)
+
+    _decide(clean_graph, database, source=alive, target="gone", verdict="approve")
+    _decide(clean_graph, database, source="gone", target=alive, verdict="approve")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 2
+
+
+@pytest.mark.integration
+def test_a_cross_document_decision_still_records(clean_graph, database):
+    """The guard is about one document, not about resolvable obligations."""
+    source, target = _seed_proposal(clean_graph, database)
+    _decide(clean_graph, database, source=source, target=target, verdict="approve")
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 1
+
+
+@pytest.mark.integration
+def test_a_same_document_approval_already_in_the_graph_promotes_nothing(
+    clean_graph, database
+):
+    """`replay_decisions` is the only writer of `IMPLEMENTS`, so this is where
+    "cross-document only" is true of the graph rather than of recent verdicts.
+
+    `record_decision` refuses the pair, and the startup migration converts what
+    it finds — but a same-document `approve` can still be sitting there. One
+    recorded before the split whose obligation node was absent when the migration
+    ran matches neither the conversion query nor its census, both of which open
+    by matching both obligations; a rebuild re-extracting that clause reproduces
+    the same content-derived id, and the next replay — every review POST, every
+    rebuild — found the decision again and promoted the edge. Nothing downstream
+    catches it: `changes/propagate.py` keeps it out of Triage, while Ask's hybrid
+    traversal follows `IMPLEMENTS` undirected and would answer that a document
+    implements its own predecessor.
+    """
+    older, newer = _seed_two_editions(clean_graph, database)
+    clean_graph.execute_query(
+        "CREATE (:LinkDecision {key: $key, source_obligation_id: $source, "
+        "target_obligation_id: $target, verdict: 'approve', actor: 'legacy', "
+        "rationale: 'recorded before the split', at: datetime()})",
+        {"key": decision_key(newer, older), "source": newer, "target": older},
+        database_=database,
+    )
+
+    counts = _replay(clean_graph, database)
+
+    assert counts["promoted"] == 0
+    assert _implements(clean_graph, database) == set()
+    # Not counted as unpromotable either: both obligations exist, so this is a
+    # refusal rather than a loss, and the decision is still there for the next
+    # boot's migration to convert into the pairing verdict it always was.
+    assert counts["unpromotable"] == 0
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (d:LinkDecision) RETURN count(d) AS total", database_=database
+    )
+    assert records[0]["total"] == 1

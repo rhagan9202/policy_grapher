@@ -3,10 +3,16 @@
 The Reset screen has always said "there is no undo and no export", and it was
 right. What Reset deletes is not uniformly expensive: chunks and obligations
 cost hours of inference but are cached and repeatable (ADR-013), so a rebuild
-reproduces them. `:LinkDecision` is different. A reviewer's judgment about
-whether one clause implements another is the only thing here a machine cannot
-regenerate, and the confirm dialog already says a rebuild replays decisions and
-cannot bring them back once they are gone.
+reproduces them. A decision node is different. A reviewer's judgment is the only
+thing here a machine cannot regenerate, and the confirm dialog says so: a review
+verdict is replayed onto freshly proposed links by a rebuild, a pairing verdict is
+read by the diff, and neither can be brought back once the graph is emptied.
+
+Three labels carry that judgment now, not one: `:LinkDecision` for the
+implements question, `:PairingDecision` for the pairing question, and
+`:RetiredLinkDecision` for a decision the startup migration took out of the live
+label without discarding. A category that names only some of them is a screen
+promising a copy it does not take.
 
 Export only. Restoring is a separate and larger problem: writing decisions back
 means deciding what happens when the graph they refer to has moved underneath
@@ -72,15 +78,57 @@ QUERIES: dict[str, str] = {
                link.score    AS score
         ORDER BY source.obligation_id, target.obligation_id
     """,
+    # Property names are the ones `RECORD_DECISION` writes — `key`, `at`,
+    # `rationale` (links/decisions.py). This query used to read `decision_key`
+    # and `decided_at`, which nothing writes: every verdict recorded through
+    # the real path exported with a null key and a null timestamp, and the
+    # rationale was not exported at all. The verdict's value is actor,
+    # rationale and timestamp; losing two of the three is losing the verdict.
+    # `at` is a Cypher datetime; toString gives the ISO form so the route's
+    # JSON encoder never meets a temporal type.
+    #
+    # Both labels, because a *retired* decision is still a human verdict Reset
+    # destroys. The startup migration takes same-document decisions out of
+    # `:LinkDecision` — relabelling them is how it stops `PROMOTE` resurrecting
+    # their edges — so a query matching the live label alone exports one
+    # decision before the first boot after the pairing split and none after it,
+    # silently. Retirement is not deletion, and ADR-014 turns on the verdict
+    # surviving somewhere a copy can reach.
+    #
+    # `retired_reason` is null for a live decision and says why for a retired
+    # one. It is not decoration: the verdict alone stops explaining itself once a
+    # decision can be retired for five different reasons — `converted`,
+    # `same_edition`, `unknown_verdict`, `conflicting_pairing`, `pairing_exists`,
+    # enumerated in `migrate.migrate_pairing_decisions` — and which of them
+    # applied is the part a reader restoring from this file would need.
     "decisions": """
-        MATCH (decision:LinkDecision)
-        RETURN decision.decision_key         AS decision_key,
+        MATCH (decision:LinkDecision|RetiredLinkDecision)
+        RETURN decision.key                  AS key,
                decision.source_obligation_id AS source_obligation_id,
                decision.target_obligation_id AS target_obligation_id,
                decision.verdict              AS verdict,
                decision.actor                AS actor,
-               decision.decided_at           AS decided_at
-        ORDER BY decision.decision_key
+               decision.rationale            AS rationale,
+               decision.retired_reason       AS retired_reason,
+               toString(decision.at)         AS at
+        ORDER BY decision.key
+    """,
+    # The second canonical node, in its own category. `:PairingDecision`
+    # answers the other question — whether a newer clause is the older one
+    # reworded — and its properties say `old`/`new` rather than
+    # `source`/`target` precisely because those names belong to the implements
+    # question (links/pairing.py). Folding the two categories together would
+    # lose which question a verdict answered, which is most of what it meant.
+    "pairing_decisions": """
+        MATCH (pairing:PairingDecision)
+        RETURN pairing.key                 AS key,
+               pairing.old_obligation_id   AS old_obligation_id,
+               pairing.new_obligation_id   AS new_obligation_id,
+               pairing.verdict             AS verdict,
+               pairing.actor               AS actor,
+               pairing.rationale           AS rationale,
+               toString(pairing.at)        AS at
+        ORDER BY pairing.key
     """,
     "changes": """
         MATCH (change:Change)

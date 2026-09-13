@@ -66,6 +66,21 @@ MATCH (our_version:DocumentVersion)-[:MANDATES]->(ours)
 MATCH (document:Document)-[:HAS_VERSION]->(our_version)
 MATCH (higher_version:DocumentVersion)-[:MANDATES]->(higher)
 MATCH (higher_document:Document)-[:HAS_VERSION]->(higher_version)
+// A document is not its own higher tier. `IMPLEMENTS` means our lower-tier clause
+// discharges a higher-tier duty (ADR-015), and an edition of an instrument does
+// not discharge its predecessor — the relationship between two editions is the
+// diff's, and it is a `:Change`.
+//
+// Without this, a same-document link and a change in the same document meet and
+// produce a row asserting that an instrument implements itself. Found live on
+// 2026-09-09 from one approval made in the review queue: a `REMOVED` change
+// points `AFFECTS` at the *old* edition's obligation, a same-document proposal
+// promotes newer→older, so the two ends meet exactly. The row observed live
+// scored 12.0 — `KIND_WEIGHT["REMOVED"]` at 3.0 times `MODALITY_WEIGHT` at 4.0,
+// the top of the range `score` can return — and carried a null
+// `previous_statement`: a false finding at the head of a compliance reader's
+// list.
+WHERE document <> higher_document
 RETURN c.change_id          AS change_id,
        c.kind               AS kind,
        c.statement          AS higher_statement,
@@ -76,10 +91,12 @@ RETURN c.change_id          AS change_id,
        higher_chunk.section_path AS higher_section_path,
        higher_chunk.page    AS higher_page,
        higher_document.name AS higher_document,
+       higher_version.version_id AS higher_version_id,
        ours.obligation_id   AS our_obligation_id,
        ours.statement       AS our_statement,
        our_chunk.section_path AS our_section_path,
        our_chunk.page       AS our_page,
+       our_version.version_id AS our_version_id,
        document.name        AS document,
        document.slug        AS document_slug
 """
@@ -96,7 +113,28 @@ MATCH (c)-[:TO_VERSION]->(:DocumentVersion {version_id: $to_version_id})
 MATCH (c)-[:AFFECTS]->(higher:Obligation)
 RETURN count(DISTINCT c) AS total,
        count(DISTINCT CASE
-           WHEN EXISTS { MATCH (:Obligation)-[:IMPLEMENTS]->(higher) } THEN c
+           // `linked` means "would produce a row above", and every condition the
+           // row query imposes has to be repeated here or the two disagree about
+           // what exists. A change counted linked that yields no row lands in
+           // neither `rows` nor `unlinked_changes`, and ADR-015 put
+           // `unlinked_changes` here precisely so an empty table cannot read as
+           // an all-clear.
+           //
+           // Two conditions, and the second is easy to miss: the documents must
+           // differ, and *both* citations must be buildable. `primary_anchor`'s
+           // `CALL` subquery is an inner join, so the row query silently drops an
+           // obligation with no `:ANCHORED_IN` chunk while a count matching only
+           // on `:MANDATES` keeps it. That is exactly the pair of queries ADR-039
+           // was written about — `COUNT_OBLIGATIONS` against `LIST_OBLIGATIONS`,
+           // which put "62 obligations. Showing the first 0." on screen.
+           WHEN EXISTS {
+               MATCH (ours:Obligation)-[:IMPLEMENTS]->(higher)
+               MATCH (od:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(ours)
+               MATCH (hd:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(higher)
+               WHERE od <> hd
+                 AND EXISTS { MATCH (ours)-[:ANCHORED_IN]->(:Chunk) }
+                 AND EXISTS { MATCH (higher)-[:ANCHORED_IN]->(:Chunk) }
+           } THEN c
        END) AS linked
 """
 
@@ -112,12 +150,14 @@ class TriageRow:
     our_statement: str
     our_section_path: list[str]
     our_page: int
+    our_version_id: str
     higher_obligation_id: str
     higher_statement: str
     previous_statement: str | None
     higher_section_path: list[str]
     higher_page: int
     higher_document: str
+    higher_version_id: str
     modality: str
     summary: str
 
@@ -167,12 +207,14 @@ def triage(
             our_statement=record["our_statement"],
             our_section_path=record["our_section_path"],
             our_page=record["our_page"],
+            our_version_id=record["our_version_id"],
             higher_obligation_id=record["higher_obligation_id"],
             higher_statement=record["higher_statement"],
             previous_statement=record["previous_statement"],
             higher_section_path=record["higher_section_path"],
             higher_page=record["higher_page"],
             higher_document=record["higher_document"],
+            higher_version_id=record["higher_version_id"],
             modality=record["modality"],
             summary=record["summary"],
         )

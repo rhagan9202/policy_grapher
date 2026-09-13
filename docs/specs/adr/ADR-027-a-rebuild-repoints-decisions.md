@@ -44,7 +44,8 @@ holds cannot write both. Two human verdicts are never silently merged into one; 
 happens, the older decision keeps deciding and the one that lost the collision is left
 unrepaired rather than overwriting or being overwritten. If that stranded decision is an
 *approval*, `unpromotable` counts it; if it is a rejection, nothing counts it — see
-**Makes hard** below.
+**Makes hard** below. (Both are counted now: `rejections_stranded` closed that gap, and the
+superseding note under **Makes hard** records what else has changed since.)
 
 ## Consequences
 
@@ -66,6 +67,32 @@ recording the gap rather than closing it: widening the count is a behaviour chan
 "unpromotable" would then be the wrong name for what it holds, since a rejection was never
 going to promote anything. That is its own item, and the requirement below is about the count
 that does exist.
+
+> **Superseded on 2026-09-11, twice over.** STORY-076 closed the gap this section records:
+> `REJECTIONS_STRANDED` counts an unrepaired rejection, and `replay_decisions` returns it as
+> `rejections_stranded` beside `unpromotable`. The two stayed separate for the reason argued
+> above — "unpromotable" is the wrong name for a verdict that was never going to promote — and
+> because the losses differ: a stranded approval leaves a link missing and the proposal returns
+> to the queue, while a stranded rejection leaves a suppression nobody applies, so the proposal
+> returns and nothing tells the reviewer they already refused it.
+>
+> The pairing split then added a second decision vocabulary. `:PairingDecision` repoints through
+> the same path (its schema parameterises the label, both property names and the key function),
+> and `pairing_decisions_stranded` counts `paired` and `distinct` together in ONE number — not
+> the link side's two. That is deliberate, not an oversight: both pairing verdicts lose the same
+> way, the pair simply returns to the queue unanswered, so there is no second event to name. The
+> link side's split exists because STORY-076 had to retrofit one.
+>
+> What stands unchanged is everything above this note about *which* decisions fall through
+> unrepaired — a moved statement, or a statement two obligations share — and the requirement
+> below that the count be on screen rather than merely returned.
+>
+> **Met on 2026-09-12**, with the pairing screen. `pairing_decisions_stranded` and
+> `pairing_decisions_repointed` are drawn on the rebuild panel beside `unpromotable` and
+> `rejections_stranded` (`frontend/src/views/DocumentDetail.tsx`), each only when non-zero — a
+> line that appears on every rebuild is one a reader stops seeing. What a stranded pairing costs
+> is said there too, because it differs from both link-side losses: the pair returns to the
+> pairing queue unanswered, with nothing to say it was settled before.
 
 The count that does exist is why this ADR requires `unpromotable` to be on screen rather than
 merely returned by the API — a rebuild that silently repaired most decisions and said nothing

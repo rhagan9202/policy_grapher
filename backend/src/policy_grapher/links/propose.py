@@ -7,6 +7,11 @@ strong proposer without one is not. What matters here is that every proposal is
 *explainable* — a reviewer sees exactly what the two clauses have in common — and
 that a proposal can never be mistaken for a decision (`propose_links` writes only
 `IMPLEMENTS_PROPOSED`, and nothing in this module can write `IMPLEMENTS`).
+
+Two questions share the one measure. `score_pair` words its rationale for the
+implements reviewer and `score_pairing` for the pairing reviewer — same overlap,
+same floor, different closing sentence, because a rationale is advice to a
+specific person about a specific question.
 """
 
 import re
@@ -48,36 +53,38 @@ def content_words(text: str) -> set[str]:
     return {w for w in WORD.findall(text.casefold()) if w not in STOPWORDS}
 
 
-def score_pair(org_statement: str, higher_statement: str) -> Candidate | None:
-    """How plausibly the org clause implements the higher one, or None if not.
+def _score(
+    a_statement: str, b_statement: str
+) -> tuple[float, set[str], set[str], float] | None:
+    """The measurement both scorers share: (confidence, shared words, shared
+    designators, overlap), or None when a statement has no content words or the
+    confidence is under `MIN_CONFIDENCE`. Symmetric, so argument order carries
+    no meaning here — each caller's signature says which end is which.
 
-    Overlap is measured against the *shorter* statement's vocabulary rather than
-    the union: a short org clause discharging one part of a long higher-level
-    duty is the normal shape here, and a Jaccard denominator would score exactly
+    Overlap is measured against the *shorter* statement's vocabulary rather
+    than the union: a short clause wholly contained in a long one is the normal
+    shape for both questions, and a Jaccard denominator would score exactly
     that case as unrelated.
     """
-    org_words = content_words(org_statement)
-    higher_words = content_words(higher_statement)
-    if not org_words or not higher_words:
+    a_words = content_words(a_statement)
+    b_words = content_words(b_statement)
+    if not a_words or not b_words:
         return None
 
-    shared_words = org_words & higher_words
-    overlap = len(shared_words) / min(len(org_words), len(higher_words))
-    shared_designators = designators(org_statement) & designators(higher_statement)
+    shared_words = a_words & b_words
+    overlap = len(shared_words) / min(len(a_words), len(b_words))
+    shared_designators = designators(a_statement) & designators(b_statement)
 
     confidence = min(1.0, overlap + DESIGNATOR_WEIGHT * len(shared_designators))
     if confidence < MIN_CONFIDENCE:
         return None
-
-    return Candidate(
-        confidence=confidence,
-        rationale=_rationale(shared_words, shared_designators, overlap),
-    )
+    return confidence, shared_words, shared_designators, overlap
 
 
-def _rationale(shared_words: set[str], shared_designators: set[str], overlap: float) -> str:
-    """One sentence, for a human about to decide. It reports what was actually
-    matched — never a claim that the link is correct, which is the reviewer's call."""
+def _facts(shared_words: set[str], shared_designators: set[str], overlap: float) -> str:
+    """What was actually matched, for a human about to decide — never a claim
+    that the pair is correct, which is the reviewer's call. Each scorer appends
+    its own closing sentence naming its reviewer's question."""
     terms = ", ".join(sorted(shared_words)[:6]) or "no distinctive terms"
     cites = (
         f"Both cite {', '.join(sorted(shared_designators))}; "
@@ -86,15 +93,59 @@ def _rationale(shared_words: set[str], shared_designators: set[str], overlap: fl
     )
     return (
         f"{cites}they share {overlap:.0%} of the shorter clause's distinctive "
-        f"wording ({terms}). Confirm the org clause actually discharges the "
-        f"higher duty before approving."
+        f"wording ({terms})."
+    )
+
+
+def score_pair(org_statement: str, higher_statement: str) -> Candidate | None:
+    """How plausibly the org clause implements the higher one, or None if not.
+
+    The closing sentence is byte-for-byte what it was before `_facts` was split
+    out, and a test pins it: this string is persisted on every proposal, so a
+    rewording here silently rewrites what live review queues say.
+    """
+    scored = _score(org_statement, higher_statement)
+    if scored is None:
+        return None
+    confidence, shared_words, shared_designators, overlap = scored
+    return Candidate(
+        confidence=confidence,
+        rationale=(
+            _facts(shared_words, shared_designators, overlap)
+            + " Confirm the org clause actually discharges the higher duty "
+            "before approving."
+        ),
+    )
+
+
+def score_pairing(after_statement: str, before_statement: str) -> Candidate | None:
+    """How plausibly the newer clause is the older one reworded, or None if not.
+
+    The same measure and floor as `score_pair` — one `_score`, so the two
+    cannot drift — with a different sentence, because the reviewer's question
+    is different. An implements advisory here would tell a pairing reviewer to
+    verify a relationship nobody is claiming.
+    """
+    scored = _score(after_statement, before_statement)
+    if scored is None:
+        return None
+    confidence, shared_words, shared_designators, overlap = scored
+    return Candidate(
+        confidence=confidence,
+        rationale=(
+            _facts(shared_words, shared_designators, overlap)
+            + " The question is whether the newer clause is the older one "
+            "reworded."
+        ),
     )
 
 
 READ_OBLIGATIONS = """
-MATCH (v:DocumentVersion)-[:MANDATES]->(o:Obligation)
+MATCH (d:Document)-[:HAS_VERSION]->(v:DocumentVersion)-[:MANDATES]->(o:Obligation)
 WHERE v.version_id IN $version_ids
-RETURN o.obligation_id AS id, o.statement AS statement
+RETURN o.obligation_id AS id,
+       o.statement     AS statement,
+       d.slug          AS document_slug
 """
 
 WRITE_PROPOSALS = """
@@ -120,6 +171,9 @@ def propose_links(
 
     Writes `IMPLEMENTS_PROPOSED` and nothing else. `IMPLEMENTS` has exactly one
     writer — `decisions.replay_decisions` — and this is deliberately not it.
+    Pairs whose obligations share a document are not proposed at all: between
+    two editions of one instrument the question is pairing, not implementation,
+    and the diff asks it.
     """
     ours = list(tx.run(READ_OBLIGATIONS, {"version_ids": [org_version_id]}))
     theirs = list(tx.run(READ_OBLIGATIONS, {"version_ids": candidate_version_ids}))
@@ -131,7 +185,26 @@ def propose_links(
         for higher in theirs:
             # A version named as its own candidate would otherwise link every
             # clause to itself at confidence 1.0 and swamp the queue.
+            #
+            # Subsumed by the document check below, and no test can kill this
+            # line: a :DocumentVersion has exactly one parent :Document, so
+            # every self-pair is also a same-document pair and the check below
+            # reaches it either way. Kept because the two guard different
+            # failures and only coincidentally agree today — that one decides
+            # which documents may be linked at all, this one that a clause is
+            # not evidence for itself. Narrowing the document rule, which is
+            # the kind of change this design makes, brings the self-pair back
+            # at confidence 1.0 and puts it at the top of a reviewer's queue
+            # with nothing to catch it.
             if org["id"] == higher["id"]:
+                continue
+            # Two editions of one instrument are the pairing question — is the
+            # newer clause the older one reworded? — and that question has its
+            # own decision node and its own queue. An IMPLEMENTS between them
+            # asserts that a document discharges its own predecessor, which is
+            # the claim the sprint-12 walkthrough found scored at the top of
+            # Triage.
+            if org["document_slug"] == higher["document_slug"]:
                 continue
             candidate = score_pair(org["statement"], higher["statement"])
             if candidate is None:

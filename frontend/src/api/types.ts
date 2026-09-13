@@ -153,7 +153,17 @@ export interface ObligationCitation {
 export interface ReviewQueue {
   items: ReviewItem[]
   editions_with_obligations: number
-  documents_comparable: number
+  /** Distinct documents holding at least one obligation in any edition. A
+   *  proposal runs between two documents now that same-document pairs belong
+   *  to the diff, so the queue can only fill once this reaches 2 — necessary
+   *  and not sufficient, since two documents sharing no distinctive wording
+   *  clear this and still propose nothing. Branch on `< 2`, which is the
+   *  direction that holds; reading 2 as "there should be proposals by now"
+   *  does not. The old `documents_comparable` counted documents with two
+   *  obligation-holding editions — exactly the configuration that can no
+   *  longer yield a proposal, so keeping it would keep the false all-clear it
+   *  existed to prevent. */
+  documents_with_obligations: number
   /** Undecided proposals in the graph, not rows in `items`. The queue is capped
    *  server-side, so the screen read "Proposal 1 of 50" over 119 waiting — and
    *  kept reading it after every verdict, because deciding one refilled the page
@@ -171,10 +181,91 @@ export interface ReviewItem {
 
 export type Verdict = 'approve' | 'reject'
 
+/** What a reviewer may say about two clauses of one instrument.
+ *
+ *  Not `Verdict`'s vocabulary, deliberately. `approve`/`reject` answers "does our
+ *  clause discharge that duty?"; this answers "is the newer clause the older one
+ *  reworded?" — a different question, a different canonical node, and a shared
+ *  word would let one screen's copy drift into describing the other's. */
+export type PairingVerdict = 'paired' | 'distinct'
+
+/** One pair the diff had an opinion about, and the opinion.
+ *
+ *  `outcome` is the first rule that fired, in the diff's code order —
+ *  `auto_paired`, `partner_taken`, `contested`, `below_threshold` — not four
+ *  disjoint conditions: `partner_taken` is contained in `contested`, and the
+ *  labels record precedence. `taken_by` names zero to two obligations that
+ *  already consumed an end of this pair, which is what makes `partner_taken`
+ *  the actionable label rather than merely the narrower one. */
+export interface PairingCandidate {
+  old: ObligationCitation
+  new: ObligationCitation
+  confidence: number
+  rationale: string
+  outcome: string
+  taken_by: string[]
+}
+
+/** A pair a person has already ruled on, listed so the verdict stays reversible.
+ *
+ *  Carries both citations rather than ids alone, because a settled pair is never
+ *  also a candidate: the diff does not re-record a pair a reviewer has settled, so
+ *  there is no row in `items` to borrow the statements from — and `items` is empty
+ *  in exactly the case this list is full. Two `distinct` verdicts between one
+ *  edition pair give `settled` two rows and `items` none. */
+export interface PairingSettled {
+  old: ObligationCitation
+  new: ObligationCitation
+  verdict: string
+  actor: string
+  /** The reason recorded with the verdict, "" when none was given. Re-recording
+   *  a verdict on the same pair overwrites this, so a screen that cannot show it
+   *  posts an empty one the moment a reviewer reverses a decision — erasing the
+   *  justification of the verdict being reversed, unseen. */
+  rationale: string
+}
+
+/** What the POST echoes back: the canonical decision as it was stored.
+ *
+ *  Ids rather than citations, and a separate type from `PairingSettled` on
+ *  purpose. The route reverses a newer-first request before keying, and the key is
+ *  a directional hash, so the orientation it chose is the one thing the caller
+ *  cannot work out from what it sent — whereas the clauses it already has. */
+export interface PairingVerdictRecorded {
+  old_id: string
+  new_id: string
+  verdict: string
+  actor: string
+}
+
+export interface PairingQueue {
+  items: PairingCandidate[]
+  settled: PairingSettled[]
+  /** Recorded pairings this diff could not apply, because pass 1 matched one of
+   *  the clauses — it exists unchanged in both editions, so the "reworded" claim
+   *  has nothing to attach to. Counted, never dropped: the decision is still
+   *  recorded and the screen has to say it did not take effect. */
+  pairings_unapplied: number
+  /** Candidates in the graph, not rows in `items`. The queue is capped
+   *  server-side, and the review queue read "Proposal 1 of 50" over 119 waiting
+   *  because nothing distinguished the page from the backlog. */
+  pending: number
+  /** The same backlog split by the diff's label, counted over the graph and
+   *  never over the page. A decline scores at or below whatever beat it, so a
+   *  confidence-ordered page cuts declines first — this is what tells a reviewer
+   *  a class exists before they filter to it, and it stays put when they do. */
+  pending_by_outcome: Record<string, number>
+}
+
 export interface TriageCitation {
   obligation_id: string
   statement: string
   document: string
+  /** Which edition the clause is in. The higher side of a triage row comes
+   *  from a diff of two editions of one instrument, so the document name
+   *  alone matches a clause in either of them — `ObligationCitation.version_id`'s
+   *  reasoning, binding at least as hard here. */
+  version_id: string
   section_path: string[]
   page: number
 }
@@ -202,6 +293,15 @@ export interface TriageOut {
    * a different thing from "nothing affected" (ADR-015).
    */
   unlinked_changes: number
+  /**
+   * `paired` verdicts the diff behind this request could not apply, because
+   * pass 1 had already matched one of the two clauses as persisting unchanged.
+   * Required, not optional: the pairing queue carries the same count and the
+   * screen reads it, and a field that may be absent is a field a screen can
+   * forget. Not a retraction — the decision is still recorded — but it has to
+   * be shown, for the reason `unlinked_changes` has to be.
+   */
+  pairings_unapplied: number
   /**
    * An empty `rows` has three causes, and they are not the same finding:
    * nothing is linked (`unlinked_changes`), nothing changed (`total_changes`),
@@ -253,6 +353,12 @@ export interface RebuildStatus {
   chunks_total: number
   counts: Record<string, number>
   rejections: { chunk_id: string; reason: string }[]
+  /** How many refusals there were, against however many `rejections` carries.
+   *  The list is capped at 20 by the worker and this is not, so 20 reasons over
+   *  213 refusals — DoDD 5143.01's rebuild — is a difference a reader can only
+   *  see from here. ADR-030 is what makes the gap a defect rather than a
+   *  rounding: a silent drop is not reporting. */
+  rejections_total: number
   /** Which adapters the worker actually used. Empty until a worker picks the
    *  run up. `null` extracts nothing, so a run under it writes chunks and no
    *  obligations — a correct result indistinguishable from a broken one unless

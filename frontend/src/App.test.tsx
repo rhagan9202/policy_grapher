@@ -7,6 +7,7 @@ vi.mock('./views/GraphExplorer', () => ({ default: () => <div>graph</div> }))
 vi.mock('./views/DocumentTable', () => ({ default: () => <div>documents</div> }))
 vi.mock('./views/Triage', () => ({ default: () => <div>triage</div> }))
 vi.mock('./views/Review', () => ({ default: () => <div>review</div> }))
+vi.mock('./views/Pairings', () => ({ default: () => <div>pairings</div> }))
 vi.mock('./views/Ask', () => ({ default: () => <div>ask</div> }))
 vi.mock('./views/Ingest', () => ({ default: () => <div>ingest</div> }))
 vi.mock('./views/Reset', () => ({ default: () => <div>reset</div> }))
@@ -27,6 +28,7 @@ const ROUTES = [
   [/ingest/i, '/ingest'],
   [/triage/i, '/triage'],
   [/review/i, '/review'],
+  [/pairings/i, '/pairings'],
   [/ask/i, '/ask'],
   [/reset/i, '/reset'],
 ] as const

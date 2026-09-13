@@ -222,20 +222,28 @@ class ReviewQueueOut(BaseModel):
     """The queue, and enough to say why it is empty when it is — STORY-090.
 
     "Nothing is waiting for review" is true of three different situations and
-    tells a reader only one of them: that they are caught up. It is equally true
-    when nothing has been extracted anywhere, and when obligations exist but no
-    document has two editions holding them, so no proposal could be made between
-    anything. The live graph was in that middle state on 2026-08-26 — one edition
-    with 114 obligations, three with none — and the screen read as an all-clear.
+    tells a reader only one of them: that they are caught up. It is equally
+    true when nothing has been extracted anywhere, and when obligations exist
+    in only one document — a proposal runs between two documents now that
+    same-document pairs belong to the diff, so nothing could be proposed yet.
+    `documents_with_obligations` counts distinct documents holding at least
+    one obligation in any edition; a proposal is impossible below 2. Necessary
+    and not sufficient: two documents whose obligations share no distinctive
+    vocabulary clear this count and still propose nothing, because the
+    proposer's floor is a separate condition this number says nothing about.
+    Its predecessor, `documents_comparable`, counted documents with two
+    obligation-holding editions — exactly the configuration that can no longer
+    yield a proposal, so the old count had become the false all-clear
+    STORY-090 added it to prevent.
 
-    Counted here rather than derived on the screen so that two views cannot drift
-    into answering the same question differently, which is the failure mode
-    STORY-067 left open on Triage and this repeats.
+    Counted here rather than derived on the screen so that two views cannot
+    drift into answering the same question differently, which is the failure
+    mode STORY-067 left open on Triage and this repeats.
     """
 
     items: list[ReviewItemOut]
     editions_with_obligations: int
-    documents_comparable: int
+    documents_with_obligations: int
     # Undecided proposals in the graph, not rows in `items`. The queue is capped,
     # so the two differ whenever there is real work: the screen read "Proposal 1
     # of 50" over 119 waiting, and went on reading it after every verdict because
@@ -257,14 +265,132 @@ class VerdictIn(BaseModel):
     rationale: str = ""
 
 
+class PairingCandidateOut(BaseModel):
+    """One pair of clauses the wording pass ruled on, and how it ruled.
+
+    Both sides are full citations for `ObligationCitationOut`'s reason: the
+    question is whether the newer clause is the older one reworded, and a
+    reviewer cannot answer without reading both in place. `outcome` is the
+    first rule that fired in the diff, in code order — `auto_paired`,
+    `partner_taken`, `contested`, `below_threshold` — a precedence chain, not
+    four disjoint conditions: every partner-taken pair also satisfies the
+    margin predicate. `taken_by` names the auto-paired winners' other ends,
+    zero to two of them, because a pair is declined when *either* endpoint was
+    already consumed and the screen must say by what.
+    """
+
+    old: ObligationCitationOut
+    new: ObligationCitationOut
+    confidence: float
+    rationale: str
+    outcome: str
+    taken_by: list[str]
+
+
+class PairingSettledOut(BaseModel):
+    """A pair a person has already ruled on, kept reachable so the verdict can
+    be undone.
+
+    Carries both citations, exactly as a candidate does, because a settled pair
+    is never *also* a candidate: the diff deliberately does not re-record a
+    pair a reviewer has settled, so a settled row has no entry in `items` to
+    borrow its statements from — and `items` is empty in precisely the case
+    this list is full. Two `distinct` verdicts between one edition pair give
+    `settled=2, items=0`, at which point ids alone leave a screen with nothing
+    to draw and a reviewer with no way back to a verdict they want to undo.
+    Deciding whether to reverse a verdict is answering the question that was
+    answered when it was made, and it needs the same two clauses in front of
+    it.
+
+    `rationale` travels for a sharper reason than completeness. Re-recording a
+    verdict on the same pair SETS `rationale` unconditionally (`RECORD` in
+    links/pairing.py), so a screen that cannot show the reason on record posts
+    an empty one on the reviewer's behalf the moment they reverse a verdict —
+    erasing the justification of the decision they are reversing, having never
+    been shown it. Sent even when empty, because "" here means "recorded with
+    no reason" and a missing field would mean "not asked".
+    """
+
+    old: ObligationCitationOut
+    new: ObligationCitationOut
+    verdict: str
+    actor: str
+    rationale: str
+
+
+class PairingVerdictOut(BaseModel):
+    """What the POST recorded, echoed back.
+
+    Ids and not citations, and deliberately a different model from
+    `PairingSettledOut`: this is the canonical `:PairingDecision` read back, and
+    its job is to tell the caller which orientation the pair was stored in —
+    the route reverses a newer-first request, and `pairing_key` is directional,
+    so the orientation is the one thing the caller cannot infer from what it
+    sent. A screen posting a verdict already holds both clauses; the queue's
+    settled rows are the ones that need citations, and being drawn is their
+    whole purpose.
+    """
+
+    old_id: str
+    new_id: str
+    verdict: str
+    actor: str
+
+
+class PairingQueueOut(BaseModel):
+    """The pairing queue: what the diff decided, what a person settled, and
+    what it could not apply.
+
+    `pending` is undecided candidates in the graph, not rows in `items` — the
+    review queue's own pattern, for its reason: the page is capped, and the
+    number that falls as the backlog is worked through is the graph count.
+    `pairings_unapplied` counts `paired` verdicts the diff could not apply
+    because pass 1 matched the clause identically in both editions — counted,
+    never dropped, so a shelved human verdict is at least visible.
+
+    `pending_by_outcome` splits that same backlog by the diff's label, and it is
+    not decoration. A declined pair scores at or below whatever beat it, so a
+    confidence-ordered page cuts declines first and an unfiltered page of a
+    heavily reworded edition pair shows only pairings the diff already made. The
+    breakdown is what tells a reviewer a class exists before they filter to it;
+    it counts the whole backlog, never the filtered page, so the number that
+    justifies a filter does not disappear when the filter is applied.
+    """
+
+    items: list[PairingCandidateOut]
+    settled: list[PairingSettledOut]
+    pairings_unapplied: int
+    pending: int
+    pending_by_outcome: dict[str, int]
+
+
+class PairingVerdictIn(BaseModel):
+    """A reviewer's pairing verdict.
+
+    Carries no `actor`, for `VerdictIn`'s reason: the actor is the
+    authenticated principal and nothing else, and a client-supplied one would
+    make the audit trail worthless.
+    """
+
+    verdict: str
+    rationale: str = ""
+
+
 class TriageCitationOut(BaseModel):
     """One side of a triage row, sourced. Nothing in a triage response is
     unattributed: a row naming a policy without saying which passage of it is
-    affected would send a reviewer hunting."""
+    affected would send a reviewer hunting.
+
+    `version_id` is part of "sourced": the higher side comes from a diff of two
+    editions of one instrument, so the document name alone matches a clause in
+    each of them — the reasoning `ObligationCitationOut` and Ask's `CitationOut`
+    already record, and it binds here because the two editions are on screen at
+    once by construction."""
 
     obligation_id: str
     statement: str
     document: str
+    version_id: str
     section_path: list[str]
     page: int
 
@@ -287,6 +413,14 @@ class TriageOut(BaseModel):
     `unlinked_changes` is what keeps an empty `rows` honest. Without it, "nothing
     you own is affected" and "nothing has been reviewed yet, so this cannot see
     anything" are the same response, and one of them is a false all-clear.
+
+    `pairings_unapplied` extends that discipline to the reviewer's own verdicts.
+    This GET runs the diff, and the diff applies the recorded pairing decisions;
+    a `paired` verdict naming a clause pass 1 has already matched as persisting
+    unchanged has nothing left to bind. Reporting the number is the difference
+    between a reviewer being told their decision did not land and a table that
+    quietly proceeded as though it had. The verdict is untouched on disk — only
+    unapplied on this pair, on this run.
     """
 
     from_version_id: str
@@ -294,6 +428,7 @@ class TriageOut(BaseModel):
     rows: list[TriageRowOut]
     total_changes: int
     unlinked_changes: int
+    pairings_unapplied: int
     # An empty `rows` has three causes, and they are not the same finding:
     # nothing is linked (unlinked_changes), nothing changed (total_changes), or
     # nothing was ever extracted. Only these two can tell the third from the

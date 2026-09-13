@@ -93,7 +93,13 @@ def read_triage(
     resolved_from = from_version_id
 
     def _work(tx):
-        diff_versions(
+        # The diff's return was discarded here while everything in it could be
+        # had another way — the triage below counts the changes itself.
+        # `pairings_unapplied` cannot: it is a reviewer's verdict this run could
+        # not apply, known only to the plan that failed to apply it and gone the
+        # moment this value is dropped. Spec §3 puts it on both GETs that run
+        # the diff.
+        counts = diff_versions(
             tx, from_version_id=resolved_from, to_version_id=to_version_id
         )
         result = run_triage(
@@ -108,16 +114,24 @@ def read_triage(
         to_obligations = tx.run(
             COUNT_OBLIGATIONS, {"version_id": to_version_id}
         ).single()["obligations"]
-        return result, from_obligations, to_obligations
+        return (
+            result,
+            from_obligations,
+            to_obligations,
+            counts["pairings_unapplied"],
+        )
 
     with driver.session(database=database) as session:
-        result, from_obligations, to_obligations = session.execute_write(_work)
+        result, from_obligations, to_obligations, pairings_unapplied = (
+            session.execute_write(_work)
+        )
 
     return TriageOut(
         from_version_id=resolved_from,
         to_version_id=to_version_id,
         total_changes=result.total_changes,
         unlinked_changes=result.unlinked_changes,
+        pairings_unapplied=pairings_unapplied,
         from_obligations=from_obligations,
         to_obligations=to_obligations,
         rows=[
@@ -132,6 +146,7 @@ def read_triage(
                     obligation_id=row.our_obligation_id,
                     statement=row.our_statement,
                     document=row.document,
+                    version_id=row.our_version_id,
                     section_path=row.our_section_path,
                     page=row.our_page,
                 ),
@@ -139,6 +154,7 @@ def read_triage(
                     obligation_id=row.higher_obligation_id,
                     statement=row.higher_statement,
                     document=row.higher_document,
+                    version_id=row.higher_version_id,
                     section_path=row.higher_section_path,
                     page=row.higher_page,
                 ),

@@ -7,6 +7,10 @@ from policy_grapher.changes.propagate import KIND_WEIGHT, MODALITY_WEIGHT, triag
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
+from policy_grapher.links.decisions import record_decision, replay_decisions
+from policy_grapher.links.pairing import PairingVerdict, record_pairing
+from policy_grapher.links.propose import score_pairing
+from policy_grapher.models import TriageOut
 from policy_grapher.obligations import write_obligations
 
 HIGHER_OLD = "Components shall document the cybersecurity strategy."
@@ -177,7 +181,14 @@ def test_a_removed_obligation_we_implement_still_produces_a_row(
     clean_graph, database
 ):
     """Our policy now implements something that no longer exists. That is a live
-    compliance gap and exactly what a reviewer needs to be told."""
+    compliance gap and exactly what a reviewer needs to be told.
+
+    This is also the one row kind where `higher_version_id` is not redundant
+    with `to_version_id`: the deleted clause lives only in the edition being
+    diffed *from*. A traversal that returned `to_version_id` instead of the
+    obligation's own edition would agree with every MODIFIED-row assertion in
+    this file — `higher_version.version_id` and `to_version_id` coincide there
+    — and disagree only here."""
     old_ids = _seed_version(
         clean_graph, database, version_id="higher-v1", doc_slug="higher",
         doc_name="DoDI 5000.88",
@@ -198,6 +209,8 @@ def test_a_removed_obligation_we_implement_still_produces_a_row(
     assert len(result.rows) == 1
     assert result.rows[0].kind == "REMOVED"
     assert result.rows[0].higher_statement == HIGHER_OLD
+    assert result.rows[0].higher_version_id == "higher-v1"
+    assert result.rows[0].our_version_id == "ours-v1"
 
 
 @pytest.mark.integration
@@ -418,7 +431,12 @@ def triage_client(client_with_auth):
 
 @pytest.mark.integration
 def test_the_route_answers_with_ranked_rows_and_both_citations(triage_client):
-    """Nothing in the response is unsourced."""
+    """Nothing in the response is unsourced — and since the sprint-12
+    walkthrough, "sourced" includes the edition. A triage row's higher side
+    comes from a diff of two editions of one instrument, so the document name
+    alone cannot say which edition a quoted clause is from; both citations
+    carry `version_id`, the same reasoning `ObligationCitationOut` and Ask's
+    `CitationOut` already record."""
     response = triage_client.get(
         "/triage", params={"to_version_id": "higher-v2", "from_version_id": "higher-v1"}
     )
@@ -437,12 +455,67 @@ def test_the_route_answers_with_ranked_rows_and_both_citations(triage_client):
         "obligation_id": row["ours"]["obligation_id"],
         "statement": OURS,
         "document": "ORG 1.0",
+        "version_id": "ours-v1",
         "section_path": ["2.4"],
         "page": 1,
     }
     assert row["higher"]["document"] == "DoDI 5000.88"
+    assert row["higher"]["version_id"] == "higher-v2"
     assert row["higher"]["statement"] == HIGHER_NEW
     assert row["higher"]["section_path"] == ["3.2"]
+
+
+@pytest.fixture
+def removed_client(client_with_auth):
+    """A higher-tier clause removed between two editions, and one of our clauses
+    that implemented it. Unlike `triage_client`'s reworded clause, the deleted
+    obligation exists only in `higher-v1` — the edition being diffed *from*, not
+    the one named by `to_version_id` — which is what makes this the row kind
+    `version_id` is not redundant on."""
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+
+    old_ids = _seed_version(
+        driver, database, version_id="higher-v1", doc_slug="higher",
+        doc_name="DoDI 5000.88",
+        entries=[("3.2", HIGHER_OLD, Modality.SHALL), ("9.9", "We shall keep this.", Modality.SHALL)],
+    )
+    _seed_version(
+        driver, database, version_id="higher-v2", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("9.9", "We shall keep this.", Modality.SHALL)],
+    )
+    our_ids = _seed_version(
+        driver, database, version_id="ours-v1", doc_slug="ours",
+        doc_name="ORG 1.0", entries=[("2.4", OURS, Modality.SHALL)],
+    )
+    _link(driver, database, source=our_ids[OURS], target=old_ids[HIGHER_OLD])
+    driver.execute_query(
+        "MATCH (new:DocumentVersion {version_id: 'higher-v2'}) "
+        "MATCH (old:DocumentVersion {version_id: 'higher-v1'}) "
+        "MERGE (new)-[:SUPERSEDES]->(old)",
+        database_=database,
+    )
+    return client_with_auth
+
+
+@pytest.mark.integration
+def test_the_route_reports_the_edition_a_removed_clause_actually_lived_in(
+    removed_client,
+):
+    """The one case `version_id` is not cosmetic: a REMOVED row's higher side
+    must name the deleted clause's own edition. Printing `to_version_id` instead
+    — indistinguishable from correct on every MODIFIED row in this file, since
+    the two coincide there — would here attribute the quote to `higher-v2`, an
+    edition that does not contain it."""
+    response = removed_client.get(
+        "/triage", params={"to_version_id": "higher-v2", "from_version_id": "higher-v1"}
+    )
+    assert response.status_code == 200
+
+    row = response.json()["rows"][0]
+    assert row["kind"] == "REMOVED"
+    assert row["higher"]["version_id"] == "higher-v1"
+    assert row["ours"]["version_id"] == "ours-v1"
 
 
 @pytest.mark.integration
@@ -579,3 +652,372 @@ def test_repeating_the_request_does_not_accumulate_changes(triage_client):
         database_=triage_client.app.state.settings.neo4j_database,
     )
     assert records[0]["total"] == 1
+
+
+@pytest.mark.integration
+def test_a_clause_does_not_implement_another_edition_of_its_own_document(
+    changed_higher, clean_graph, database
+):
+    """Found live on 2026-09-09, from a single approval made in the review queue.
+
+    A same-document proposal promotes newer→older, and a `REMOVED` change points
+    `AFFECTS` at the *old* edition's obligation — so the two meet, and this
+    traversal had no document predicate. The result was a row scoring 12.0 — the
+    top of the range `score` returns, `KIND_WEIGHT["REMOVED"]` at 3.0 times a
+    `MODALITY_WEIGHT` of 4.0 — reporting that DoDD 5000.01 implements DoDD
+    5000.01 and that the duty had been removed, with a null `previous_statement`.
+
+    A compliance reader is the audience for that row. `IMPLEMENTS` means our
+    lower-tier clause discharges a higher-tier duty (ADR-015); an edition of an
+    instrument does not discharge its own predecessor, and a document cannot be
+    its own higher tier.
+    """
+    ours_older = _seed_version(
+        clean_graph, database, version_id="higher-v0", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("9.9", "Components shall retain records.",
+                                           Modality.SHALL)],
+    )
+    # The shape the walkthrough produced: a later edition of the same instrument
+    # pointed at an earlier one.
+    _link(
+        clean_graph, database,
+        source=ours_older["Components shall retain records."],
+        target=changed_higher["higher_new"],
+    )
+
+    result = _triage(clean_graph, database)
+
+    assert [r for r in result.rows if r.document == r.higher_document] == []
+
+
+@pytest.mark.integration
+def test_a_change_linked_only_within_its_own_document_counts_as_unlinked(
+    changed_higher, clean_graph, database
+):
+    """The other half, and the one that keeps the table honest.
+
+    Suppressing the row without correcting the count would leave such a change in
+    neither `rows` nor `unlinked_changes` — invisible in both directions, which is
+    worse than the row was. ADR-015 puts `unlinked_changes` there precisely so an
+    empty table cannot read as an all-clear.
+    """
+    ours_older = _seed_version(
+        clean_graph, database, version_id="higher-v0", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("9.9", "Components shall retain records.",
+                                           Modality.SHALL)],
+    )
+    _link(
+        clean_graph, database,
+        source=ours_older["Components shall retain records."],
+        target=changed_higher["higher_new"],
+    )
+
+    result = _triage(clean_graph, database)
+
+    assert len(result.rows) == 0
+    assert result.unlinked_changes == result.total_changes
+
+
+@pytest.mark.integration
+def test_a_cross_document_row_survives_a_same_document_link_on_the_same_change(
+    changed_higher, clean_graph, database
+):
+    """The case the same-document guard could have broken, and which its first
+    two tests did not cover — they seeded byte-identical graphs holding only a
+    same-document link, so neither could tell a guard that suppresses the wrong
+    row from one that suppresses every row.
+
+    A change can carry both kinds of link at once. The cross-document one is the
+    whole point of triage and must still produce its row, and the change must
+    still count as linked.
+    """
+    sibling = _seed_version(
+        clean_graph, database, version_id="higher-v0", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("9.9", "Components shall retain records.",
+                                           Modality.SHALL)],
+    )
+    _link(
+        clean_graph, database,
+        source=sibling["Components shall retain records."],
+        target=changed_higher["higher_new"],
+    )
+    _link(
+        clean_graph, database,
+        source=changed_higher["ours"], target=changed_higher["higher_new"],
+    )
+
+    result = _triage(clean_graph, database)
+
+    assert [r.document for r in result.rows] == ["ORG 1.0"]
+    assert result.unlinked_changes == result.total_changes - 1
+
+
+@pytest.mark.integration
+def test_a_change_whose_citation_cannot_be_built_counts_as_unlinked(
+    changed_higher, clean_graph, database
+):
+    """`linked` has to mean "would produce a row", and the row query needs an
+    anchoring chunk on both sides — `primary_anchor`'s `CALL` subquery is an inner
+    join (`obligations.primary_anchor`). `COUNT_CHANGES` bound no anchor, so an
+    obligation with no `:ANCHORED_IN` chunk yielded no row *and* counted as
+    linked, putting the change in neither `rows` nor `unlinked_changes`.
+
+    That is the shape ADR-039 was written about — `COUNT_OBLIGATIONS` matching on
+    `:MANDATES` while `LIST_OBLIGATIONS` also bound the anchor, so the screen read
+    "62 obligations. Showing the first 0." Two queries, each correct about what it
+    asked, disagreeing about what exists.
+    """
+    _link(
+        clean_graph, database,
+        source=changed_higher["ours"], target=changed_higher["higher_new"],
+    )
+    clean_graph.execute_query(
+        "MATCH (:Obligation {obligation_id: $id})-[r:ANCHORED_IN]->() DELETE r",
+        {"id": changed_higher["ours"]},
+        database_=database,
+    )
+
+    result = _triage(clean_graph, database)
+
+    assert len(result.rows) == 0
+    assert result.unlinked_changes == result.total_changes
+
+
+@pytest.mark.integration
+def test_the_triage_get_reports_a_verdict_it_could_not_apply(client_with_auth):
+    """The false-all-clear guard, extended to the reviewer's own verdicts.
+
+    A `paired` verdict naming a clause pass 1 matches identically in both
+    editions cannot be applied: the clause never reaches the unmatched sets, so
+    there is nothing left for the verdict to pair. The diff counts that
+    pre-emption, and the route has to carry the count out — discarding it leaves
+    a reviewer reading a Triage table that silently ignored a decision they
+    made, which is the defect `unlinked_changes` exists to prevent one layer
+    down. And the verdict itself must survive: a count is a report, not a
+    retraction.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    persisting = "Components shall retain records for seven years."
+    old_ids = _seed_version(
+        driver, database, version_id="higher-v1", doc_slug="higher",
+        doc_name="DoDI 5000.88",
+        entries=[("3.2", HIGHER_OLD, Modality.SHALL),
+                 ("9.9", persisting, Modality.SHALL)],
+    )
+    new_ids = _seed_version(
+        driver, database, version_id="higher-v2", doc_slug="higher",
+        doc_name="DoDI 5000.88",
+        entries=[("3.2", HIGHER_NEW, Modality.SHALL),
+                 ("9.9", persisting, Modality.SHALL)],
+    )
+    # 9.9 is word-for-word identical across the two editions, so `content_key`
+    # matches it in pass 1 and the verdict below has nothing left to bind.
+    with driver.session(database=database) as session:
+        session.execute_write(
+            record_pairing,
+            old_id=old_ids[persisting],
+            new_id=new_ids[HIGHER_NEW],
+            verdict="paired",
+            actor="tester",
+            rationale="the retention clause became the annual one",
+        )
+
+    body = client_with_auth.get(
+        "/triage",
+        params={"to_version_id": "higher-v2", "from_version_id": "higher-v1"},
+    ).json()
+
+    assert body["pairings_unapplied"] == 1
+    # The 3.2 rewording is still found by the section rule, so the run did the
+    # ordinary work as well as reporting the verdict it could not apply.
+    assert body["total_changes"] == 1
+    records, _, _ = driver.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.verdict AS verdict", database_=database
+    )
+    assert [r["verdict"] for r in records] == ["paired"], (
+        "an unapplied verdict is reported, never retracted"
+    )
+
+
+def test_the_triage_payload_carries_exactly_these_fields():
+    """Not a test of the field names. A test that changing one is deliberate.
+
+    `frontend/src/api/types.ts` declares `TriageOut` by hand, and the screen
+    now reads `pairings_unapplied` off it to say which recorded verdicts this
+    diff could not apply. TypeScript catches only the direction where a stale
+    screen meets a renamed `types.ts` and `tsc` fails with TS2339; a field
+    renamed or added HERE reaches a hand-written interface that never hears
+    about it, the screen reads `undefined`, and every test in both languages
+    stays green. `ReviewQueueOut` and the pairing payloads carry the same
+    guard. Changing this set is fine; changing it without opening `types.ts`
+    is the defect.
+    """
+    assert set(TriageOut.model_fields) == {
+        "from_version_id",
+        "to_version_id",
+        "rows",
+        "total_changes",
+        "unlinked_changes",
+        "pairings_unapplied",
+        "from_obligations",
+        "to_obligations",
+    }
+
+
+# --- end to end ---------------------------------------------------------------
+
+# The rewrite no measure can see, which is what makes this end-to-end rather than
+# a second run of the wording pass. `_pair_by_wording` scores through
+# `links.propose.score_pairing`, whose shared `_score` returns None once the
+# *confidence* — the content-word overlap plus a bonus per shared issuance
+# designator, not the overlap alone — falls below `MIN_CONFIDENCE`. This
+# statement shares no content word at all with HIGHER_OLD — `document`,
+# `cybersecurity` and `strategy` against `program`, `offices`, `record`,
+# `protection` and `approach` — and neither clause cites a designator, so both
+# terms are zero, the pair is never offered, and it gets no `PAIRING_CANDIDATE`
+# edge. The section rule cannot reach it either: the clause moved from 3.2 to
+# 7.1. A `paired` verdict is the only thing in the system that can turn the two
+# into one `MODIFIED`, and the problem section names this class — a complete
+# rewording — as the case a human most obviously beats the measure on.
+REWORDED = "Program offices will record the protection approach."
+
+
+def test_the_end_to_end_pair_is_one_the_wording_pass_cannot_reach():
+    """The capstone's premise, checkable without Docker.
+
+    The test below is `@pytest.mark.integration` and so never runs in the loop a
+    developer actually has, while its entire value rests on this pair being one
+    no measure can make: were REWORDED to drift into range of the wording pass,
+    the pass would pair the two on its own and every assertion after the verdict
+    would still hold while the verdict did nothing. The pre-verdict GET down
+    there catches that, but only where Docker exists. This catches it here.
+
+    Both orientations. `_pair_by_wording` calls the scorer `(after, before)`, so
+    the first is the one that governs; `_score` is symmetric today, which makes
+    the second a guard on that symmetry rather than a second fact about the pair.
+    """
+    assert score_pairing(REWORDED, HIGHER_OLD) is None
+    assert score_pairing(HIGHER_OLD, REWORDED) is None
+
+
+@pytest.mark.integration
+def test_a_confirmed_pairing_carries_the_previous_statement_into_triage(
+    client_with_auth,
+):
+    """The whole feature, through the API a reader actually uses.
+
+    A cross-document `IMPLEMENTS` over a confirmed pairing has to produce a
+    Triage row whose `previous_statement` is the paired older clause. Every leg
+    is load-bearing and each has failed on its own: the pairing verdict has to
+    reach `_plan_changes` scoped to these two editions, the `MODIFIED` it emits
+    has to `AFFECTS` the *new* obligation (which is the one a reviewer must now
+    act on, and the end the `IMPLEMENTS` edge points at), and the traversal's
+    `document <> higher_document` guard has to let a genuinely cross-document row
+    through rather than suppressing every row.
+
+    The run before the verdict is asserted rather than described, because it is
+    the whole claim: this pair is one the diff declines, so the
+    `previous_statement` below can only be there because a person said so. If a
+    later edit to REWORDED brought the pair within reach of the wording pass,
+    every assertion after the verdict would still hold and prove nothing — the
+    two changes here are what notices.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+
+    old_ids = _seed_version(
+        driver, database, version_id="higher-v1", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("3.2", HIGHER_OLD, Modality.SHALL)],
+    )
+    new_ids = _seed_version(
+        driver, database, version_id="higher-v2", doc_slug="higher",
+        doc_name="DoDI 5000.88", entries=[("7.1", REWORDED, Modality.WILL)],
+    )
+    our_ids = _seed_version(
+        driver, database, version_id="ours-v1", doc_slug="ours",
+        doc_name="ORG 1.0", entries=[("2.4", OURS, Modality.SHALL)],
+    )
+
+    with driver.session(database=database) as session:
+        # The implements question, settled by a person and answering something
+        # else entirely from the pairing below: our clause discharges the higher
+        # duty. Recorded and replayed rather than MERGEd directly, because
+        # `replay_decisions` is the only writer of `IMPLEMENTS` anywhere in the
+        # codebase and a test that writes the edge itself is testing a path
+        # production does not have.
+        session.execute_write(
+            record_decision,
+            source_id=our_ids[OURS],
+            target_id=new_ids[REWORDED],
+            verdict="approve",
+            actor="tester",
+            rationale="Our plan clause discharges the protection duty.",
+        )
+        replayed = session.execute_write(replay_decisions)
+    # The fixture must actually have the edge. A replay that promoted nothing
+    # would leave every assertion below testing an empty traversal, and an empty
+    # traversal agrees with almost anything.
+    assert replayed["promoted"] == 1
+
+    params = {"to_version_id": "higher-v2", "from_version_id": "higher-v1"}
+    before = client_with_auth.get("/triage", params=params).json()
+
+    # What the machine makes of this edition pair on its own, and why the row
+    # below is worth asserting: a duty vanished and an unrelated one appeared.
+    # The addition is the row a reviewer sees, carrying no previous statement;
+    # the removal reaches nothing of ours and is only a count.
+    assert before["total_changes"] == 2
+    assert before["unlinked_changes"] == 1
+    assert [row["kind"] for row in before["rows"]] == ["ADDED"]
+    assert before["rows"][0]["previous_statement"] is None
+
+    with driver.session(database=database) as session:
+        # The pairing question, settled by the same person: the newer clause is
+        # the older one reworded. Recorded older→newer, which is the direction
+        # the key hashes and the only orientation a later POST on this pair
+        # would compute.
+        session.execute_write(
+            record_pairing,
+            old_id=old_ids[HIGHER_OLD],
+            new_id=new_ids[REWORDED],
+            verdict=PairingVerdict.PAIRED,
+            actor="tester",
+            rationale="The re-issue renamed the duty; it is the same obligation.",
+        )
+
+    body = client_with_auth.get("/triage", params=params).json()
+
+    # One change, not two: the verdict consumed both clauses before the section
+    # rule and the wording pass could see them — and it was applied, not merely
+    # reported as one pass 1 had pre-empted.
+    assert body["total_changes"] == 1
+    assert body["unlinked_changes"] == 0
+    assert body["pairings_unapplied"] == 0
+    assert len(body["rows"]) == 1
+
+    row = body["rows"][0]
+    assert row["kind"] == "MODIFIED"
+    assert row["previous_statement"] == HIGHER_OLD
+    # Provenance, stated by the row itself rather than inferred from the count.
+    # Each of the three things that can emit a MODIFIED writes its own sentence —
+    # the section rule names the section, the wording pass names the move and
+    # appends the scorer's rationale — and this one is written only by
+    # `_plan_changes`' verdict arm. So it says a person decided this, not a rule
+    # that happened to agree, and it is what a reviewer reads on the screen.
+    assert row["summary"] == (
+        "A reviewer paired these clauses: they are one obligation, "
+        "reworded between these two editions."
+    )
+    assert row["higher"]["statement"] == REWORDED
+    assert row["higher"]["document"] == "DoDI 5000.88"
+    # The new obligation on the higher side, three ways: its id, the section it
+    # moved to, and its modality. `higher.statement` above is the `:Change`'s own
+    # property and says nothing about which obligation the change `AFFECTS`;
+    # these are read off the obligation and its anchor, and every one of them
+    # differs between the two editions' clauses.
+    assert row["higher"]["obligation_id"] == new_ids[REWORDED]
+    assert row["higher"]["section_path"] == ["7.1"]
+    assert row["modality"] == "WILL"
+    assert row["ours"]["statement"] == OURS
+    assert row["ours"]["document"] == "ORG 1.0"
