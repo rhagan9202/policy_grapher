@@ -1,6 +1,6 @@
 # Architecture
 
-*Living document — edit in place. Last reviewed: 2026-09-09*
+*Living document — edit in place. Last reviewed: 2026-09-12*
 
 Describes the system as it is today, not as it's planned to be. Planned changes belong in
 the [roadmap](../planning/roadmap.md); the reasoning behind past choices belongs in
@@ -26,19 +26,20 @@ CSV on disk  →  backend (FastAPI)  →  Neo4j  →  backend  →  frontend (Re
 
 | Component | Responsibility |
 | --- | --- |
-| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, replacing the edition's chunks and, with them, the derived layer built on those chunks and the build record describing it ([ADR-039](adr/ADR-039-a-re-ingest-discards-the-derived-layer.md)), `GET /ingest/sources` lists that directory so the screen can offer what is in it rather than asking a reader to know a filename, and labels each file with the kind `ingest_file` will actually treat it as, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `GET /documents/{slug}/versions` lists an instrument's editions oldest first with each one's `supersedes` link and, since STORY-082, the state of its current or last rebuild — run id, when it started and last changed, which extractor and embedder ran, and its counts — so an edition holding no obligations can say whether nobody built it, a `null` extractor built it, or a run died partway, `GET /documents/{slug}/chunks` serves the newest edition's section-aware text chunks unless `version_id` pins another edition, `GET /documents/{slug}/versions/{version_id}/obligations` serves what extraction found in one edition — bounded, reporting the true total when it truncates, and answering 404 rather than an empty list for an edition that does not exist, because "built and found nothing" and "never ingested" need different actions (STORY-081), `GET /export` returns everything `POST /reset` deletes as one JSON document keyed by category so a copy can be taken before the one irreversible action in the product (STORY-083), `GET /review/queue` lists proposed obligation links nobody has decided yet with both sides' citations, `POST /review/{source_id}/{target_id}` records a verdict as the authenticated principal and applies it, `GET /triage?to_version_id=` diffs an edition against the one it supersedes and ranks the clauses of ours that the changes reach, `POST /ask` answers a question from the corpus with citations or states that the corpus does not address it, `POST /reset` empties the graph and reports what it deleted, `POST /query` executes read-only Cypher under a transaction timeout and a row cap, `POST /documents/{slug}/versions/{version_id}/rebuild` enqueues a rebuild of that edition's derived layer onto the Redis-backed queue and returns `202` with a run id, and `GET /rebuilds/{run_id}` reports that run's state, per-chunk progress, and either its counts or its error — resolving a run still marked `started` against the heartbeat key of the worker that took it, because RQ only fails an abandoned job when its eight-hour timeout expires and its worker registries are not a liveness signal ([ADR-040](adr/ADR-040-worker-liveness-is-the-heartbeat-not-the-registry.md)). Auto-ingests the sample corpus at startup when the graph is empty — **off by default** (`AUTO_INGEST`), so a first run holds nothing and every screen says so rather than rendering a blank that reads as failure ([ADR-019](adr/ADR-019-the-first-run-is-empty.md)). Mounts `./data` at `/data`, read-only. |
+| **Backend** (FastAPI, port 8000) | Serves every endpoint [SPEC-001](SPEC-001-di-1-policy-grapher.md) names: `POST /ingest` dispatches on file extension — a CSV manifest becomes many documents, a PDF issuance becomes one — and merges the result into Neo4j, replacing the edition's chunks and, with them, the derived layer built on those chunks and the build record describing it ([ADR-039](adr/ADR-039-a-re-ingest-discards-the-derived-layer.md)), `GET /ingest/sources` lists that directory so the screen can offer what is in it rather than asking a reader to know a filename, and labels each file with the kind `ingest_file` will actually treat it as, `GET /graph` serves the render-capped corpus view, `GET`/`POST`/`DELETE` on `/documents` address documents by slug, `POST`/`DELETE` on `/documents/{slug}/references/{target_slug}` edit edges, `GET /documents/{slug}/versions` lists an instrument's editions oldest first with each one's `supersedes` link and, since STORY-082, the state of its current or last rebuild — run id, when it started and last changed, which extractor and embedder ran, and its counts — so an edition holding no obligations can say whether nobody built it, a `null` extractor built it, or a run died partway, `GET /documents/{slug}/chunks` serves the newest edition's section-aware text chunks unless `version_id` pins another edition, `GET /documents/{slug}/versions/{version_id}/obligations` serves what extraction found in one edition — bounded, reporting the true total when it truncates, and answering 404 rather than an empty list for an edition that does not exist, because "built and found nothing" and "never ingested" need different actions (STORY-081), `GET /export` returns everything `POST /reset` deletes as one JSON document keyed by category so a copy can be taken before the one irreversible action in the product (STORY-083), `GET /review/queue` lists proposed obligation links nobody has decided yet with both sides' citations, `POST /review/{source_id}/{target_id}` records a verdict as the authenticated principal and applies it, `GET /pairings/queue?from_version_id=&to_version_id=` runs the diff between two editions of one document itself — as Triage does, because a queue that only read what a Triage visit happened to write would be empty until someone opened that screen — and returns every pair the wording pass ruled on with both citations, the pairs a person has already settled, and the backlog counted per outcome, refusing a pair that is not older→newer with a 400 and narrowing the page by `outcome` because a declined pair never outscores the pairing that beat it, `POST /pairings/{old_obligation_id}/{new_obligation_id}` records a pairing verdict as the authenticated principal, ordering the pair older→newer itself and refusing a second live `paired` verdict on one clause within one edition pair with a 409, `GET /triage?to_version_id=` diffs an edition against the one it supersedes and ranks the clauses of ours that the changes reach, `POST /ask` answers a question from the corpus with citations or states that the corpus does not address it, `POST /reset` empties the graph and reports what it deleted, `POST /query` executes read-only Cypher under a transaction timeout and a row cap, `POST /documents/{slug}/versions/{version_id}/rebuild` enqueues a rebuild of that edition's derived layer onto the Redis-backed queue and returns `202` with a run id, and `GET /rebuilds/{run_id}` reports that run's state, per-chunk progress, and either its counts or its error — resolving a run still marked `started` against the heartbeat key of the worker that took it, because RQ only fails an abandoned job when its eight-hour timeout expires and its worker registries are not a liveness signal ([ADR-040](adr/ADR-040-worker-liveness-is-the-heartbeat-not-the-registry.md)). Auto-ingests the sample corpus at startup when the graph is empty — **off by default** (`AUTO_INGEST`), so a first run holds nothing and every screen says so rather than rendering a blank that reads as failure ([ADR-019](adr/ADR-019-the-first-run-is-empty.md)). Mounts `./data` at `/data`, read-only. |
 | **Neo4j** (`neo4j:2025.10`, ports 7474/7687) | Stores the graph. Auth enabled via environment variables in the generated `.env` — written by `./scripts/init-env.sh`, never committed ([ADR-010](adr/ADR-010-secrets-leave-the-repository.md)). Image pinned deliberately (STORY-018) — `latest` would make the database version depend on when it was last pulled. |
 | **Redis** (`redis:8-alpine`) | Backs the rebuild queue (STORY-048). No published port — reached only from inside the compose network, by the backend (enqueueing) and the worker (dequeueing). |
 | **Worker** | The same backend image, run as `uv run rq worker ... rebuilds` instead of the API server. Drains the rebuild queue: opens its own Neo4j driver and builds its own extractor and embedder per job, and mounts `./data` read-only because a rebuild re-reads the source PDF from a container-internal path, the same way ingest does. |
-| **Frontend** (React + Vite, port 5173) | Seven screens, every one of them named in `routes.tsx` so a screen cannot exist without a way to reach it — Graph, Documents, Ingest, Triage, Review, Ask, Reset — plus a document detail page reached from a row rather than from the navigation, and a catch-all that says an address names no screen rather than rendering the navigation over nothing. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`: corpus documents only by default, with a toggle passing `include_external` for the whole corpus, a legend for the two node colours, and a count that names the exclusion — because `total_nodes` is scoped to the query, so the default view answers "23 of 23" over a graph of 438. Clicking a node names it, says whether it is a corpus or external document, links to its detail page, and — for a corpus document — pulls in its external neighbours via `?expand={slug}`. `/documents` renders `GET /documents` as a table — name, how many documents cite it, editions, and outgoing references with slugs resolved to names from the same payload — filtered and sorted client-side and paged 200 rows at a time, with the near-duplicate reconciliation panel below it. One stylesheet, `src/styles.css`, carries the whole visual layer. Vite dev server proxies `/api` to the backend and injects the bearer token ([ADR-018](adr/ADR-018-the-dev-proxy-forwards-writes.md)). |
+| **Frontend** (React + Vite, port 5173) | Eight screens, every one of them named in `routes.tsx` so a screen cannot exist without a way to reach it — Graph, Documents, Ingest, Triage, Review, Pairings, Ask, Reset — plus a document detail page reached from a row rather than from the navigation, and a catch-all that says an address names no screen rather than rendering the navigation over nothing. `/` renders the force-directed graph from `GET /graph` via `react-force-graph`: corpus documents only by default, with a toggle passing `include_external` for the whole corpus, a legend for the two node colours, and a count that names the exclusion — because `total_nodes` is scoped to the query, so the default view answers "23 of 23" over a graph of 438. Clicking a node names it, says whether it is a corpus or external document, links to its detail page, and — for a corpus document — pulls in its external neighbours via `?expand={slug}`. `/documents` renders `GET /documents` as a table — name, how many documents cite it, editions, and outgoing references with slugs resolved to names from the same payload — filtered and sorted client-side and paged 200 rows at a time, with the near-duplicate reconciliation panel below it. One stylesheet, `src/styles.css`, carries the whole visual layer. Vite dev server proxies `/api` to the backend and injects the bearer token ([ADR-018](adr/ADR-018-the-dev-proxy-forwards-writes.md)). |
 
 Typed fetch wrappers for the frontend-used endpoints live in `src/api/client.ts`.
 Every route the backend serves now has a screen or a caller: DI-1's standing gap — an API client of eleven functions of which the UI called two, and no navigation between the two screens that existed — is closed. `frontend/src/App.tsx` declares routes and navigation from one list, so a screen cannot exist without a link to it, and `App.test.tsx` asserts one link per route. Since STORY-086 that is a test rather than a claim: `test_the_browser_can_reach_every_route_the_server_declares` compares the routers' declared paths against `api/client.ts` and fails naming any route the client has never heard of.
 
 Routes live in `routers/` — `admin.py` (`/health`, `/ingest`, `/ingest/sources`, `/reset`), `documents.py`
 (document CRUD, reference edges, versions and chunks), `graph.py` (`/graph`, `/query`),
-`review.py` (the obligation-link review queue), `triage.py` (`/triage`) and `ask.py` (`/ask`) — so `main.py` is
-app assembly, CORS, and lifespan only. Routers reach the driver and settings through
+`review.py` (the obligation-link review queue), `pairings.py` (the same-document pairing queue and
+its verdicts), `rebuilds.py` (enqueueing a rebuild and reporting a run), `triage.py` (`/triage`) and
+`ask.py` (`/ask`) — so `main.py` is app assembly, CORS, lifespan and the startup migration only. Routers reach the driver and settings through
 `dependencies.py`, which resolves both from `request.app.state`; the lifespan is what puts
 them there. Cypher lives beside the router that needs it: `graph.py`, `documents.py`, and
 `query.py` at the package root.
@@ -86,6 +87,9 @@ for the reasoning behind each stage.
 | `EmbeddingIndex` *(derived)* | `name: str`, `model_id: str`, `dimensions: int` | none; one node, the vector index's recorded provenance |
 | `Change` *(derived)* | `change_id: str`, `kind: str`, `section_path: list[str]`, `statement: str`, `previous_statement: str \| null`, `modality: str`, `summary: str` | `change_id` unique |
 | `LinkDecision` *(canonical)* | `key: str`, `source_obligation_id: str`, `target_obligation_id: str`, `verdict: str`, `actor: str`, `rationale: str`, `at: datetime` | `key` unique |
+| `RetiredLinkDecision` *(canonical)* | The same properties plus `retired_reason: str`. A `:LinkDecision` the startup migration took out of the live label without discarding — converted to a pairing verdict, or one of four states it must not convert (`migrate.py`). Retirement is how a verdict leaves `PROMOTE`'s match while ADR-014 is still honoured, and the export carries both labels | none of its own |
+| `PairingDecision` *(canonical)* | `key: str`, `old_obligation_id: str`, `new_obligation_id: str`, `verdict: str`, `actor: str`, `rationale: str`, `at: datetime` | `key` unique |
+| `PairingLock` *(derived)* | `key: str`, `edition_pair: str`, `at: datetime` | `key` unique |
 
 | Type | Direction | Meaning |
 | --- | --- | --- |
@@ -98,7 +102,8 @@ for the reasoning behind each stage.
 | `MANDATES` | `(:DocumentVersion)-[:MANDATES]->(:Obligation)` | A duty that edition places on someone |
 | `ANCHORED_IN` | `(:Obligation)-[:ANCHORED_IN]->(:Chunk)` | The passage the duty was read from |
 | `IMPLEMENTS_PROPOSED` *(derived)* | `(:Obligation)-[:IMPLEMENTS_PROPOSED]->(:Obligation)` | A machine guess, carrying `confidence`, `rationale`, `proposer`. Never traversed by triage |
-| `IMPLEMENTS` *(derived)* | `(:Obligation)-[:IMPLEMENTS]->(:Obligation)` | A human approved the link. Written **only** by `links.decisions.replay_decisions` |
+| `IMPLEMENTS` *(derived)* | `(:Obligation)-[:IMPLEMENTS]->(:Obligation)` | A human approved the link, between two **different** documents. Written **only** by `links.decisions.replay_decisions`, whose `PROMOTE` screens the pair itself |
+| `PAIRING_CANDIDATE` *(derived)* | `(:Obligation)-[:PAIRING_CANDIDATE]->(:Obligation)` | What the diff's wording pass decided about one pair of clauses in two editions of **one** document, carrying `confidence`, `rationale` and `outcome` — the first of its rules that fired. Written from-side→to-side inside `changes/diff.py` and dropped there; a question for a person, never an assertion |
 | `FROM_VERSION` *(derived)* | `(:Change)-[:FROM_VERSION]->(:DocumentVersion)` | The earlier edition of the pair diffed |
 | `TO_VERSION` *(derived)* | `(:Change)-[:TO_VERSION]->(:DocumentVersion)` | The later edition of the pair diffed |
 | `AFFECTS` *(derived)* | `(:Change)-[:AFFECTS]->(:Obligation)` | The obligation the change is about — the new one for `MODIFIED`/`ADDED`, the old one for `REMOVED` |
@@ -118,17 +123,35 @@ returns an uncited claim. See [ADR-016](adr/ADR-016-embeddings-are-a-port.md) an
 **A change is a change to an obligation, not to a document or a byte.** `changes/diff.py`
 compares two editions clause by clause, matching on `(section_path, normalize(statement))` —
 the version-independent part of an obligation's identity, since `obligation_id` hashes the
-edition and so can never match across one. `changes/propagate.py` then walks `IMPLEMENTS` from
+edition and so can never match across one. What that cannot match falls to the section rule, then
+to a wording pass that scores statement similarity above a higher bar than the proposer's and
+declines rather than guesses when two candidates are too close to separate (ADR-031); a reviewer's
+recorded pairing verdict outranks all three and is applied first. Every pair the wording pass ruled
+on is recorded as a `PAIRING_CANDIDATE` so the Pairings screen can reach it — both the declines and
+the pairings nobody reviewed. `changes/propagate.py` then walks `IMPLEMENTS` from
 each change to the clauses of ours that answer for it, ranking by named weight tables rather
 than by anything learned. See
 [ADR-015](adr/ADR-015-changes-are-detected-and-ranked.md).
 
 **A proposal and an approval are separate edge types, not one edge with a status.** The triage
 traversal names `IMPLEMENTS` and therefore cannot see an unreviewed `IMPLEMENTS_PROPOSED` — the
-mistake is unwriteable rather than merely discouraged. `:LinkDecision` is canonical precisely
+mistake is unwriteable rather than merely discouraged. A decision node is canonical precisely
 because the edges are not: a rebuild drops both edge types and replays the decisions back onto
 freshly proposed links, matching on a key derived from the two obligation ids. See
 [ADR-014](adr/ADR-014-proposals-and-decisions-are-different-things.md).
+
+**Two questions, two vocabularies, two canonical decision nodes.** "Does our clause discharge that
+document's duty?" is `:LinkDecision`, verdicts `approve`/`reject`, and it promotes `IMPLEMENTS`
+between two *different* documents. "Is this edition's clause the previous edition's, reworded?" is
+`:PairingDecision`, verdicts `paired`/`distinct`, properties `old_obligation_id`/`new_obligation_id`
+rather than source/target, and it takes effect inside the diff rather than as an edge. Before they
+were split, the second question was asked in the first one's vocabulary and answered with an
+`IMPLEMENTS` asserting that a document discharges its own predecessor — which Triage scored at the
+top of its list. `propose_links` now skips a pair sharing a document, `record_decision` refuses one,
+`PROMOTE` refuses one, and a startup migration (`migrate.py`) converts what the old path already
+recorded. Neither node is dropped by a rebuild; a rebuild repoints both across a change of
+obligation identity and reports what it could not carry. See the
+[pairing design](../superpowers/specs/2026-09-09-pairing-is-not-implementing-design.md).
 
 **The labels marked *derived* are droppable and rebuildable; the rest are canonical.** A
 canonical node records something an ingest read directly off a source. A derived one exists
@@ -333,7 +356,11 @@ first run holds nothing, and each screen distinguishes *no corpus* from *nothing
 Review's "Nothing is waiting for review" is true of an empty graph and would tell the reader
 the queue had been worked through. `views/EmptyState.tsx` carries the shared message; Triage
 adds a second state for a corpus that has documents but no editions, which is what ingesting
-the CSV manifest alone produces. See [ADR-019](adr/ADR-019-the-first-run-is-empty.md).
+the CSV manifest alone produces. Pairings adds two more, because its question needs two editions of
+one instrument: a corpus whose documents all have one edition says so rather than offering an empty
+picker, and a filtered page distinguishes "no candidate here is below the bar" from "nothing is
+waiting between these two editions" — the second being a false all-clear with the rest of the
+backlog one control away. See [ADR-019](adr/ADR-019-the-first-run-is-empty.md).
 
 **The graph canvas is sized from its container, not the window.** `ForceGraph2D` defaults its
 canvas to `window.innerWidth`/`innerHeight` when given neither, which pushed the 320px detail
@@ -397,7 +424,8 @@ cannot quietly become a place to hide failures.
 **The screens, and what each one is the only way to reach:** Graph, Documents (create, delete,
 cross-reference — STORY-044), a document's detail page (its text by edition, and the control
 that builds its derived layer — STORY-017 and STORY-061), Ingest, Triage, Review (with skip and
-previous, which record nothing — STORY-042), Ask, and Reset behind a typed confirmation
+previous, which record nothing — STORY-042), Pairings (settling what the diff declined between two
+editions of one document, and undoing what it guessed), Ask, and Reset behind a typed confirmation
 (STORY-046). A banner appears when `/health` does not answer, so a stack that is down reads as
 one cause rather than as several broken screens.
 

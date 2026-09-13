@@ -1,6 +1,7 @@
 # Settling the pairs the diff declines
 
-**Status:** Design (rev. 7, plan-gate passed) · **Date:** 2026-09-09, revs. 5-7 on 2026-09-10 ·
+**Status:** Design (rev. 8, implemented) · **Date:** 2026-09-09, revs. 5-7 on 2026-09-10,
+rev. 8 on 2026-09-12 ·
 **Sprint:** — (found in sprint 12's walkthrough of the review queue against live proposals,
 `docs/backlog/backlog.md:180-188`)
 
@@ -29,6 +30,16 @@
 > requiring facts that never cross the interface. Each revision's errors were invisible to the
 > mind that made them; rev. 7 resolves the lot, and the implementation plan is written against
 > this revision.
+>
+> **Rev. 8 is written from the shipped code, and records four things implementation discovered
+> that rev. 7 could not have known.** Three are mechanisms the code grew and this document did
+> not: the `:PairingLock` and the race it closes (§4, §6 — the only undiscoverable mechanism on the
+> feature, since removing it keeps the whole non-integration suite green), `PROMOTE`'s document
+> predicate (§8), and the queue's `outcome` filter, without which the page cap made the declines
+> this design exists to settle unreachable on any substantially reworded edition pair (§6). The
+> fourth is two shapes measurement corrected: `PairingSettledOut` is not two ids, and
+> `pairing_decisions_stranded` is not "the true analogue of `unpromotable`" (§3, §6). Sections
+> amended in place, each saying it was written during implementation and why.
 
 ## What has already been fixed
 
@@ -261,10 +272,18 @@ state instead of arbitrating it: §6's POST rejects it at the source, so the dif
 (`routers/triage.py:96`) and §6's queue — and the rebuild deliberately does not re-run the diff
 (`rebuild.py:107-108`). So `pairings_unapplied` is returned by `diff_versions` beside the kind
 counts and surfaced in both GET responses. The rebuild-side loss is a different event with a
-different name: **`pairing_decisions_stranded`** — a `:PairingDecision` whose obligation no longer
-exists after re-extraction, the true analogue of `unpromotable` (`links/decisions.py:62-76`) —
-counted by a query beside it and reported in the rebuild's counts, as `rejections_stranded`
-already is.
+different name: **`pairing_decisions_stranded`** — a `:PairingDecision` the diff can no longer
+apply, because an obligation it names is gone or no longer `:MANDATES`-ed by an edition — counted
+by a query beside it and reported in the rebuild's counts, as `rejections_stranded` already is.
+
+**One count, not two, and it is the analogue of `unpromotable` *and* `rejections_stranded`
+together.** Corrected during implementation: the link side splits its two because the losses differ
+in consequence — a stranded approval leaves a link missing and the proposal returns to the queue,
+while a stranded rejection leaves a suppression nobody is applying and the reviewer is never told
+they already refused it. A stranded `paired` and a stranded `distinct` do not differ that way:
+either way the clause the verdict named is gone and the pair is re-asked from scratch. So the query
+filters no verdict, and a reader splitting it into two would be splitting on a distinction this
+vocabulary does not have (`links/pairing.py`, ADR-027).
 
 A decision-settled pair is not re-recorded as a candidate — the `:PairingDecision` is the record,
 and a candidate edge re-asking a settled question would put it back in the queue. Settled pairs
@@ -293,6 +312,12 @@ of both obligation ids in that order, as `:LinkDecision`'s is (`decisions.py:31-
 beside `link_decision_key_unique` (`db.py:57-60`) — §5's collision handling depends on that
 constraint existing.
 
+`db.py` gains a second constraint, **`pairing_lock_key_unique`**, for the `:PairingLock` node §6's
+409 is built on. It is not bookkeeping: a bare `MERGE` under concurrency can create two nodes for
+one key, and two transactions locking two different nodes is the race the lock exists to close.
+§6 states the mechanism. The lock node carries `key`, `edition_pair` and `at`, is never read back,
+and is derived — nothing is lost if one is deleted between verdicts.
+
 ### 5. Durability — a refactor, not a reuse
 
 Rev. 2 claimed `repoint_decisions` could simply be reused. It cannot: it is bound to
@@ -320,7 +345,21 @@ edition pair nobody had opened in Triage, and a verdict would take effect only n
 loaded that screen.
 
 So `GET /pairings/queue?from_version_id=&to_version_id=` calls `diff_versions` itself, exactly as
-Triage does, then returns the candidates, the settled pairs (§3), and `pairings_unapplied`. It
+Triage does, then returns the candidates, the settled pairs (§3), and `pairings_unapplied`.
+
+**The page is capped, and the cap cuts declines first, so the queue takes an `outcome` filter.**
+Written during implementation, because the whole-branch review proved the screen could not reach
+the pairs it exists to settle. Everything at or above `PAIRING_CONFIDENCE` is recorded
+unconditionally (§2), and a declined pair is by construction at or below the confidence of whatever
+beat it — `partner_taken` never outscores the winner that consumed its endpoint, `contested` sits
+within `PAIRING_MARGIN` of its rival, `below_threshold` is under the bar entirely — so a page
+ordered by confidence and capped at 50 holds nothing but pairings the diff already made. Measured
+live on a 61-clause edition pair: 50 rows, every one `auto_paired`, the single decline reachable
+only past the page. `outcome` narrows the page to one of §2's four labels, validated against the
+labels the diff writes so the two cannot drift, and an unrecognised one is a 400 rather than an
+empty page — an empty queue is an answer, and a typo must not be able to give it. The cap itself
+stays: what a class with more members than the cap needs is a bound on above-bar *recording*, which
+§2 deliberately does not have. It
 inherits the same "a GET writes derived nodes" trade that `routers/triage.py:66-69` already flags
 and accepts. **It also pins direction, because nothing beneath it does**: a from/to pair that is
 not older→newer by the corpus's own ordering — `coalesce(effective_date, '')` then `ingested_at`
@@ -332,7 +371,7 @@ the 400 protects the queue and the graph. Triage keeps its arbitrary-direction b
 reversed runs' edges are cleaned by §2's undirected drop and its verdicts still apply through
 §3's orientation-normalized lookup.
 
-`POST /pairings/{from_obligation_id}/{to_obligation_id}` records a verdict, actor from the
+`POST /pairings/{old_obligation_id}/{new_obligation_id}` records a verdict, actor from the
 authenticated principal. **Admissibility is membership, not a recorded edge**: the two obligations
 must exist and be `:MANDATES`-ed by two editions of one document; 404 otherwise, and the route
 orders the pair older→newer itself before keying (§4) — the obligation ids determine the
@@ -351,13 +390,40 @@ legitimately pairs into both adjacent pairs — B paired to its A-predecessor *a
 C-successor — which is the very case §3's `:MANDATES`-scoped read exists to keep separate, and an
 unscoped 409 would refuse the second verdict and prescribe destroying the first.
 
+**The 409 alone does not hold, and a lock is what makes it hold.** Written during
+implementation, because a Critical reproduced the race six times out of six against the version
+above. Neo4j is read-committed and takes no locks for reads, and two verdicts on one clause
+`MERGE` two *different* `:PairingDecision` nodes — so putting the conflict read in the same
+transaction as the write serialises nothing: there is no node either transaction blocks on, both
+reads come back empty, both commit, and the graph holds two live `paired` verdicts on one clause,
+with the loser chosen by dict iteration order on the next diff (§3). Re-reading after the write
+does not help either; both transactions stay blind to the other's uncommitted writes until commit.
+So the route takes a write lock *before* the conflict read and in the same transaction as the
+record: `MERGE (:PairingLock {key: …})` plus a `SET`, keyed on the **edition pair** in canonical
+older→newer order so every caller settling a pair between those two editions takes the same lock.
+Three parts are each load-bearing. The `SET`, because a `MERGE` that matches need not take an
+exclusive lock on what it found, and without a write the second transaction sails past.
+§4's `pairing_lock_key_unique`, because a bare `MERGE` under concurrency can create two nodes for
+one key. And the scope being the edition pair rather than the clause: a single lock cannot
+deadlock, where a lock per (clause, other edition) would need a total acquisition order to be sure
+of it — the cost is that two reviewers settling unrelated pairs between the same two editions
+serialise, which on a human-driven review screen is not a cost worth a deadlock argument.
+
 Deliverables at the same granularity §8 demands elsewhere: `routers/pairings.py`, registered in
 `main.py:121-127` beside the seven existing routers; in `models.py` beside their review analogues
 (`models.py:213-257`): `PairingCandidateOut` — `old` and `new` sides as `ObligationCitationOut`,
 `confidence`, `rationale`, `outcome`, and `taken_by`, a list of zero to two obligation ids naming
-the `auto_paired` winners' other ends via §2's `:MANDATES`-scoped join; `PairingSettledOut` — the
-two ids plus `verdict` and `actor`; `PairingQueueOut` — `items`, `settled`,
-`pairings_unapplied`, and `pending` on the review queue's own pattern (`models.py:239-244`);
+the `auto_paired` winners' other ends via §2's `:MANDATES`-scoped join; `PairingSettledOut` —
+**both full `ObligationCitationOut` sides** plus `verdict`, `actor` and `rationale`, each addition
+because the shape measured here was wrong. Ids alone leave the screen nothing to draw in precisely
+the case the list is full: a settled pair is never also a candidate, so two `distinct` verdicts
+between one edition pair give `settled=2, items=0` and no row to borrow the statements from. And a
+settled model without `rationale` makes the undo button post an empty reason — `RECORD` SETs
+`rationale` unconditionally — erasing the justification of the verdict being reversed, unseen.
+`PairingQueueOut` — `items`, `settled`, `pairings_unapplied`, `pending` on the review queue's own
+pattern (`models.py:239-244`), and **`pending_by_outcome`**, the backlog split by label: a declined
+pair scores at or below whatever beat it, so a confidence-ordered page cuts declines first, and the
+breakdown is what tells a reviewer a class exists before they filter to it;
 `PairingVerdictIn` — `verdict` and `rationale`, no actor, for `VerdictIn`'s reason
 (`models.py:247-257`). The screen is `frontend/src/views/Pairings.tsx` with a `routes.tsx` entry
 and `client.ts` functions — a deliverable, not a knock-on. Bounded and reporting its own backlog,
@@ -405,7 +471,16 @@ its wording verbatim; the review queue's persisted proposal rationale must not c
 - `PROMOTE` (`decisions.py:43-49`) has no document predicate, so §1 makes `IMPLEMENTS`
   cross-document only for *new* proposals, transitively via the 404 at `review.py:195-202`. The
   `propagate.py` guard already shipped means a stray same-document edge can no longer produce a
-  Triage row, but enforcement belongs at `record_decision` too.
+  Triage row, but enforcement belongs at `record_decision` **and at `PROMOTE`**. Written during
+  implementation, because the recorder alone is a rule about verdicts recorded since rather than
+  about the graph: a legacy same-document `approve` whose obligation node is absent when the
+  Migration runs matches neither its conversion query nor its census — both open by matching both
+  obligations — and when a rebuild re-extracts the clause under the same content-derived id, the
+  next replay promotes the edge. `PROMOTE` is the only writer of `IMPLEMENTS` anywhere, so the
+  predicate belongs there for the same reason §1's belongs in `propose_links`. Phrased as "one
+  document holds both" and negated, never as "I cannot see two documents": a verdict one side of
+  which a re-extraction stranded resolves to no document at all, and the second phrasing would
+  refuse every legitimate cross-document promotion the moment one clause moved.
 - **The export must carry the new canonical node or Reset destroys it.** The decisions category
   matches only `:LinkDecision` (`export.py`); `/admin/reset` runs `MATCH (n) DETACH DELETE n` and
   the Reset screen tells the user the export is their only copy. A `:PairingDecision` left out of
@@ -419,6 +494,13 @@ its wording verbatim; the review queue's persisted proposal rationale must not c
   `:PairingDecision` category is exported as **`pairing_decisions`**, specified by the same
   fields §4 names — both obligation ids, verdict, actor, rationale, timestamp — and the Reset
   copy names it.
+- **The `decisions` category widens to `:LinkDecision|RetiredLinkDecision`, with
+  `retired_reason`.** Written during implementation: the Migration relabels every converted verdict,
+  so a query matching the live label alone exports one decision before the first boot after this
+  change and none after it, silently — and the Reset screen calls the export the only copy.
+  Retirement is not deletion, and ADR-014 turns on the verdict surviving somewhere a copy can reach.
+  `retired_reason` travels with it because a verdict alone stops explaining itself once a decision
+  can be retired for five different reasons (Migration).
 
 ## Migration
 
@@ -519,6 +601,14 @@ Live-graph counts quoted in earlier revisions (119 proposals, two decisions) are
 dev graph on 2026-09-09, not repository facts, and the migration must be written to work from
 whatever it finds.
 
+**Take `GET /export` before the first boot after this ships.** The migration runs inside
+`lifespan`, in one write transaction, with no dry run and no opt-out, so an operator cannot see its
+counts until they are already facts. Everything it does is recoverable by hand — retirement keeps
+the node and every property, and the `IMPLEMENTS`/`IMPLEMENTS_PROPOSED` edges it deletes are derived
+— but the export is the only copy of a verdict, and it sits behind the app that runs the migration.
+A step in the deploy note, not a setting: a dry-run flag would be a second code path over canonical
+decisions, and the export already exists.
+
 ## Testing
 
 - Same-document candidates produce no proposal; cross-document ones still do.
@@ -562,6 +652,18 @@ whatever it finds.
   409 naming the pairing to mark `distinct` first; a middle edition's clause paired into both
   adjacent pairs — B to its A-predecessor and to its C-successor — is accepted, and each diff
   applies only its own.
+- **Two *concurrent* `paired` verdicts on one clause cannot both land**: two barriered sessions
+  posting at once give one 200 and one 409, never two 200s, and the graph holds one live `paired`
+  verdict afterwards. Asserted again with a `:PairingLock` for that edition pair already present,
+  so the case where the `MERGE` matches rather than creates is covered too. Integration-marked,
+  because the race needs two real sessions against a live database — and named here because
+  removing the `lock_edition_pair` call together with `pairing_lock_key_unique` leaves the whole
+  non-integration suite green, which makes this the one mechanism on the feature with no guard in
+  the developer's own loop.
+- **A decline is reachable when the page is full of pairings the diff made.** Asserted through the
+  route: an unfiltered page capped below the number of `auto_paired` rows returns only those, the
+  backlog breakdown still names the declined class and its count, and the same request with
+  `outcome` set returns the decline. An unknown `outcome` is a 400, not an empty page.
 - `GET /pairings/queue` returns candidates for an edition pair never opened in Triage, and 400s a
   reversed from/to instead of diffing it.
 - A reversed *Triage* run followed by a chronological one leaves no orphaned candidate edge — the
@@ -584,6 +686,15 @@ whatever it finds.
   export → reset → import": no importer exists (`export.py` is export-only by design and the
   Reset screen says so), and the first export test asserted literals its own fixture wrote — the
   fixture must go through the recording function, as the repaired `:LinkDecision` test now does.
+- A decision the Migration has **retired** is still exported, with its `retired_reason`, driven
+  through the real migration rather than by CREATE-ing a relabelled node: the test that matters is
+  the one that would have gone red when the first boot moved every legacy verdict out of the live
+  label.
+- A same-document `approve` already in the graph promotes nothing — `replay_decisions` returns
+  `promoted: 0` and writes no edge — while a cross-document one still promotes. The mutant is
+  `PROMOTE` without its document predicate.
+- A `:LinkDecision` one of whose obligation nodes is gone is counted by the Migration rather than
+  reported as a clean graph, and is left exactly as it was for the repoint path to repair.
 - End-to-end: a cross-document `IMPLEMENTS` over a confirmed pairing yields a Triage row with the
   correct `previous_statement`.
 
