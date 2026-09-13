@@ -250,6 +250,11 @@ export interface PairingQueue {
    *  server-side, and the review queue read "Proposal 1 of 50" over 119 waiting
    *  because nothing distinguished the page from the backlog. */
   pending: number
+  /** The same backlog split by the diff's label, counted over the graph and
+   *  never over the page. A decline scores at or below whatever beat it, so a
+   *  confidence-ordered page cuts declines first — this is what tells a reviewer
+   *  a class exists before they filter to it, and it stays put when they do. */
+  pending_by_outcome: Record<string, number>
 }
 
 export interface TriageCitation {

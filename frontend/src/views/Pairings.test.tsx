@@ -108,7 +108,8 @@ const takenCandidate: PairingCandidate = {
   rationale: "they share 81% of the shorter clause's distinctive wording (components, records, retain).",
   outcome: 'partner_taken',
   // `new-9` is deliberately not an obligation on this page. `taken_by` carries
-  // ids, the queue is capped, and the winner frequently falls outside the cap.
+  // obligation ids and a candidate row holds no index from an id to a clause, so
+  // the id is printed as it came.
   taken_by: ['new-9'],
 }
 
@@ -181,6 +182,9 @@ const q = (over: Partial<PairingQueue> = {}): PairingQueue => ({
   settled: [],
   pairings_unapplied: 0,
   pending: 1,
+  // The backlog by label, as the route counts it: over the graph, never over the
+  // page. Overridden wherever a test's items say something different.
+  pending_by_outcome: { below_threshold: 1 },
   ...over,
 })
 
@@ -219,7 +223,11 @@ describe('Pairings', () => {
     getPairingQueue.mockResolvedValue(q())
     await choosePair()
 
-    await waitFor(() => expect(getPairingQueue).toHaveBeenCalledWith(OLDER, NEWER))
+    await waitFor(() =>
+      // '' is every outcome: the screen asks for the whole page until a reviewer
+      // narrows it, and the client drops a falsy outcome from the query string.
+      expect(getPairingQueue).toHaveBeenCalledWith(OLDER, NEWER, { outcome: '' }),
+    )
   })
 
   it('shows both clauses, the confidence, the rationale and which rule declined them', async () => {
@@ -246,10 +254,10 @@ describe('Pairings', () => {
   })
 
   it('names the clause that took this one by id, with the row still whole', async () => {
-    // `taken_by` carries obligation ids, and the queue is capped server-side, so
-    // the winner is routinely not on this page. The id is printed as the id; a
-    // screen that looked it up among the rows it happens to hold would print
-    // nothing here, which is the one row where the instruction lives.
+    // `taken_by` carries obligation ids, and this row holds no index from an id to
+    // a clause. The id is printed as the id; a screen that looked it up among the
+    // rows it happens to hold would print nothing the moment the winner was on
+    // another page, and this is the one row where the instruction lives.
     getPairingQueue.mockResolvedValue(q({ items: [takenCandidate], pending: 1 }))
     await choosePair()
 
@@ -513,6 +521,84 @@ describe('Pairings', () => {
 
     expect(screen.getByText(takenCandidate.old.statement)).toBeInTheDocument()
     expect(screen.queryByText(candidate.old.statement)).not.toBeInTheDocument()
+  })
+
+  it('reaches a decline the page is too small to hold', async () => {
+    // The defect this control exists for. Every pair at or above the bar is
+    // recorded, the page is ordered by confidence and capped, and a declined pair
+    // never outscores the pairing that beat it — so a page full of `auto_paired`
+    // rows is what a reviewer meets, and the pairs they came to settle are the
+    // ones the cap cut. Measured live: 61 candidates between one edition pair
+    // returned 50 rows, every one `auto_paired`, with the single decline
+    // reachable only past the page.
+    //
+    // The counts are what make the filter usable: they are the backlog's, so the
+    // screen can say a decline exists while showing none.
+    const paired: PairingCandidate = {
+      ...takenCandidate,
+      outcome: 'auto_paired',
+      confidence: 0.93,
+      taken_by: [],
+    }
+    getPairingQueue.mockImplementation(
+      (_from: string, _to: string, options: { outcome?: string }) =>
+        Promise.resolve(
+          options.outcome === 'below_threshold'
+            ? q({
+                items: [candidate],
+                pending: 2,
+                pending_by_outcome: { auto_paired: 1, below_threshold: 1 },
+              })
+            : q({
+                items: [paired],
+                pending: 2,
+                pending_by_outcome: { auto_paired: 1, below_threshold: 1 },
+              }),
+        ),
+    )
+    await choosePair()
+
+    // What the unfiltered page shows: the pairing the diff made, and no sign of
+    // the pair it could not.
+    expect(await screen.findByText(paired.old.statement)).toBeInTheDocument()
+    expect(screen.queryByText(candidate.old.statement)).not.toBeInTheDocument()
+    // But the count says a decline is there to ask for.
+    expect(
+      screen.getByRole('option', { name: /below the pairing bar \(1\)/i }),
+    ).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByLabelText(/outcome/i), 'below_threshold')
+
+    expect(await screen.findByText(candidate.old.statement)).toBeInTheDocument()
+    expect(screen.queryByText(paired.old.statement)).not.toBeInTheDocument()
+    expect(getPairingQueue).toHaveBeenLastCalledWith(OLDER, NEWER, {
+      outcome: 'below_threshold',
+    })
+  })
+
+  it('says a filtered page is empty without claiming the queue is', async () => {
+    // "Nothing is waiting to be paired between these two editions" is a
+    // different claim from "nothing here is below the bar", and printing the
+    // first under a filter is the false all-clear ADR-019 forbids — with 40
+    // contested pairs still waiting one select away.
+    getPairingQueue.mockResolvedValue(
+      q({
+        items: [],
+        pending: 40,
+        pending_by_outcome: { contested: 40 },
+      }),
+    )
+    await choosePair()
+    await screen.findByLabelText(/outcome/i)
+
+    await userEvent.selectOptions(screen.getByLabelText(/outcome/i), 'contested')
+
+    expect(
+      await screen.findByText(/no candidate between these two editions is labelled/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/nothing is waiting to be paired/i),
+    ).not.toBeInTheDocument()
   })
 
   it('reports a corpus it could not list as that, not as a queue that failed', async () => {

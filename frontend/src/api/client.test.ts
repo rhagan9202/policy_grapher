@@ -330,7 +330,7 @@ describe('pairings', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    await getPairingQueue('a', 'b', 25)
+    await getPairingQueue('a', 'b', { limit: 25 })
 
     expect(fetchMock.mock.calls[0][0] as string).toContain('limit=25')
   })

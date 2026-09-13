@@ -48,6 +48,26 @@ function rank(outcome: string): number {
   return at === -1 ? OUTCOME_ORDER.length : at
 }
 
+/** The outcomes a reviewer can ask for, in the headings' own order, with the
+ *  backlog count behind each.
+ *
+ *  Built from the counts the route returns rather than from `OUTCOME_ORDER`, so
+ *  an outcome this screen has no heading for is still offered — the reason
+ *  `rank` keeps unknown labels rather than dropping them. `selected` is always
+ *  included: settling the last pair of a class takes its count to zero, and an
+ *  option that disappears while it is the chosen value leaves the select blank
+ *  with a filter still applied. */
+function filterChoices(
+  counts: Record<string, number>,
+  selected: string,
+): [string, number][] {
+  const names = new Set(Object.keys(counts))
+  if (selected) names.add(selected)
+  return [...names]
+    .sort((a, b) => rank(a) - rank(b))
+    .map((name) => [name, counts[name] ?? 0])
+}
+
 function byOutcome(items: PairingCandidate[]): [string, PairingCandidate[]][] {
   const groups = new Map<string, PairingCandidate[]>()
   for (const item of items) {
@@ -115,6 +135,12 @@ export default function Pairings() {
   const [fromVersionId, setFromVersionId] = useState('')
   const [toVersionId, setToVersionId] = useState('')
   const [queue, setQueue] = useState<PairingQueue | null>(null)
+  // '' is every outcome. A filter rather than a nicety: the page is capped and
+  // ordered by confidence, and a declined pair scores at or below the pairing
+  // that beat it, so on a heavily reworded edition pair the page holds nothing
+  // but pairings the diff already made — and the declines are what this screen
+  // exists to settle.
+  const [outcome, setOutcome] = useState('')
   const [loadError, setLoadError] = useState<string | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -196,7 +222,7 @@ export default function Pairings() {
     if (!fromVersionId || !toVersionId || fromVersionId === toVersionId) {
       return Promise.resolve()
     }
-    return getPairingQueue(fromVersionId, toVersionId)
+    return getPairingQueue(fromVersionId, toVersionId, { outcome })
       .then((found) => {
         if (request.current !== mine) return
         setQueue(found)
@@ -215,7 +241,7 @@ export default function Pairings() {
           cause instanceof Error ? cause.message : 'Failed to load the pairing queue.',
         )
       })
-  }, [fromVersionId, toVersionId])
+  }, [fromVersionId, toVersionId, outcome])
 
   useEffect(() => {
     void load()
@@ -243,6 +269,16 @@ export default function Pairings() {
     if (side === 'from') setFromVersionId(next)
     else setToVersionId(next)
     setQueue(null)
+    setLoadError(null)
+    setError(null)
+  }
+
+  // The queue is deliberately *not* cleared here, unlike a change of document or
+  // edition: the pair being asked about is the same one, and this control lives
+  // inside the block the queue gates — blanking it mid-request would take away
+  // the only way back to the unfiltered page.
+  function chooseOutcome(next: string) {
+    setOutcome(next)
     setLoadError(null)
     setError(null)
   }
@@ -406,12 +442,35 @@ export default function Pairings() {
           {queue && (
             <section>
               <p>
-                {queue.items.length} candidate{queue.items.length === 1 ? '' : 's'}
-                {queue.pending > queue.items.length && (
-                  <> shown, {queue.pending} waiting</>
-                )}
+                {queue.items.length} candidate{queue.items.length === 1 ? '' : 's'}{' '}
+                shown of {outcome ? queue.pending_by_outcome[outcome] ?? 0 : queue.pending}
+                {outcome
+                  ? ` under “${OUTCOME_LABEL[outcome] ?? outcome}”`
+                  : ' waiting'}
                 . {queue.settled.length} already settled.
               </p>
+
+              {/* The page is capped and ordered by confidence, and a declined
+                  pair never outscores the pairing that consumed its clause — so
+                  what a full page leaves out is exactly what this screen exists
+                  to settle. The counts are the whole backlog's, not the page's,
+                  which is what makes the choice informed rather than a guess. */}
+              <label>
+                Outcome{' '}
+                <select
+                  value={outcome}
+                  onChange={(event) => chooseOutcome(event.target.value)}
+                >
+                  <option value="">Every outcome ({queue.pending})</option>
+                  {filterChoices(queue.pending_by_outcome, outcome).map(
+                    ([value, total]) => (
+                      <option key={value} value={value}>
+                        {OUTCOME_LABEL[value] ?? value} ({total})
+                      </option>
+                    ),
+                  )}
+                </select>
+              </label>
 
               {queue.pairings_unapplied > 0 && (
                 <p>
@@ -424,7 +483,12 @@ export default function Pairings() {
               )}
 
               {queue.items.length === 0 ? (
-                <p>Nothing is waiting to be paired between these two editions.</p>
+                <p>
+                  {outcome
+                    ? `No candidate between these two editions is labelled
+                       “${OUTCOME_LABEL[outcome] ?? outcome}”.`.replace(/\s+/g, ' ')
+                    : 'Nothing is waiting to be paired between these two editions.'}
+                </p>
               ) : (
                 byOutcome(queue.items).map(([outcome, items]) => (
                   <section key={outcome}>

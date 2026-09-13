@@ -278,6 +278,140 @@ def test_a_taker_from_a_third_edition_does_not_appear_in_taken_by(client_with_au
     assert later_ids[FUNDS_LATER] not in declined[0]["taken_by"]
 
 
+# A clause with enough distinctive vocabulary of its own that the wording pass
+# scores it against nothing else, paired with a rewrite sharing only the two
+# words that name the actor: 0.40, which is over `MIN_CONFIDENCE` and under
+# `PAIRING_CONFIDENCE`. A decline the bound keeps, because both ends finish the
+# greedy loop unpaired and it is the only sub-threshold candidate either has.
+DECLINED_OLD = (
+    "Installation commanders shall inspect barracks plumbing, wiring, heating "
+    "and drainage twice each winter."
+)
+DECLINED_NEW = "Installation commanders will publish roofing standards."
+
+
+@pytest.mark.integration
+def test_a_decline_is_reachable_behind_a_page_full_of_pairings_the_diff_made(
+    client_with_auth,
+):
+    """The queue exists to settle what the diff declined, and without the
+    outcome filter it cannot reach one.
+
+    Every candidate at or above `PAIRING_CONFIDENCE` is recorded
+    unconditionally, and a decline is by construction at or below the confidence
+    of whatever beat it — `partner_taken` never outscores the winner that
+    consumed its endpoint, `contested` sits within `PAIRING_MARGIN` of its
+    rival, `below_threshold` is under the bar entirely. `CANDIDATES` orders by
+    `confidence DESC` and caps the page, so the declines are what the cap cuts,
+    at every value of the cap. Measured live on a 61-clause edition pair: the
+    default page returned 50 rows, every one `auto_paired`, and the single
+    decline appeared only at `limit=500`.
+
+    The cap is `limit=3` here rather than the default 50 because the burial does
+    not depend on its value: three pairings the diff made fill a three-row page
+    exactly as sixty fill fifty, and a fixture of sixty mutually
+    non-contesting pairs would measure the scorer rather than this route. What
+    the test pins is that the filter reaches the class the page cannot hold, and
+    that the breakdown says the class is there to ask for.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    old_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2018",
+        entries=[
+            ("3.1", REWORDED_OLD),
+            ("3.2", STRATEGY_OLD),
+            ("3.3", FUNDS_OLD),
+            ("3.4", DECLINED_OLD),
+        ],
+    )
+    new_ids = _seed(
+        driver, database, doc_slug="pol", version_id="pol@2020",
+        entries=[
+            ("4.1", REWORDED_NEW),
+            ("4.2", STRATEGY_NEW),
+            ("4.3", FUNDS_LATER),
+            ("4.4", DECLINED_NEW),
+        ],
+    )
+
+    page = client_with_auth.get(
+        "/pairings/queue",
+        params={
+            "from_version_id": "pol@2018",
+            "to_version_id": "pol@2020",
+            "limit": 3,
+        },
+    )
+    assert page.status_code == 200
+    body = page.json()
+    # The page the reviewer is given: three pairings the diff already made, and
+    # no sign of the one pair it could not.
+    assert [item["outcome"] for item in body["items"]] == ["auto_paired"] * 3
+    assert body["pending"] == 4
+    # The breakdown counts the backlog, not the page — which is the only reason
+    # a reviewer knows to ask for the decline at all.
+    assert body["pending_by_outcome"] == {"auto_paired": 3, "below_threshold": 1}
+
+    declines = client_with_auth.get(
+        "/pairings/queue",
+        params={
+            "from_version_id": "pol@2018",
+            "to_version_id": "pol@2020",
+            "limit": 3,
+            "outcome": "below_threshold",
+        },
+    )
+    assert declines.status_code == 200
+    settled_page = declines.json()
+    assert [item["outcome"] for item in settled_page["items"]] == ["below_threshold"]
+    reached = settled_page["items"][0]
+    assert reached["old"]["obligation_id"] == old_ids[DECLINED_OLD]
+    assert reached["new"]["obligation_id"] == new_ids[DECLINED_NEW]
+    # The filter narrows the page and nothing else: the backlog and its
+    # breakdown are the same numbers as the unfiltered request returned, so the
+    # count that justifies the filter does not vanish once it is applied.
+    assert settled_page["pending"] == 4
+    assert settled_page["pending_by_outcome"] == {
+        "auto_paired": 3,
+        "below_threshold": 1,
+    }
+
+
+@pytest.mark.integration
+def test_an_unknown_outcome_filter_is_refused_rather_than_answered_empty(
+    client_with_auth,
+):
+    """A mistyped filter must not read as "nothing of that kind is waiting".
+
+    Same argument as the 404 for an unknown edition: an empty queue is an
+    answer, and a typo must not be able to give it. The labels come from
+    `changes.diff.OUTCOMES`, so the route cannot drift from the writer.
+    """
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    _seed(
+        driver, database, doc_slug="pol", version_id="pol@2018",
+        entries=[("3.2", REWORDED_OLD)],
+    )
+    _seed(
+        driver, database, doc_slug="pol", version_id="pol@2020",
+        entries=[("4.1", REWORDED_NEW)],
+    )
+
+    response = client_with_auth.get(
+        "/pairings/queue",
+        params={
+            "from_version_id": "pol@2018",
+            "to_version_id": "pol@2020",
+            "outcome": "declined",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "below_threshold" in response.json()["detail"]
+
+
 @pytest.mark.integration
 def test_a_reversed_pair_is_a_400_not_a_reversed_diff(client_with_auth):
     """Nothing beneath this route carries chronology — `diff_versions` binds
@@ -1079,6 +1213,7 @@ def test_the_pairing_payloads_carry_exactly_these_fields():
         "settled",
         "pairings_unapplied",
         "pending",
+        "pending_by_outcome",
     }
 
 

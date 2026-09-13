@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from neo4j import Driver, RoutingControl
 
 from policy_grapher.auth import Principal, require_principal
-from policy_grapher.changes.diff import diff_versions
+from policy_grapher.changes.diff import OUTCOMES, diff_versions
 from policy_grapher.config import Settings
 from policy_grapher.dependencies import get_app_settings, get_driver
 from policy_grapher.links.pairing import (
@@ -86,7 +86,20 @@ RETURN v.version_id                              AS version_id,
 # the diff's drop: this route has already refused any pair that is not
 # older→newer, and `diff_versions` has just dropped and rewritten this pair's
 # edges from-side→to-side inside the same transaction, so every surviving edge
-# runs with the request. The taker joins are undirected and `:MANDATES`-scoped
+# runs with the request.
+#
+# `$outcome` is what makes a decline reachable, and the ordering below is why it
+# has to exist. Everything at or above `PAIRING_CONFIDENCE` is recorded
+# unconditionally (changes/diff.py), and a declined pair is *by construction* at
+# or below the confidence of whatever beat it: `partner_taken` scores no higher
+# than the winner that consumed its endpoint, `contested` sits within
+# `PAIRING_MARGIN` of its rival, and `below_threshold` is under the bar
+# altogether. So `confidence DESC` with a page cap cuts the declines first, and
+# on a heavily reworded edition pair — hundreds of candidates from one cross
+# product — the page holds nothing but pairs the diff already made. Filtering by
+# outcome gives each class its own page; `$outcome IS NULL` keeps the unfiltered
+# view, which is still confidence-ordered because within one class that is the
+# order a reviewer wants. The taker joins are undirected and `:MANDATES`-scoped
 # to the request's other edition, because one obligation serves every diff its
 # edition is in — a middle edition belongs to two pairs, and direction alone
 # cannot separate two diffs run from the same older edition. The greedy loop is
@@ -98,6 +111,7 @@ MATCH (to_version:DocumentVersion {version_id: $to_version_id})
 MATCH (from_version)-[:MANDATES]->(old:Obligation)
       -[r:PAIRING_CANDIDATE]->
       (new:Obligation)<-[:MANDATES]-(to_version)
+WHERE $outcome IS NULL OR r.outcome = $outcome
 --OLD-ANCHOR--
 --NEW-ANCHOR--
 MATCH (old_doc:Document)-[:HAS_VERSION]->(from_version)
@@ -182,17 +196,23 @@ SETTLED_CITATIONS = (
     .replace("--NEW-ANCHOR--", primary_anchor("new", "new_chunk"))
 )
 
-# The page's own match, counted without the LIMIT — the review queue's PENDING
-# reason: the page is capped, and the number a reviewer needs is the backlog.
-# No anti-join here, unlike review's, because none is needed: the diff never
-# re-records a settled pair as a candidate — the `:PairingDecision` is the
-# record — so every candidate edge between these two editions is an open
-# question by construction.
-PENDING = """
+# The page's own match, counted without the LIMIT and without the outcome
+# filter — the review queue's PENDING reason: the page is capped, and the number
+# a reviewer needs is the backlog. No anti-join here, unlike review's, because
+# none is needed: the diff never re-records a settled pair as a candidate — the
+# `:PairingDecision` is the record — so every candidate edge between these two
+# editions is an open question by construction.
+#
+# Grouped by outcome, and that is what makes the filter usable rather than a
+# guessing game: the counts are the whole backlog's, so a reviewer looking at a
+# page of `auto_paired` rows can see that four declines exist and ask for them.
+# A single total cannot say that, and a count taken under the filter would
+# vanish the moment it was applied.
+PENDING_BY_OUTCOME = """
 MATCH (:DocumentVersion {version_id: $from_version_id})-[:MANDATES]->(:Obligation)
       -[r:PAIRING_CANDIDATE]->
       (:Obligation)<-[:MANDATES]-(:DocumentVersion {version_id: $to_version_id})
-RETURN count(r) AS pending
+RETURN r.outcome AS outcome, count(r) AS total
 """
 
 # Which document and edition hold an obligation, plus the edition's ordering
@@ -270,6 +290,7 @@ def queue(
     from_version_id: str = Query(...),
     to_version_id: str = Query(...),
     limit: int = Query(default=50, ge=1, le=500),
+    outcome: str | None = Query(default=None),
     driver: Driver = Depends(get_driver),
     settings: Settings = Depends(get_app_settings),
     principal: Principal = Depends(require_principal),
@@ -280,8 +301,26 @@ def queue(
     "nothing to settle", which a mistyped version id must not be able to say.
     A pair that is not older→newer by the corpus ordering is a 400, because
     everything below this point binds request order and calls it from/to.
+
+    `outcome` narrows the page to one of the diff's labels, and the screen needs
+    it: the page is capped and a decline always scores at or below the pair that
+    beat it, so an unfiltered page of a heavily reworded edition pair holds only
+    pairings the diff already made. `pending_by_outcome` counts the whole
+    backlog by label, unfiltered, so the filter can be offered with the number
+    behind it rather than as a question.
     """
     database = settings.neo4j_database
+    if outcome is not None and outcome not in OUTCOMES:
+        # Refused rather than answered with an empty page, for the 404's reason:
+        # a mistyped label would read as "no candidate of that kind is waiting",
+        # which is the one thing a queue must not say by accident.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown outcome {outcome!r}; the diff labels a candidate with "
+                f"one of {list(OUTCOMES)}."
+            ),
+        )
     _require_version(driver, database, from_version_id)
     _require_version(driver, database, to_version_id)
 
@@ -350,6 +389,7 @@ def queue(
                     "from_version_id": from_version_id,
                     "to_version_id": to_version_id,
                     "limit": limit,
+                    "outcome": outcome,
                 },
             )
         ]
@@ -370,14 +410,22 @@ def queue(
                     },
                 )
             }
-        pending = tx.run(
-            PENDING,
-            {"from_version_id": from_version_id, "to_version_id": to_version_id},
-        ).single()["pending"]
-        return counts, candidates, settled, citations, pending
+        pending_by_outcome = {
+            record["outcome"]: record["total"]
+            for record in tx.run(
+                PENDING_BY_OUTCOME,
+                {
+                    "from_version_id": from_version_id,
+                    "to_version_id": to_version_id,
+                },
+            )
+        }
+        return counts, candidates, settled, citations, pending_by_outcome
 
     with driver.session(database=database) as session:
-        counts, candidates, settled, citations, pending = session.execute_write(_work)
+        counts, candidates, settled, citations, pending_by_outcome = (
+            session.execute_write(_work)
+        )
 
     return PairingQueueOut(
         items=[
@@ -414,7 +462,8 @@ def queue(
             for entry in settled
         ],
         pairings_unapplied=counts["pairings_unapplied"],
-        pending=pending,
+        pending=sum(pending_by_outcome.values()),
+        pending_by_outcome=pending_by_outcome,
     )
 
 

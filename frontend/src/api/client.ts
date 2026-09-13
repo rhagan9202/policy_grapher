@@ -236,16 +236,26 @@ export function recordVerdict(
 // that screen. Both ends are required: the route 400s a from/to that is not
 // older→newer by the corpus's own ordering, which is what stops a reversed pair
 // serving a reviewer a queue whose question is upside down.
+// `outcome` narrows the page to one of the diff's labels, and the screen cannot
+// reach a decline without it: every pair at or above the pairing bar is recorded,
+// the page is ordered by confidence and capped, and a declined pair never
+// outscores the one that beat it — so the cap cuts declines first. An options
+// object rather than two more positional parameters, because a bare
+// `getPairingQueue(a, b, undefined, 'contested')` at a call site says nothing
+// about either argument.
 export function getPairingQueue(
   fromVersionId: string,
   toVersionId: string,
-  limit?: number,
+  options: { limit?: number; outcome?: string } = {},
 ): Promise<PairingQueue> {
   const params = new URLSearchParams({
     from_version_id: fromVersionId,
     to_version_id: toVersionId,
   })
-  if (limit !== undefined) params.set('limit', String(limit))
+  if (options.limit !== undefined) params.set('limit', String(options.limit))
+  // Falsy rather than undefined: '' is how the screen spells "every outcome",
+  // and sending it would be an unknown label the route refuses with a 400.
+  if (options.outcome) params.set('outcome', options.outcome)
   return request<PairingQueue>(`/pairings/queue?${params.toString()}`)
 }
 

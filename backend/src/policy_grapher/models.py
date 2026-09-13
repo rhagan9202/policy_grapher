@@ -347,12 +347,21 @@ class PairingQueueOut(BaseModel):
     `pairings_unapplied` counts `paired` verdicts the diff could not apply
     because pass 1 matched the clause identically in both editions — counted,
     never dropped, so a shelved human verdict is at least visible.
+
+    `pending_by_outcome` splits that same backlog by the diff's label, and it is
+    not decoration. A declined pair scores at or below whatever beat it, so a
+    confidence-ordered page cuts declines first and an unfiltered page of a
+    heavily reworded edition pair shows only pairings the diff already made. The
+    breakdown is what tells a reviewer a class exists before they filter to it;
+    it counts the whole backlog, never the filtered page, so the number that
+    justifies a filter does not disappear when the filter is applied.
     """
 
     items: list[PairingCandidateOut]
     settled: list[PairingSettledOut]
     pairings_unapplied: int
     pending: int
+    pending_by_outcome: dict[str, int]
 
 
 class PairingVerdictIn(BaseModel):
