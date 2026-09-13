@@ -169,7 +169,8 @@ const REVERSED_DETAIL =
   + "date, then ingest time, then version id). The queue's question is "
   + 'one-directional — is the newer clause the older one reworded? — so a '
   + 'reversed pair would be answered upside down and its candidate edges written '
-  + 'backwards. Swap from and to: from_version_id must name the older edition.'
+  + 'backwards. Put the older edition first: that is from_version_id, and on the '
+  + "Pairings screen it is the picker labelled 'Older edition'."
 
 const CONFLICT_DETAIL =
   'A live paired verdict already links old-1 → new-9 within this edition '
@@ -601,6 +602,67 @@ describe('Pairings', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('says it is reading the queue rather than looking like nothing was asked', async () => {
+    // Everything below the pickers is gated on the queue, and choosing an edition
+    // clears it — so between the choice and the answer the screen was
+    // byte-identical to the state before anything was chosen. This GET runs the
+    // whole diff in a write transaction (549ms measured at 1,600 candidates
+    // pending), which is long enough for a reviewer to conclude there is nothing
+    // here and leave.
+    const answer = deferred<PairingQueue>()
+    getPairingQueue.mockReturnValue(answer.promise)
+    await choosePair()
+
+    const waiting = await screen.findByRole('status')
+    expect(waiting).toHaveTextContent(/reading the pairings/i)
+    // Not an empty queue, which is a different answer.
+    expect(screen.queryByText(/nothing is waiting to be paired/i)).not.toBeInTheDocument()
+
+    await act(async () => {
+      answer.resolve(q())
+    })
+
+    await screen.findByText(candidate.old.statement)
+    expect(screen.queryByText(/reading the pairings/i)).not.toBeInTheDocument()
+  })
+
+  it('does not still claim to be reading after a refusal', async () => {
+    // The other arm. A live region left standing under an error banner tells a
+    // reviewer an answer is still coming for a request that has already failed.
+    getPairingQueue.mockRejectedValue(new Error(REVERSED_DETAIL))
+    await choosePair()
+
+    await screen.findByRole('alert')
+    expect(screen.queryByText(/reading the pairings/i)).not.toBeInTheDocument()
+  })
+
+  it('says it is still listing the corpus rather than offering an empty picker', async () => {
+    // While `listDocuments` is in flight the document picker has no options in
+    // it, which reads exactly like a corpus holding no document with two
+    // editions — and that state has different advice.
+    const catalogue = deferred<typeof documents>()
+    listDocuments.mockReturnValue(catalogue.promise)
+    render(
+      <MemoryRouter>
+        <Pairings />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /looking for documents with more than one edition/i,
+    )
+    expect(screen.queryByLabelText(/document/i)).not.toBeInTheDocument()
+
+    await act(async () => {
+      catalogue.resolve(documents)
+    })
+
+    expect(await screen.findByLabelText(/document/i)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/looking for documents with more than one edition/i),
+    ).not.toBeInTheDocument()
+  })
+
   it('reports a corpus it could not list as that, not as a queue that failed', async () => {
     // Two failures, two claims. Reporting "could not load the pairing queue"
     // beside an empty document picker describes a request the reviewer has not
@@ -628,7 +690,11 @@ describe('Pairings', () => {
       </MemoryRouter>,
     )
 
-    expect(await screen.findByRole('status')).toHaveTextContent(/no document has two editions/i)
+    // By text, not by role: while the listing is in flight a second live region
+    // says so, and `findByRole('status')` would race the two.
+    expect(
+      await screen.findByText(/no document has two editions/i),
+    ).toBeInTheDocument()
     expect(getPairingQueue).not.toHaveBeenCalled()
   })
 })

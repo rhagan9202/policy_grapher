@@ -699,14 +699,25 @@ export default function DocumentDetail() {
                 </p>
               )}
 
+              {/* A standing condition, not this run's loss. The count is
+                  graph-wide — the query has no edition scope, because a verdict
+                  is stranded precisely when the join that would say which
+                  editions it belonged to fails — so attributing it to this
+                  rebuild would report a verdict stranded months ago on another
+                  document as something this build just did, on every build,
+                  forever. Nor is "the statements no longer match" what the query
+                  tests: it asks whether a clause is still held by an edition at
+                  all, which also covers a deleted document and a statement that
+                  became ambiguous. */}
               {(run.counts.pairing_decisions_stranded ?? 0) > 0 && (
                 <p>
                   {run.counts.pairing_decisions_stranded} recorded pairing verdict
-                  {run.counts.pairing_decisions_stranded === 1 ? '' : 's'} could not
-                  be carried across — the clauses they named no longer exist under
-                  those ids, and the statements no longer match. Those pairs come
-                  back to the pairing queue unanswered, and nothing there will say
-                  they were settled before.
+                  {run.counts.pairing_decisions_stranded === 1 ? '' : 's'} in the
+                  graph cannot be applied: a clause each one names is no longer
+                  held by any edition. Not only this build&rsquo;s — the count is
+                  every edition&rsquo;s, including verdicts stranded before this
+                  run. Those pairs come back to the pairing queue unanswered, and
+                  nothing there will say they were settled before.
                 </p>
               )}
             </div>

@@ -417,8 +417,8 @@ def record_decision(
         raise SameDocumentPair(
             f"{source_id!r} and {target_id!r} are both mandated by editions of "
             f"{same_document['slug']!r}. Within one document the question is "
-            "pairing, not implementation — that verdict belongs on a "
-            ":PairingDecision, not here."
+            "pairing, not implementation — record that verdict on the Pairings "
+            "screen instead."
         )
     tx.run(
         RECORD_DECISION,

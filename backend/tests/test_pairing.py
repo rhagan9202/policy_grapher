@@ -3,6 +3,7 @@
 import pytest
 from neo4j import RoutingControl
 
+from policy_grapher.documents import delete_document
 from policy_grapher.links.pairing import (
     CrossDocumentPair,
     count_stranded_pairings,
@@ -210,6 +211,48 @@ def test_a_pairing_whose_obligation_is_gone_is_counted_stranded(
 
     assert before == 0
     assert after == 1
+
+
+@pytest.mark.integration
+def test_a_pairing_whose_document_was_deleted_is_counted_stranded(
+    clean_graph, database
+):
+    """The loss nothing used to report. `DELETE /documents/{slug}` removes the
+    document, its versions and their chunks and leaves the obligations behind, so
+    both clauses still exist while `_SCOPE`'s `:MANDATES` join matches nothing —
+    `read_pairings` returns {} and `read_settled` returns [], and a count that
+    only asked whether the obligations existed said zero. A human verdict
+    silently stopped applying with every number saying there was nothing to say,
+    which is the exact failure this count was written to prevent on the rebuild
+    path.
+    """
+    _seed_edition(
+        clean_graph, database, version_id="e2018", obligation_ids=["old-clause"]
+    )
+    _seed_edition(
+        clean_graph, database, version_id="e2022", obligation_ids=["new-clause"]
+    )
+    _record(clean_graph, database, old="old-clause", new="new-clause", verdict="paired")
+
+    with clean_graph.session(database=database) as session:
+        before = session.execute_read(count_stranded_pairings)
+    delete_document(clean_graph, database, "doc")
+    with clean_graph.session(database=database) as session:
+        after = session.execute_read(count_stranded_pairings)
+
+    assert before == 0
+    # Both obligations are still there — which is why checking their existence
+    # alone could not see this.
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (o:Obligation) RETURN count(o) AS total", database_=database
+    )
+    assert records[0]["total"] == 2
+    assert after == 1
+    # And the reads really cannot reach it, which is what "stranded" has to mean.
+    with clean_graph.session(database=database) as session:
+        assert session.execute_read(
+            read_pairings, from_version_id="e2018", to_version_id="e2022"
+        ) == {}
 
 
 # --- the cross-document refusal -----------------------------------------------

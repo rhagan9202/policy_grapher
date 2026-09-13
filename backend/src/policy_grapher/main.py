@@ -78,6 +78,25 @@ async def lifespan(app: FastAPI):
     # number nobody reads is the same as not reporting it. The sentence is here
     # rather than only in the docstring for the same reason: an operator is
     # standing in a log, not in the source.
+    # Its own record too, and for the same argument: a number nobody reads is
+    # the same as not reporting it. The six counters beside it report work done,
+    # and a zero among them is ordinary. This one means a decision node carried a
+    # verdict `record_decision` could not have written — corruption, worth
+    # investigating — and it is announced exactly once, because the node is
+    # retired and the next boot reports zero. One INFO line among seven counters
+    # is not an announcement of that.
+    corrupt = migrated["retired_unknown_verdict"]
+    if corrupt:
+        logger.warning(
+            "Pairing decision migration: %d link decision(s) carried a verdict "
+            "no vocabulary recognises and were retired unconverted. "
+            "`record_decision` has always refused any value outside its own "
+            "verdicts, so a node holding one was written around it. The verdict "
+            "survives under :RetiredLinkDecision with retired_reason "
+            "'unknown_verdict' and is in the export; this is the only boot that "
+            "will report it.",
+            corrupt,
+        )
     unreadable = migrated["decisions_missing_documents"]
     if unreadable:
         logger.warning(

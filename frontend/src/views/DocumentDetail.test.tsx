@@ -1727,7 +1727,17 @@ describe('DocumentDetail, pairing decisions across a rebuild', () => {
       await screen.findByRole('button', { name: /build derived layer/i }),
     )
 
-    expect(await screen.findByText(/2 recorded pairing verdicts/i)).toBeInTheDocument()
+    const lost = await screen.findByText(/2 recorded pairing verdicts/i)
+    expect(lost).toBeInTheDocument()
+    // A standing condition, not this run's loss: the count is graph-wide, so
+    // attributing it to this build would report a verdict stranded months ago on
+    // another document as something this build just did — on every build, forever.
+    expect(lost).toHaveTextContent(/not only this build/i)
+    // And not a claim the query does not make: it asks whether a clause is still
+    // held by an edition, which is also true of a deleted document and of a
+    // statement that became ambiguous, so "the statements no longer match" was
+    // describing a narrower cause than the one being counted.
+    expect(lost).not.toHaveTextContent(/statements no longer match/i)
     expect(screen.getByText(/4 pairing decisions/i)).toBeInTheDocument()
   })
 

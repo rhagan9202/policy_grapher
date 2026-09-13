@@ -114,21 +114,28 @@ RETURN d.old_obligation_id AS old_id,
        d.rationale         AS rationale
 """
 
-# A verdict whose obligation a re-extraction no longer produces. The decision
-# stays — it is a fact a human established — but the diff cannot apply it, and
-# a rebuild reporting only what it applied would look complete while a human
-# decision had quietly stopped being represented.
+# A verdict the diff can no longer apply. The decision stays — it is a fact a
+# human established — but a caller reporting only what it applied would look
+# complete while a human decision had quietly stopped being represented.
 #
-# Both verdicts, deliberately — this filters none, where `decisions.UNPROMOTABLE`
-# filters `approve` and `REJECTIONS_STRANDED` mirrors it for `reject`. That
-# split exists because those two losses differ in consequence; a stranded
-# `paired` and a stranded `distinct` do not. Either way the clause the verdict
-# named is gone, so the pair is re-asked from scratch. One count here is the
-# analogue of that pair of counts together, not of `UNPROMOTABLE` alone.
+# The condition is the exact complement of `_SCOPE`'s join, and that is what makes
+# it mean "unreachable" rather than "one node is missing". An obligation a
+# re-extraction no longer produces strands a verdict, and so does an obligation
+# that outlived its edition: `delete_document` removes the document, its versions
+# and their chunks and leaves the obligations behind, after which `_SCOPE` matches
+# nothing and both reads return empty while the obligations still exist. Checking
+# obligation existence alone reported that state as zero — a verdict silently
+# stopped applying with every count saying there was nothing to say.
 STRANDED = """
 MATCH (d:PairingDecision)
-WHERE NOT EXISTS { MATCH (:Obligation {obligation_id: d.old_obligation_id}) }
-   OR NOT EXISTS { MATCH (:Obligation {obligation_id: d.new_obligation_id}) }
+WHERE NOT EXISTS {
+        MATCH (:DocumentVersion)-[:MANDATES]->
+              (:Obligation {obligation_id: d.old_obligation_id})
+      }
+   OR NOT EXISTS {
+        MATCH (:DocumentVersion)-[:MANDATES]->
+              (:Obligation {obligation_id: d.new_obligation_id})
+      }
 RETURN count(d) AS stranded
 """
 
@@ -267,8 +274,8 @@ def record_pairing(
             f"{cross_document['old_slug']!r} and "
             f"{cross_document['new_slug']!r}. A pairing runs between two "
             "editions of one document — whether one document's clause "
-            "discharges another's is the implements question, and that verdict "
-            "belongs on a :LinkDecision, not here."
+            "discharges another's is the implements question, and it is "
+            "answered on the Review screen."
         )
     tx.run(
         RECORD,
@@ -327,7 +334,14 @@ def read_settled(
 
 
 def count_stranded_pairings(tx: ManagedTransaction) -> int:
-    """Decisions the graph can no longer express: either obligation is gone."""
+    """Decisions the diff can no longer apply: an obligation one of them names is
+    gone, or is no longer `:MANDATES`-ed by any edition.
+
+    Graph-wide, with no edition scope — a caller reporting it must not present it
+    as its own run's loss. There is no cheaper honest answer: a verdict is
+    stranded precisely when the join every read makes fails, and that join is
+    what would have told you which editions it belonged to.
+    """
     return tx.run(STRANDED).single()["stranded"]
 
 

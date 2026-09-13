@@ -347,6 +347,27 @@ export default function Pairings() {
   }
 
   const noPairableDocuments = corpusEmpty === false && documents.length === 0
+  // The corpus listing is still in flight. `corpusEmpty` is null until it
+  // answers, so without this the document picker renders with no options in it —
+  // indistinguishable from a corpus holding no document with two editions, which
+  // is a different thing with different advice. Not applied once the listing has
+  // failed: that has its own banner below, and `corpusEmpty` stays null forever
+  // after a failure.
+  const listingCorpus = corpusEmpty === null && catalogError === null
+  // A queue request is outstanding. Derived rather than tracked, and it reads off
+  // the invariant the handlers above keep: choosing a document or an edition
+  // clears `queue` and `loadError` before the effect re-fetches, so "a pair is
+  // chosen and neither an answer nor a refusal has arrived" is exactly the
+  // waiting state. Without it this screen renders the two pickers and nothing
+  // else while the request runs — byte-identical to the state before anything was
+  // chosen — and this GET runs a whole diff inside a write transaction, measured
+  // at 549ms with 1,600 candidates pending.
+  const awaitingQueue =
+    fromVersionId !== '' &&
+    toVersionId !== '' &&
+    fromVersionId !== toVersionId &&
+    queue === null &&
+    loadError === null
 
   return (
     <div className="view">
@@ -358,7 +379,9 @@ export default function Pairings() {
         document&rsquo;s duty is a different question, and it is Review&rsquo;s.
       </p>
 
-      {corpusEmpty ? (
+      {listingCorpus ? (
+        <p role="status">Looking for documents with more than one edition…</p>
+      ) : corpusEmpty ? (
         <EmptyState lead="There is nothing to pair." />
       ) : noPairableDocuments ? (
         <div role="status">
@@ -430,6 +453,13 @@ export default function Pairings() {
             <p>
               Those are the same edition. A pairing question runs between two of
               them.
+            </p>
+          )}
+
+          {awaitingQueue && (
+            <p role="status">
+              Reading the pairings between these two editions… this runs the diff,
+              so it takes a moment.
             </p>
           )}
 
@@ -511,12 +541,17 @@ export default function Pairings() {
                               reason. */}
                           <p>{Math.round(item.confidence * 100)}% confidence.</p>
                           <p>{item.rationale}</p>
-                          {/* The ids as they came. `taken_by` names obligations,
-                              the queue is capped, and the winner is routinely
-                              outside the page — so there is nothing on this
-                              screen to resolve them against, and a row that went
-                              blank when the lookup missed would lose the one
-                              instruction it carries. */}
+                          {/* The ids as they came. `taken_by` names obligations
+                              and this row holds no index from an id to a clause,
+                              so there is nothing here to resolve them against —
+                              and a row that went blank when a lookup missed would
+                              lose the one instruction it carries. (Not because the
+                              winner is usually off-page: it consumed the endpoint
+                              earlier in a confidence-descending loop, so it scores
+                              at least as high as this row and, under the same
+                              ordering, makes the page whenever this row does —
+                              measured at 1.0000 and 0.9091 above an 0.8000
+                              `partner_taken`.) */}
                           {item.taken_by.length > 0 && (
                             <p>
                               Already paired with <code>{item.taken_by.join(', ')}</code>.

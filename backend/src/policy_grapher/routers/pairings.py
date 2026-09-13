@@ -373,7 +373,8 @@ def queue(
                 "id). The queue's question is one-directional — is the newer "
                 "clause the older one reworded? — so a reversed pair would be "
                 "answered upside down and its candidate edges written backwards. "
-                "Swap from and to: from_version_id must name the older edition."
+                "Put the older edition first: that is from_version_id, and on "
+                "the Pairings screen it is the picker labelled 'Older edition'."
             ),
         )
 

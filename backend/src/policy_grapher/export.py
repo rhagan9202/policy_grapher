@@ -4,8 +4,9 @@ The Reset screen has always said "there is no undo and no export", and it was
 right. What Reset deletes is not uniformly expensive: chunks and obligations
 cost hours of inference but are cached and repeatable (ADR-013), so a rebuild
 reproduces them. A decision node is different. A reviewer's judgment is the only
-thing here a machine cannot regenerate, and the confirm dialog already says a
-rebuild replays decisions and cannot bring them back once they are gone.
+thing here a machine cannot regenerate, and the confirm dialog says so: a review
+verdict is replayed onto freshly proposed links by a rebuild, a pairing verdict is
+read by the diff, and neither can be brought back once the graph is emptied.
 
 Three labels carry that judgment now, not one: `:LinkDecision` for the
 implements question, `:PairingDecision` for the pairing question, and
@@ -95,10 +96,11 @@ QUERIES: dict[str, str] = {
     # surviving somewhere a copy can reach.
     #
     # `retired_reason` is null for a live decision and says why for a retired
-    # one. It is not decoration: the verdict alone stops explaining itself once
-    # a decision can be retired for four different reasons, and whether a
-    # judgement was converted, refused as ambiguous, or left to be settled by
-    # hand is the part a reader restoring from this file would need.
+    # one. It is not decoration: the verdict alone stops explaining itself once a
+    # decision can be retired for five different reasons — `converted`,
+    # `same_edition`, `unknown_verdict`, `conflicting_pairing`, `pairing_exists`,
+    # enumerated in `migrate.migrate_pairing_decisions` — and which of them
+    # applied is the part a reader restoring from this file would need.
     "decisions": """
         MATCH (decision:LinkDecision|RetiredLinkDecision)
         RETURN decision.key                  AS key,

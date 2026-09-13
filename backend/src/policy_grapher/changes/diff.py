@@ -330,7 +330,20 @@ def _pair_by_wording(
 
     # The scoring loop is a cross product, so recording everything under the bar
     # would write thousands of edges per edition pair and bury the one candidate
-    # worth a look under its own long tail. A sub-threshold record is kept iff at
+    # worth a look under its own long tail.
+    #
+    # Everything at or *above* the bar is recorded unconditionally and is
+    # deliberately not bounded the same way: those records are the pass's own
+    # decisions, and every bound anyone has proposed drops declines — which are
+    # the rows the pairing queue exists to show. The cost is real and is write
+    # volume per GET, not correctness: a wholly renumbered 30-clause edition
+    # measured 900 candidate edges, and the count is quadratic in unmatched
+    # clauses. Reachability is handled where it is a reading problem rather than a
+    # writing one — the queue filters by outcome (routers/pairings.py) — and a
+    # bound here would have to say which of a reviewer's questions it is throwing
+    # away.
+    #
+    # A sub-threshold record is kept iff at
     # least one of its endpoints finished the greedy loop unpaired AND it is that
     # endpoint's best sub-threshold candidate or within PAIRING_MARGIN of that
     # best. Judged after the loop, deliberately: before it, every endpoint is

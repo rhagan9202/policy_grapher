@@ -330,6 +330,17 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
         paired_endpoints[(editions, row["old_id"])] += 1
         paired_endpoints[(editions, row["new_id"])] += 1
     for candidate in convertible:
+        # A candidate already bound for `pairing_exists` does not convert, so it
+        # cannot be one of the two live `paired` verdicts the rule counts — and
+        # counting it anyway retires an innocent neighbour. Reachable through the
+        # product: a reviewer records `distinct` on (X, Y), a legacy `approve` on
+        # the same pair then retires as `pairing_exists` while still incrementing
+        # X, and a legitimate legacy `approve` on (X, Z) in the same edition pair
+        # retires as `conflicting_pairing` although the only live verdict on X is
+        # a `distinct`. `conflicting_keys` already excludes them for the same
+        # reason, one screen later.
+        if candidate["old_key"] in pairing_exists_keys:
+            continue
         if candidate["verdict"] != PairingVerdict.PAIRED.value:
             continue
         paired_endpoints[(candidate["editions"], candidate["old_id"])] += 1
@@ -448,7 +459,10 @@ def migrate_pairing_decisions(driver: Driver, database: str) -> dict[str, int]:
     - `retired_unknown_verdict` — decisions carrying a verdict no vocabulary
       recognises. Non-zero means corruption and is worth investigating, but it
       does not stop the run: raising inside `lifespan` would cost the whole
-      application over one node.
+      application over one node. `main.lifespan` logs it at WARNING for the
+      census's reason: it is not a work-done counter, and since retirement takes
+      the node out of this query one INFO line among seven would be the entire
+      announcement that a decision was found corrupt.
     - `retired_pairing_exists` — decisions whose pair a `:PairingDecision`
       already answers. Converting would overwrite that verdict, actor and
       rationale silently; the legacy one is retired unread instead.

@@ -121,9 +121,11 @@ export default function Reset() {
         <div role="dialog" aria-label="Confirm emptying the graph">
           <p>
             This <strong>cannot be undone</strong>. Every document, edition, chunk,
-            obligation, proposal and recorded decision is deleted — review verdicts
-            and pairing decisions alike, both of which a rebuild replays and
-            therefore cannot bring back once they are gone.
+            obligation, proposal and recorded decision is deleted — review verdicts,
+            which a rebuild replays onto freshly proposed links, and pairing
+            decisions, which the diff reads every time two editions are compared.
+            Neither is regenerated from anything: a rebuild replays the verdicts it
+            still has, and there are none after this.
           </p>
           <p>
             The Neo4j <strong>vector index</strong> is not deleted, because a reset

@@ -131,6 +131,23 @@ describe('Reset', () => {
 
     expect(screen.getByRole('dialog')).toHaveTextContent(/pairing decisions/i)
   })
+
+  it('does not tell the reader a rebuild replays a pairing decision', async () => {
+    // Nothing replays a `:PairingDecision`. `replay_decisions` matches
+    // `:LinkDecision` only, and a rebuild deliberately does not re-run the diff —
+    // it repoints pairing verdicts and counts them, and the verdict takes effect
+    // the next time two editions are compared. The dialog's conclusion (gone is
+    // gone) was right and its mechanism was not, on the one screen whose job is
+    // to be believed, about the very distinction this feature exists to draw.
+    render(<Reset />)
+
+    await userEvent.click(screen.getByRole('button', { name: /empty the graph/i }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveTextContent(/which a rebuild replays onto freshly proposed links/i)
+    expect(dialog).toHaveTextContent(/pairing decisions, which the diff reads/i)
+    expect(dialog).not.toHaveTextContent(/both of which a rebuild replays/i)
+  })
 })
 
 

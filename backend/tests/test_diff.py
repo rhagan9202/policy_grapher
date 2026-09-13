@@ -596,6 +596,42 @@ def test_a_pair_whose_both_sides_were_taken_is_partner_taken(monkeypatch):
     assert outcomes[("o1", "n2")] == "partner_taken"
 
 
+def test_a_pair_whose_old_side_alone_was_taken_is_partner_taken(monkeypatch):
+    """The arm neither fixture above can kill.
+
+    The chain fixture's declined pair loses its *new* side, and the both-sides
+    fixture loses both — so deleting `before["id"] in paired_old` from the guard
+    left every test in this file green while the label flipped to `contested`.
+    Structure is unaffected either way (the margin rule re-declines the pair), but
+    the labels are the remedy the screen prints: `contested` tells a reviewer the
+    two candidates were too close to separate, where the truth is that a
+    higher-scoring pair took one clause and a named winner exists to mark
+    distinct first.
+
+    Here the 0.80 pair shares only its *old* clause with the 0.90 winner, and its
+    new clause is taken by nothing.
+    """
+    _score_table(
+        monkeypatch,
+        {
+            ("old alpha", "new alpha"): 0.90,
+            ("old alpha", "new beta"): 0.80,
+        },
+    )
+    old = _keyed(_entry("o1", ["A"], "old alpha"))
+    new = _keyed(_entry("n1", ["B"], "new alpha"), _entry("n2", ["C"], "new beta"))
+
+    plan = _plan_changes(old, new)
+
+    assert _outcomes(plan) == {
+        ("o1", "n1"): "auto_paired",
+        ("o1", "n2"): "partner_taken",
+    }
+    assert [c["obligation_id"] for c in plan.changes if c["kind"] == MODIFIED] == [
+        "n1"
+    ]
+
+
 def test_recording_a_sub_threshold_rival_does_not_change_the_pairing(monkeypatch):
     """The invariant the whole feature hangs on: a 0.74 rival is recorded, and
     the 0.78 pair still auto-pairs. `_best_elsewhere` has no confidence filter

@@ -798,6 +798,68 @@ def test_decisions_whose_obligations_lost_their_document_are_counted_not_touched
 
 
 @pytest.mark.integration
+def test_a_pairing_exists_candidate_does_not_retire_an_innocent_neighbour(
+    clean_graph, database
+):
+    """The endpoint census must count only verdicts that will actually exist.
+
+    A candidate whose key a `:PairingDecision` already holds is retired as
+    `pairing_exists` and converts nothing — so it is not one of the two live
+    `paired` verdicts on one clause that the conflict rule exists to refuse.
+    Counting it anyway made the rule fire on a clause with no conflict at all,
+    and the victim was a legitimate legacy verdict on a *different* pair.
+
+    Reachable through the product since a reviewer can record `distinct` through
+    the pairing route: the live verdict on X below is a `distinct`, so there is no
+    `paired` verdict on X anywhere, and (X, Z) must convert.
+    """
+    (x_id,) = _seed_edition(
+        clean_graph, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    y_id, z_id = _seed_edition(
+        clean_graph, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING, SECOND_NEW],
+    )
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            record_pairing,
+            old_id=x_id,
+            new_id=y_id,
+            verdict="distinct",
+            actor="reviewer",
+            rationale="different duties",
+        )
+    _legacy_decision(clean_graph, database, source_id=x_id, target_id=y_id)
+    _legacy_decision(clean_graph, database, source_id=x_id, target_id=z_id)
+
+    counts = migrate_pairing_decisions(clean_graph, database)
+
+    assert counts == {
+        **ZEROS,
+        "retired_pairing_exists": 1,
+        "converted": 1,
+    }
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (p:PairingDecision) RETURN p.old_obligation_id AS old, "
+        "p.new_obligation_id AS new, p.verdict AS verdict ORDER BY p.verdict",
+        database_=database,
+    )
+    assert [(r["old"], r["new"], r["verdict"]) for r in records] == [
+        # The reviewer's own verdict, untouched, and the neighbour converted
+        # rather than retired over a conflict that was never there.
+        (x_id, y_id, "distinct"),
+        (x_id, z_id, "paired"),
+    ]
+    reasons, _, _ = clean_graph.execute_query(
+        "MATCH (d:RetiredLinkDecision) RETURN d.retired_reason AS reason "
+        "ORDER BY d.reason",
+        database_=database,
+    )
+    assert sorted(r["reason"] for r in reasons) == ["converted", "pairing_exists"]
+
+
+@pytest.mark.integration
 def test_a_decision_whose_obligation_is_gone_is_counted_not_reported_clean(
     clean_graph, database
 ):
@@ -1019,6 +1081,54 @@ def test_a_boot_survives_an_unrecognised_verdict(client_with_graph):
         database_=database,
     )
     assert [r["reason"] for r in records] == ["unknown_verdict"]
+
+
+@pytest.mark.integration
+def test_a_boot_warns_that_a_decision_was_found_corrupt(client_with_graph, caplog):
+    """A corruption signal announced once has to be announced loudly.
+
+    `retired_unknown_verdict` is not a work-done counter — its docstring says
+    non-zero means corruption — and unlike the six beside it, it goes quiet after
+    one boot, because the node it counted is retired out of the query. So that one
+    INFO dict among seven counters was the entire announcement that a decision
+    node was found carrying a verdict `record_decision` could never have written.
+    Same argument Adjudication 2 made for the census, and the same remedy.
+    """
+    driver = client_with_graph.app.state.driver
+    database = client_with_graph.app.state.settings.neo4j_database
+
+    (older_id,) = _seed_edition(
+        driver, database, version_id="doc@2018-08-31",
+        effective_date="2018-08-31", statements=[OLD_WORDING],
+    )
+    (newer_id,) = _seed_edition(
+        driver, database, version_id="doc@2022-07-28",
+        effective_date="2022-07-28", statements=[NEW_WORDING],
+    )
+    _legacy_decision(
+        driver, database, source_id=newer_id, target_id=older_id, verdict="maybe",
+    )
+
+    caplog.clear()
+    with (
+        caplog.at_level(logging.INFO, logger="policy_grapher.main"),
+        TestClient(main.app),
+    ):
+        pass
+
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "policy_grapher.main"
+        and record.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1, "a corruption signal needs a record of its own"
+    # What was found, where it survives, and that no later boot will repeat it —
+    # an operator standing in a log has only this line.
+    assert "1" in warnings[0]
+    assert "no vocabulary recognises" in warnings[0]
+    assert "RetiredLinkDecision" in warnings[0]
+    assert "only boot" in warnings[0]
 
 
 @pytest.mark.integration
