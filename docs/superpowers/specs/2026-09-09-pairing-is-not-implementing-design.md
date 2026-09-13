@@ -345,21 +345,7 @@ edition pair nobody had opened in Triage, and a verdict would take effect only n
 loaded that screen.
 
 So `GET /pairings/queue?from_version_id=&to_version_id=` calls `diff_versions` itself, exactly as
-Triage does, then returns the candidates, the settled pairs (§3), and `pairings_unapplied`.
-
-**The page is capped, and the cap cuts declines first, so the queue takes an `outcome` filter.**
-Written during implementation, because the whole-branch review proved the screen could not reach
-the pairs it exists to settle. Everything at or above `PAIRING_CONFIDENCE` is recorded
-unconditionally (§2), and a declined pair is by construction at or below the confidence of whatever
-beat it — `partner_taken` never outscores the winner that consumed its endpoint, `contested` sits
-within `PAIRING_MARGIN` of its rival, `below_threshold` is under the bar entirely — so a page
-ordered by confidence and capped at 50 holds nothing but pairings the diff already made. Measured
-live on a 61-clause edition pair: 50 rows, every one `auto_paired`, the single decline reachable
-only past the page. `outcome` narrows the page to one of §2's four labels, validated against the
-labels the diff writes so the two cannot drift, and an unrecognised one is a 400 rather than an
-empty page — an empty queue is an answer, and a typo must not be able to give it. The cap itself
-stays: what a class with more members than the cap needs is a bound on above-bar *recording*, which
-§2 deliberately does not have. It
+Triage does, then returns the candidates, the settled pairs (§3), and `pairings_unapplied`. It
 inherits the same "a GET writes derived nodes" trade that `routers/triage.py:66-69` already flags
 and accepts. **It also pins direction, because nothing beneath it does**: a from/to pair that is
 not older→newer by the corpus's own ordering — `coalesce(effective_date, '')` then `ingested_at`
@@ -370,6 +356,21 @@ question is upside down. The POST is not the protection here — it orders whate
 the 400 protects the queue and the graph. Triage keeps its arbitrary-direction behaviour; its
 reversed runs' edges are cleaned by §2's undirected drop and its verdicts still apply through
 §3's orientation-normalized lookup.
+
+**The page is capped, and the cap cuts declines first, so the queue takes an `outcome` filter.**
+Written during implementation, because the whole-branch review proved the screen could not reach the
+pairs it exists to settle. Everything at or above `PAIRING_CONFIDENCE` is recorded unconditionally
+(§2), and a declined pair is by construction at or below the confidence of whatever beat it —
+`partner_taken` never outscores the winner that consumed its endpoint, `contested` sits within
+`PAIRING_MARGIN` of its rival, `below_threshold` is under the bar entirely — so a page ordered by
+confidence and capped at 50 holds nothing but pairings the diff already made. Measured live on a
+61-clause edition pair: 50 rows, every one `auto_paired`, the single decline reachable only past the
+page. `outcome` narrows the page to one of §2's four labels, validated against the labels the diff
+writes so the two cannot drift, and an unrecognised one is a 400 rather than an empty page — an empty
+queue is an answer, and a typo must not be able to give it. `pending_by_outcome` reports the whole
+backlog per label beside it, because a filter nobody knows to apply is not a route to anything. The
+cap itself stays: what a class with more members than the cap needs is a bound on above-bar
+*recording*, which §2 deliberately does not have.
 
 `POST /pairings/{old_obligation_id}/{new_obligation_id}` records a verdict, actor from the
 authenticated principal. **Admissibility is membership, not a recorded edge**: the two obligations
