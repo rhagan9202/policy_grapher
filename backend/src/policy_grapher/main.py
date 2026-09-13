@@ -70,21 +70,13 @@ async def lifespan(app: FastAPI):
     # that finds legacy same-document decisions or proposals does any work.
     migrated = migrate_pairing_decisions(driver, settings.neo4j_database)
     logger.info("Pairing decision migration: %s", migrated)
-    # Its own record, at WARNING, because this one count is not like the seven
-    # beside it. They report work done and go quiet once there is none; this is
-    # a census of what the migration could not read, so it prints every boot
-    # for as long as the condition lasts. Inside the INFO dict that makes it
-    # indistinguishable from noise — a line the reader learns to skip — and a
-    # number nobody reads is the same as not reporting it. The sentence is here
-    # rather than only in the docstring for the same reason: an operator is
-    # standing in a log, not in the source.
-    # Its own record too, and for the same argument: a number nobody reads is
-    # the same as not reporting it. The six counters beside it report work done,
-    # and a zero among them is ordinary. This one means a decision node carried a
-    # verdict `record_decision` could not have written — corruption, worth
-    # investigating — and it is announced exactly once, because the node is
-    # retired and the next boot reports zero. One INFO line among seven counters
-    # is not an announcement of that.
+    # Its own record, and the argument is that a number nobody reads is the same
+    # as not reporting it. The other counters report work done, and a zero among
+    # them is ordinary. This one means a decision node carried a verdict
+    # `record_decision` could not have written — corruption, worth investigating
+    # — and it is announced exactly once, because the node is retired and the
+    # next boot reports zero. One line among nine counters is not an
+    # announcement of that.
     corrupt = migrated["retired_unknown_verdict"]
     if corrupt:
         logger.warning(
@@ -97,6 +89,12 @@ async def lifespan(app: FastAPI):
             "will report it.",
             corrupt,
         )
+    # Its own record too, and for a different reason from the one above: this is
+    # a census rather than a repair, so unlike the counters that go quiet once
+    # the work is done it prints on every boot for as long as the condition
+    # lasts. Inside the INFO dict that makes it indistinguishable from noise — a
+    # line the reader learns to skip. The sentence is here rather than only in
+    # the docstring because an operator is standing in a log, not in the source.
     unreadable = migrated["decisions_missing_documents"]
     if unreadable:
         logger.warning(

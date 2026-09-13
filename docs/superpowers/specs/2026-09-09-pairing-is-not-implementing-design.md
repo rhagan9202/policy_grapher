@@ -411,7 +411,7 @@ of it — the cost is that two reviewers settling unrelated pairs between the sa
 serialise, which on a human-driven review screen is not a cost worth a deadlock argument.
 
 Deliverables at the same granularity §8 demands elsewhere: `routers/pairings.py`, registered in
-`main.py:121-127` beside the seven existing routers; in `models.py` beside their review analogues
+`main.py:165-172` beside the seven existing routers (eight registrations now, this one included); in `models.py` beside their review analogues
 (`models.py:213-257`): `PairingCandidateOut` — `old` and `new` sides as `ObligationCitationOut`,
 `confidence`, `rationale`, `outcome`, and `taken_by`, a list of zero to two obligation ids naming
 the `auto_paired` winners' other ends via §2's `:MANDATES`-scoped join; `PairingSettledOut` —
