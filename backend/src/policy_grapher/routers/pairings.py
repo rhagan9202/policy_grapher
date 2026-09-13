@@ -205,9 +205,9 @@ SETTLED_CITATIONS = (
 #
 # Grouped by outcome, and that is what makes the filter usable rather than a
 # guessing game: the counts are the whole backlog's, so a reviewer looking at a
-# page of `auto_paired` rows can see that four declines exist and ask for them.
-# A single total cannot say that, and a count taken under the filter would
-# vanish the moment it was applied.
+# page of `auto_paired` rows can see that declines exist at all and ask for them.
+# A single total cannot say that, and a count taken under the filter would vanish
+# the moment it was applied.
 PENDING_BY_OUTCOME = """
 MATCH (:DocumentVersion {version_id: $from_version_id})-[:MANDATES]->(:Obligation)
       -[r:PAIRING_CANDIDATE]->
