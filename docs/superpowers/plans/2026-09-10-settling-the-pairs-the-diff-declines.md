@@ -10,6 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-09-pairing-is-not-implementing-design.md` (rev. 7 — the plan argues from it; conflicts resolve against the spec).
 
+> **Read as written-then, not as true-now.** This is the historical record of how the work was
+> sequenced. Its interface sketches, expected counts and per-task assertions were written before the
+> code existed and several were wrong when measured — five stale-count defects and one known-false
+> biconditional (the `documents_with_obligations` line below: holding obligations in two documents is
+> *necessary* for a proposal, not sufficient, since `score_pair` must still clear `MIN_CONFIDENCE`).
+> Anyone re-running a command here should expect different numbers. The spec, now at rev. 8 and
+> amended from the shipped code, is the document that is kept true.
+
 ## Global Constraints
 
 - **Pass-3 pairing structure is identical before and after every change**: `scored`, `_best_elsewhere`, and the greedy loop stay restricted to `confidence >= PAIRING_CONFIDENCE` (0.75, `diff.py:100`). Recording candidates must not change which pairs are made or declined, at which confidences. A mutation test guards this (Task 3).
