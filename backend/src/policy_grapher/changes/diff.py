@@ -10,12 +10,21 @@ document rather than just the reworded clauses. The diff therefore matches on th
 version-independent part of the identity: the section the clause sits in and its
 normalized statement.
 
-**`MODIFIED` is found by section, not by text similarity.** Nothing here measures
-how alike two sentences are. A section that holds exactly one unmatched clause on
-each side has been edited, and that is a fact about the document's structure. A
-section holding several falls back to `ADDED`/`REMOVED` and says so in the
-summary, because pairing two against two is a guess, and a wrong guess points a
-reviewer at the wrong sentence with no indication that it did.
+**Four things can pair two clauses, and they form a precedence chain.** A
+reviewer's recorded `paired` verdict is applied first and *consumes* both clauses,
+so nothing below can re-decide them. Pass 1 then matches a clause reproduced word
+for word — the one thing that may pre-empt a verdict, because an identical clause
+persisting in both editions is a fact rather than a judgement, and it is counted
+when it does. Pass 2 is the section rule: a section holding exactly one unmatched
+clause on each side has been edited, and that is a fact about the document's
+structure, which no measurement improves on. Pass 3 is the wording pass, which
+*does* measure how alike two statements are — `links.propose.score_pairing`,
+shared content words weighted by shared designators (ADR-031) — above a higher bar
+than the proposer's, and which declines rather than guesses when two candidates
+score within a hair of each other. A section holding several unmatched clauses
+that the wording pass could not pair falls back to `ADDED`/`REMOVED` and says so
+in the summary, because pairing two against two is a guess, and a wrong guess
+points a reviewer at the wrong sentence with no indication that it did.
 """
 
 import hashlib
@@ -32,6 +41,18 @@ ADDED = "ADDED"
 REMOVED = "REMOVED"
 MODIFIED = "MODIFIED"
 KINDS = (ADDED, REMOVED, MODIFIED)
+
+# What the wording pass decided about one pair, in the order its rules fire.
+# Named constants rather than literals at the four append sites because the
+# pairing queue filters on these strings: a route validating against its own
+# hand-written list would stop matching the day a label changed here, and an
+# unmatched filter value reads as an empty queue — "nothing to settle" — which
+# is the one answer this feature must never give by accident.
+AUTO_PAIRED = "auto_paired"
+PARTNER_TAKEN = "partner_taken"
+CONTESTED = "contested"
+BELOW_THRESHOLD = "below_threshold"
+OUTCOMES = (AUTO_PAIRED, PARTNER_TAKEN, CONTESTED, BELOW_THRESHOLD)
 
 AMBIGUOUS_SECTION = (
     "Section {section} holds more than one obligation that changed, so this is "
@@ -222,7 +243,7 @@ def _pair_by_wording(
                         "new_id": after["id"],
                         "confidence": candidate.confidence,
                         "rationale": candidate.rationale,
-                        "outcome": "below_threshold",
+                        "outcome": BELOW_THRESHOLD,
                     }
                 )
 
@@ -257,7 +278,7 @@ def _pair_by_wording(
                     "new_id": after["id"],
                     "confidence": confidence,
                     "rationale": rationale,
-                    "outcome": "partner_taken",
+                    "outcome": PARTNER_TAKEN,
                 }
             )
             continue
@@ -274,7 +295,7 @@ def _pair_by_wording(
                     "new_id": after["id"],
                     "confidence": confidence,
                     "rationale": rationale,
-                    "outcome": "contested",
+                    "outcome": CONTESTED,
                 }
             )
             continue
@@ -287,7 +308,7 @@ def _pair_by_wording(
                 "new_id": after["id"],
                 "confidence": confidence,
                 "rationale": rationale,
-                "outcome": "auto_paired",
+                "outcome": AUTO_PAIRED,
             }
         )
         changes.append(
@@ -370,10 +391,17 @@ def _plan_changes(
     # sharing an endpoint would break that: the first pops the shared clause
     # and the second's lookup then fails, counting a conflict between two
     # reviewers as a pass-1 pre-emption. **This code depends on that state not
-    # reaching the graph, and nothing on this branch enforces it yet** — the
-    # POST that refuses it with a 409 is Task 10's, scoped so a middle
-    # edition's clause may still pair into both of its adjacent edition pairs.
-    # Until that lands, the count can overstate.
+    # reaching the graph, and every writer of a `:PairingDecision` refuses it.**
+    # The pairing route answers the second verdict with a 409 scoped to the
+    # edition pair — so a middle edition's clause may still pair into both of
+    # its adjacent pairs — and takes that pair's lock before reading, because
+    # under read-committed the conflict read alone serialises nothing
+    # (`routers/pairings.py`, `links.pairing.lock_edition_pair`). The startup
+    # migration screens the same state on keys and on paired endpoints, seeded
+    # from the decisions already in the graph so the rule holds across boots
+    # (`migrate.py`). And `repoint_decisions` cannot collapse two verdicts onto
+    # one pair: two obligations sharing a statement are ambiguous and go
+    # unrepointed (`links/decisions.py`).
     #
     # `paired` and `distinct` can both name the same two obligations, because
     # `pairing_key` is directional and the two orientations are two records.

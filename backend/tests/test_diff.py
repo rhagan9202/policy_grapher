@@ -516,7 +516,7 @@ def _outcomes(plan) -> dict[tuple[str, str], str]:
 def _records(plan) -> dict[tuple[str, str], dict]:
     """Whole candidate records by pair, for the assertions `_outcomes` cannot
     make: it projects the label away from the confidence and the rationale, and
-    those two are what Task 4 persists and a reviewer reads."""
+    those two are what `WRITE_CANDIDATES` persists and a reviewer reads."""
     return {(c["old_id"], c["new_id"]): c for c in plan.candidates}
 
 
@@ -575,8 +575,8 @@ def test_a_contested_label_needs_no_taken_partner(monkeypatch):
 
 def test_a_pair_whose_both_sides_were_taken_is_partner_taken(monkeypatch):
     """Both endpoints can be consumed — the decline fires when *either* is —
-    so up to two auto_paired winners exist for one declined pair. The queue
-    names each side's taker (Task 10); this pins the state it reads from."""
+    so up to two auto_paired winners exist for one declined pair. The pairing
+    queue names each side's taker; this pins the state it reads from."""
     _score_table(
         monkeypatch,
         {
@@ -669,13 +669,14 @@ def test_a_pair_below_the_floor_is_not_recorded_even_when_the_scorer_returns_it(
 
 
 def test_a_recorded_candidate_carries_the_score_it_was_judged_on(monkeypatch):
-    """A label alone is not a reviewable record. Task 4 persists `confidence`
-    and `rationale` verbatim and Task 10 puts them on a person's screen, so a
+    """A label alone is not a reviewable record. `WRITE_CANDIDATES` persists
+    `confidence` and `rationale` verbatim and the pairing screen puts them in
+    front of a reviewer, so a
     zeroed confidence or a blank rationale is a wrong number in front of the
     reviewer, not a cosmetic defect — and `_outcomes` projects both away.
 
-    Whole-record equality, so the key set is pinned too: Task 4's writer reads
-    exactly these five keys. The three exits carry three different confidences
+    Whole-record equality, so the key set is pinned too: `WRITE_CANDIDATES`
+    reads exactly these five keys. The three exits carry three different confidences
     on purpose, so a record cannot quietly borrow another row's."""
     _score_table(
         monkeypatch,
@@ -928,9 +929,9 @@ def test_a_persisted_candidate_carries_its_confidence_rationale_and_outcome(
 ):
     """Counting edges cannot see this. Blank the SET clause in WRITE_CANDIDATES
     and every other test in this file still passes, while every candidate edge
-    in the graph carries a null outcome and no rationale — and Task 10 puts
-    those three in front of a person deciding whether one clause is the other
-    reworded. A question asked with its evidence missing is worse than one not
+    in the graph carries a null outcome and no rationale — and the pairing
+    screen puts those three in front of a person deciding whether one clause is
+    the other reworded. A question asked with its evidence missing is worse than one not
     asked.
 
     Whole-record equality rather than three presence checks: a wrong-but-present
@@ -1045,9 +1046,9 @@ def test_the_declined_candidates_are_persisted_too_not_just_the_paired_one(
 
 # --- decisions threaded into the plan (spec §3) --------------------------------
 #
-# No second scorer stub here: every test below drives Task 3's `_score_table`,
-# defined earlier in this file. Task 3 hoisted `score_pairing` into
-# `changes.diff`'s own namespace, so `changes.diff.score_pairing` is the only
+# No second scorer stub here: every test below drives the `_score_table` helper
+# defined earlier in this file. `changes.diff` imports `score_pairing` into its
+# own namespace, so `changes.diff.score_pairing` is the only
 # seam that rebinds anything — patching `links.propose` would leave the real
 # scorer running behind an inert stub. `_score_table`'s keys are
 # (before_statement, after_statement), old→new, which is the order every table
@@ -1412,7 +1413,8 @@ def test_the_settled_sentence_does_not_silence_a_genuinely_ambiguous_section(
 def test_a_distinct_decision_keyed_in_the_other_orientation_still_suppresses(
     monkeypatch,
 ):
-    """The frozenset's whole purpose, and the one thing Task 3 left uncovered.
+    """The frozenset's whole purpose, and the one thing every forward-keyed
+    test above leaves uncovered.
     `read_pairings` returns keys in the record's canonical order, but this layer
     binds whatever from/to the caller passed, so a reversed Triage run hands the
     verdict over with the ids the other way round. Keep an ordered tuple and

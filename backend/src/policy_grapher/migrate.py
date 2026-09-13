@@ -286,9 +286,9 @@ def _migrate(tx: ManagedTransaction) -> dict[str, int]:
     # (X,Z), which share an endpoint and must both convert.
     #
     # (b) Two `paired` verdicts naming one clause within one edition pair are
-    # the state the pairing route is specified to refuse with a 409 (spec §6) —
-    # and when that route lands this writer will not be behind it, so the rule
-    # has to hold here on its own.
+    # the state the pairing route refuses with a 409 (routers/pairings.py) —
+    # and this writer is not behind that route, so the rule holds here on its
+    # own.
     # Scoped per edition pair, so a middle edition's clause paired into both
     # adjacent pairs is legitimate and passes. `distinct` verdicts never
     # conflict — only a second live `paired` does. The already-recorded
@@ -420,8 +420,8 @@ def migrate_pairing_decisions(driver: Driver, database: str) -> dict[str, int]:
     - `retired_conflicting` — two verdicts the migration must not choose
       between: two decisions on one pair written in opposite orientations, or
       two `paired` verdicts naming one clause within one edition pair. A person
-      re-records the one they mean, through the pairing route once it exists
-      (spec §6).
+      re-records the one they mean through the pairing route, which enforces the
+      same conflict rule (routers/pairings.py).
     - `retired_unknown_verdict` — decisions carrying a verdict no vocabulary
       recognises. Non-zero means corruption and is worth investigating, but it
       does not stop the run: raising inside `lifespan` would cost the whole

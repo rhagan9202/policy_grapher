@@ -683,8 +683,8 @@ def test_undated_editions_are_oriented_by_ingest_time(clean_graph, database):
 def test_editions_tied_on_date_and_ingest_time_are_oriented_by_version_id(
     clean_graph, database
 ):
-    """The third leg — the tie-breaker this feature adds, and the one Task 10's
-    POST has to agree with, since two writers computing a directional key from
+    """The third leg — the tie-breaker this feature adds, and the one the
+    pairing route's POST has to agree with, since two writers computing a directional key from
     two different orderings produce two nodes for one pair.
 
     Two undated editions ingested in one instant tie on the first two legs, and

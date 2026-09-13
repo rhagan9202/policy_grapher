@@ -129,8 +129,8 @@ def test_the_runtime_version_falls_back_to_unknown_when_the_server_will_not_say(
 
 def test_the_cache_variant_combines_decoding_and_runtime_version():
     """Both halves of what silently varied a model's answer end up in the
-    variant the cache key is widened with. Default decoding is "schema"
-    (Task 3): passing no `decoding` argument exercises that default."""
+    variant the cache key is widened with. Default decoding is "schema":
+    passing no `decoding` argument exercises that default."""
     extractor = LocalExtractor(
         base_url="http://model",
         model="test-model",

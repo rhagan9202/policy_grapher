@@ -339,7 +339,7 @@ def test_write_chunks_return_value_reflects_what_was_actually_written(clean_grap
     assert records[0]["total"] == 1
 
 
-# --- Task 3: chunking connected to ingest, and exposed -------------------
+# --- chunking connected to ingest, and exposed ---------------------------
 
 
 @pytest.mark.integration
