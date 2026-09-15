@@ -132,16 +132,28 @@ first.
 **From the UI**, which is the shortest path and the one verified end to end on 2026-08-23 from
 a wiped volume against `llama3.1:8b`:
 
-1. **Ingest** both editions of an issuance — `500001p_2003.pdf` and `500001p_2020.pdf`.
-2. Open **Documents → DoDD 5000.01**. Pick an edition, tick the other under *Propose links
-   against*, and press **Build derived layer**. Progress reports chunk by chunk.
-   Naming candidates is the only thing that produces proposals: nothing in the graph records
-   which documents are higher-tier ([ADR-015](docs/specs/adr/ADR-015-changes-are-detected-and-ranked.md)),
-   so you say so and the route does not guess.
-3. Do the same for the other edition. Both sides need obligations before anything can be
-   proposed between them.
-4. **Review** shows the queue. Approve one — and that is what puts a row in **Triage**, because
-   a change is only actionable once it reaches a clause something of yours implements.
+1. **Ingest** at least two *different* instruments (for example DoDD 5000.01's editions
+   `500001p_2003.pdf` / `500001p_2020.pdf`, and another PDF such as DoDI 8500.01). Proposals
+   run between documents, not between two editions of one issuance — same-document rewording
+   is the **Pairings** screen.
+2. Decide which document is the *higher* tier whose changes you care about, and
+   which is the *lower* tier that implements it. Open the **lower** document.
+   Tick an edition of the **higher** document under *Propose links against*, and
+   press **Build derived layer**. Progress reports chunk by chunk. Naming
+   candidates is the only thing that produces proposals: nothing in the graph
+   records which documents are higher-tier
+   ([ADR-015](docs/specs/adr/ADR-015-changes-are-detected-and-ranked.md)), so you
+   say so and the route does not guess. Choosing none rebuilds without proposing;
+   sibling editions of the same document are omitted from the checkboxes on
+   purpose (that question is **Pairings**).
+3. Build the higher document's editions too so both sides have obligations. The
+   higher instrument needs **two editions** before Triage can diff it.
+4. **Review** shows the queue. Approve one — that writes `IMPLEMENTS` from the
+   lower clause to the higher one. Then open **Triage on the higher document's**
+   edition pair. Triage asks which of ours implements a clause that *changed in
+   the document you selected*; opening it on the lower document you rebuilt shows
+   unlinked changes even when Review is clear, because those links point the
+   other way. Same-edition pairing declines are settled on **Pairings**, not here.
 
 **Expect it to be slow.** With a real model a rebuild is one call per chunk: measured at ~91
 seconds a chunk on CPU across sprint 6 and 7's runs, so a 37-chunk edition is around an hour. A *second* rebuild over unchanged

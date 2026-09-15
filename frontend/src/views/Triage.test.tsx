@@ -61,6 +61,7 @@ const triage: TriageOut = {
   pairings_unapplied: 0,
   from_obligations: 96,
   to_obligations: 115,
+  outbound_implements: 0,
   rows: [
     {
       change_id: 'c1',
@@ -218,6 +219,28 @@ describe('Triage', () => {
     expect(screen.getByText(/approve links in review/i)).toBeInTheDocument()
   })
 
+  it('says when outbound links exist but point the other way', async () => {
+    // Measured live 2026-09-15: 25 IMPLEMENTS leave DoDD 5000.01 implementing
+    // 5143, Triage on 5000.01's edition pair shows 133 unlinked / 0 rows, and
+    // "Approve links in Review first" is a lie — Review is clear.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    getTriage.mockResolvedValue({
+      ...triage,
+      rows: [],
+      unlinked_changes: 3,
+      outbound_implements: 25,
+    })
+    showTriage()
+
+    await chooseAnEdition()
+
+    expect(
+      await screen.findByText(/links from these editions point the other way/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/approve links in review first/i)).not.toBeInTheDocument()
+  })
+
   it('says nothing changed when the editions agree', async () => {
     listDocuments.mockResolvedValue(documents)
     listVersions.mockResolvedValue(versions)
@@ -240,7 +263,7 @@ describe('Triage', () => {
     getTriage.mockResolvedValue({
       from_version_id: 'd@2018-01-01', to_version_id: 'd@2020-01-01',
       rows: [], total_changes: 0, unlinked_changes: 0,
-      from_obligations: 0, to_obligations: 0,
+      from_obligations: 0, to_obligations: 0, outbound_implements: 0,
     })
     showTriage()
     await chooseAnEdition()
@@ -255,7 +278,7 @@ describe('Triage', () => {
     getTriage.mockResolvedValue({
       from_version_id: 'd@2018-01-01', to_version_id: 'd@2020-01-01',
       rows: [], total_changes: 0, unlinked_changes: 0,
-      from_obligations: 96, to_obligations: 115,
+      from_obligations: 96, to_obligations: 115, outbound_implements: 0,
     })
     showTriage()
     await chooseAnEdition()
@@ -276,7 +299,7 @@ describe('Triage', () => {
     getTriage.mockResolvedValue({
       from_version_id: 'd@2018-01-01', to_version_id: 'd@2020-01-01',
       rows: [], total_changes: 113, unlinked_changes: 113,
-      from_obligations: 0, to_obligations: 113,
+      from_obligations: 0, to_obligations: 113, outbound_implements: 0,
     })
     showTriage()
     await chooseAnEdition()

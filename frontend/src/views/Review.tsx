@@ -141,12 +141,15 @@ export default function Review() {
       {corpusEmpty ? (
         <EmptyState lead="Nothing has been proposed for review." />
       ) : !item ? (
-        // STORY-090. "Nothing is waiting for review" is true of three different
+        // STORY-090. "Nothing is waiting for review" is true of four different
         // situations and tells a reader only one of them: that they are caught up.
         // On 2026-08-26 the graph held one edition with 114 obligations and three
         // with none, so no proposal could exist — and this screen said the queue
         // was clear. The same false all-clear ADR-015 and STORY-067 fixed on
-        // Triage, on the screen those fixes did not touch.
+        // Triage, on the screen those fixes did not touch. A later case: two
+        // documents already hold obligations but nobody named candidates on a
+        // rebuild (or a rebuild without candidates wiped the edges) — `proposals`
+        // is zero and "caught up" is still a lie.
         queue &&
         (queue.editions_with_obligations === 0 ? (
           <p>
@@ -168,6 +171,16 @@ export default function Review() {
             extract an edition of a second document, ingesting one first if this
             corpus has only the one; comparing a document's own editions is the
             pairing screen's question.
+          </p>
+        ) : queue.proposals === 0 ? (
+          <p>
+            <strong>Nothing has been proposed yet.</strong> At least two documents
+            hold obligations, but no link proposals exist — usually because a
+            rebuild ran with no candidates ticked under <em>Propose links
+            against</em>, or a later rebuild without candidates wiped them. Open a
+            document, tick another document's edition, and build the derived layer
+            again. Sibling editions of the same instrument belong on Pairings, not
+            here.
           </p>
         ) : (
           <p>Nothing is waiting for review.</p>

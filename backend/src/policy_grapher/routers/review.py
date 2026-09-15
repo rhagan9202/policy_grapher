@@ -103,8 +103,11 @@ WHY_EMPTY = """
 OPTIONAL MATCH (v:DocumentVersion)-[:MANDATES]->(:Obligation)
 WITH count(DISTINCT v) AS editions_with_obligations
 OPTIONAL MATCH (d:Document)-[:HAS_VERSION]->(:DocumentVersion)-[:MANDATES]->(:Obligation)
+WITH editions_with_obligations, count(DISTINCT d) AS documents_with_obligations
+OPTIONAL MATCH ()-[r:IMPLEMENTS_PROPOSED]->()
 RETURN editions_with_obligations,
-       count(DISTINCT d) AS documents_with_obligations
+       documents_with_obligations,
+       count(r) AS proposals
 """
 
 
@@ -163,6 +166,7 @@ def queue(
         items=items,
         editions_with_obligations=why[0]["editions_with_obligations"],
         documents_with_obligations=why[0]["documents_with_obligations"],
+        proposals=why[0]["proposals"],
         pending=counted[0]["pending"],
     )
 

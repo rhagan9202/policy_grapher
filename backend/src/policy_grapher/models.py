@@ -221,20 +221,25 @@ class ReviewItemOut(BaseModel):
 class ReviewQueueOut(BaseModel):
     """The queue, and enough to say why it is empty when it is — STORY-090.
 
-    "Nothing is waiting for review" is true of three different situations and
+    "Nothing is waiting for review" is true of four different situations and
     tells a reader only one of them: that they are caught up. It is equally
-    true when nothing has been extracted anywhere, and when obligations exist
-    in only one document — a proposal runs between two documents now that
-    same-document pairs belong to the diff, so nothing could be proposed yet.
-    `documents_with_obligations` counts distinct documents holding at least
-    one obligation in any edition; a proposal is impossible below 2. Necessary
-    and not sufficient: two documents whose obligations share no distinctive
-    vocabulary clear this count and still propose nothing, because the
-    proposer's floor is a separate condition this number says nothing about.
-    Its predecessor, `documents_comparable`, counted documents with two
-    obligation-holding editions — exactly the configuration that can no longer
-    yield a proposal, so the old count had become the false all-clear
-    STORY-090 added it to prevent.
+    true when nothing has been extracted anywhere, when obligations exist in
+    only one document — a proposal runs between two documents now that
+    same-document pairs belong to the diff, so nothing could be proposed yet —
+    and when two documents hold obligations but no `IMPLEMENTS_PROPOSED` edge
+    exists, because nobody named candidates on a rebuild (or a later rebuild
+    without candidates wiped the pending ones). `documents_with_obligations`
+    counts distinct documents holding at least one obligation in any edition;
+    a proposal is impossible below 2. Necessary and not sufficient: two
+    documents whose obligations share no distinctive vocabulary clear this
+    count and still propose nothing, because the proposer's floor is a
+    separate condition this number says nothing about. `proposals` is the
+    total of `IMPLEMENTS_PROPOSED` edges (decided or not); zero with two
+    documents ready is the fourth false all-clear. Its predecessor,
+    `documents_comparable`, counted documents with two obligation-holding
+    editions — exactly the configuration that can no longer yield a proposal,
+    so the old count had become the false all-clear STORY-090 added it to
+    prevent.
 
     Counted here rather than derived on the screen so that two views cannot
     drift into answering the same question differently, which is the failure
@@ -244,6 +249,10 @@ class ReviewQueueOut(BaseModel):
     items: list[ReviewItemOut]
     editions_with_obligations: int
     documents_with_obligations: int
+    # Every `IMPLEMENTS_PROPOSED` edge, decided or not. Distinguishes "caught
+    # up" (`pending == 0` with proposals still present) from "nothing was ever
+    # proposed / a rebuild wiped them" (`proposals == 0`).
+    proposals: int
     # Undecided proposals in the graph, not rows in `items`. The queue is capped,
     # so the two differ whenever there is real work: the screen read "Proposal 1
     # of 50" over 119 waiting, and went on reading it after every verdict because
@@ -414,6 +423,13 @@ class TriageOut(BaseModel):
     you own is affected" and "nothing has been reviewed yet, so this cannot see
     anything" are the same response, and one of them is a false all-clear.
 
+    `outbound_implements` is the fourth case of that false all-clear: reviewed
+    `IMPLEMENTS` edges leave *this* edition pair as the implementing side. Triage
+    only walks the opposite direction — something of ours IMPLEMENTS a changed
+    higher obligation — so an empty table while this count is non-zero means the
+    links exist and point the other way; they surface when the *other* document's
+    editions are triaged.
+
     `pairings_unapplied` extends that discipline to the reviewer's own verdicts.
     This GET runs the diff, and the diff applies the recorded pairing decisions;
     a `paired` verdict naming a clause pass 1 has already matched as persisting
@@ -435,6 +451,7 @@ class TriageOut(BaseModel):
     # second, and the default `null` extractor makes the third the common case.
     from_obligations: int
     to_obligations: int
+    outbound_implements: int
 
 
 class AskRequest(BaseModel):

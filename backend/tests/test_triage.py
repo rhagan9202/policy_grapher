@@ -862,6 +862,7 @@ def test_the_triage_payload_carries_exactly_these_fields():
         "pairings_unapplied",
         "from_obligations",
         "to_obligations",
+        "outbound_implements",
     }
 
 

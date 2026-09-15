@@ -239,6 +239,19 @@ export default function Triage() {
               </p>
             ) : result.total_changes === 0 ? (
               <p>No obligation changed between these editions.</p>
+            ) : result.outbound_implements > 0 ? (
+              <p>
+                <strong>Links from these editions point the other way.</strong>{' '}
+                {result.outbound_implements} reviewed{' '}
+                {result.outbound_implements === 1 ? 'link' : 'links'} leave a clause in
+                these editions implementing another document — and Triage asks the
+                opposite question: which of ours implements a clause that{' '}
+                <em>changed here</em>. Those outbound links surface when you open
+                Triage on the other document&apos;s edition pair (it needs two
+                editions to compare). To fill <em>this</em> table, rebuild a
+                lower-tier document with this one ticked under Propose links
+                against, then approve in Review.
+              </p>
             ) : (
               <p>
                 Nothing has been linked to these changes yet — this is not a

@@ -18,14 +18,24 @@ import Review from './Review'
 
 // STORY-090 changed `GET /review/queue` from a bare list to a payload carrying
 // the counts that say *why* a queue is empty. `q` keeps the fixtures reading as
-// lists; the two counts default to "both sides exist" — two documents holding
-// obligations — which is what every test about the queue's contents assumes.
+// lists; the counts default to "both sides exist and proposals were written" —
+// which is what every test about the queue's contents assumes. Pass
+// `proposals: 0` for the never-proposed false all-clear.
 const q = (
   items: unknown[],
   editions_with_obligations = 2,
   documents_with_obligations = 2,
   pending = items.length,
-) => ({ items, editions_with_obligations, documents_with_obligations, pending })
+  proposals?: number,
+) => ({
+  items,
+  editions_with_obligations,
+  documents_with_obligations,
+  pending,
+  proposals:
+    proposals ??
+    Math.max(pending, items.length, documents_with_obligations >= 2 ? 1 : 0),
+})
 
 
 // EmptyState links to the Ingest screen, so any view that can render it
@@ -348,8 +358,22 @@ describe('Review, why the queue is empty', () => {
     ).toBeInTheDocument()
   })
 
+  it('says nothing has been proposed when two documents are ready but no edges exist', async () => {
+    // The fourth false all-clear: obligations on two documents, empty queue,
+    // zero IMPLEMENTS_PROPOSED — rebuild never named candidates (or wiped them).
+    getReviewQueue.mockResolvedValue(q([], 4, 2, 0, 0))
+
+    render(<Review />)
+
+    expect(
+      await screen.findByText(/nothing has been proposed yet/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/nothing is waiting for review/i)).not.toBeInTheDocument()
+  })
+
   it('still says the queue is clear when it genuinely is', async () => {
-    getReviewQueue.mockResolvedValue(q([], 4, 2))
+    // proposals > 0 with pending == 0: edges exist, all decided.
+    getReviewQueue.mockResolvedValue(q([], 4, 2, 0, 12))
 
     render(<Review />)
 

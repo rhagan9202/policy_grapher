@@ -31,6 +31,18 @@ MATCH (:DocumentVersion {version_id: $version_id})-[:MANDATES]->(o:Obligation)
 RETURN count(o) AS obligations
 """
 
+# Reviewed links that leave *this* edition pair as the implementing side. Triage
+# only walks the opposite direction — something of ours IMPLEMENTS a changed
+# higher obligation — so an empty table while this count is non-zero is the
+# "I approved links on this document, why is Triage empty?" false all-clear:
+# those links assert that *these* clauses discharge another document, and they
+# surface when *that* document's editions are triaged, not these ones.
+COUNT_OUTBOUND = """
+MATCH (v:DocumentVersion)-[:MANDATES]->(ours:Obligation)-[:IMPLEMENTS]->(:Obligation)
+WHERE v.version_id IN [$from_version_id, $to_version_id]
+RETURN count(*) AS outbound_implements
+"""
+
 
 def _require_version(driver: Driver, database: str, version_id: str) -> None:
     records, _, _ = driver.execute_query(
@@ -114,17 +126,29 @@ def read_triage(
         to_obligations = tx.run(
             COUNT_OBLIGATIONS, {"version_id": to_version_id}
         ).single()["obligations"]
+        outbound_implements = tx.run(
+            COUNT_OUTBOUND,
+            {
+                "from_version_id": resolved_from,
+                "to_version_id": to_version_id,
+            },
+        ).single()["outbound_implements"]
         return (
             result,
             from_obligations,
             to_obligations,
             counts["pairings_unapplied"],
+            outbound_implements,
         )
 
     with driver.session(database=database) as session:
-        result, from_obligations, to_obligations, pairings_unapplied = (
-            session.execute_write(_work)
-        )
+        (
+            result,
+            from_obligations,
+            to_obligations,
+            pairings_unapplied,
+            outbound_implements,
+        ) = session.execute_write(_work)
 
     return TriageOut(
         from_version_id=resolved_from,
@@ -134,6 +158,7 @@ def read_triage(
         pairings_unapplied=pairings_unapplied,
         from_obligations=from_obligations,
         to_obligations=to_obligations,
+        outbound_implements=outbound_implements,
         rows=[
             TriageRowOut(
                 change_id=row.change_id,

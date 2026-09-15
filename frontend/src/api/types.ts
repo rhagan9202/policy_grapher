@@ -164,6 +164,10 @@ export interface ReviewQueue {
    *  longer yield a proposal, so keeping it would keep the false all-clear it
    *  existed to prevent. */
   documents_with_obligations: number
+  /** Every `IMPLEMENTS_PROPOSED` edge, decided or not. Zero with two documents
+   *  ready means nothing was proposed (or a rebuild without candidates wiped
+   *  them) — not that the reviewer is caught up. */
+  proposals: number
   /** Undecided proposals in the graph, not rows in `items`. The queue is capped
    *  server-side, so the screen read "Proposal 1 of 50" over 119 waiting — and
    *  kept reading it after every verdict, because deciding one refilled the page
@@ -310,6 +314,14 @@ export interface TriageOut {
    */
   from_obligations: number
   to_obligations: number
+  /**
+   * Reviewed `IMPLEMENTS` edges leaving this edition pair as the implementing
+   * side. Triage only walks the opposite direction, so an empty `rows` with a
+   * non-zero count here means the links exist and point the other way — open
+   * Triage on the document those edges target (and that document needs two
+   * editions to diff).
+   */
+  outbound_implements: number
 }
 
 export interface Citation {

@@ -316,9 +316,10 @@ def test_a_document_with_two_obligation_holding_editions_still_counts_once(
 
 @pytest.mark.integration
 def test_the_queue_reports_two_documents_that_could_be_linked(client_with_auth):
-    """The third: two documents each hold an obligation somewhere, so an empty
-    queue really does mean the work has been done rather than that it could
-    not start. One edition each — under the retired definition this read 0."""
+    """Two documents each hold an obligation somewhere. That is necessary for a
+    proposal, not sufficient: until someone rebuilds with candidates named,
+    `proposals` stays 0 and the empty queue is "not yet proposed", not "caught
+    up". One edition each — under the retired definition this read 0."""
     driver = client_with_auth.app.state.driver
     database = client_with_auth.app.state.settings.neo4j_database
     _seed_version(
@@ -330,6 +331,29 @@ def test_the_queue_reports_two_documents_that_could_be_linked(client_with_auth):
 
     assert body["editions_with_obligations"] == 2
     assert body["documents_with_obligations"] == 2
+    assert body["proposals"] == 0
+    assert body["pending"] == 0
+
+
+@pytest.mark.integration
+def test_the_queue_counts_proposals_even_when_none_are_pending(client_with_auth, queued):
+    """`proposals` stays after a verdict so "caught up" is distinguishable from
+    "never proposed". The fixture writes one undecided proposal; deciding it
+    leaves the edge and zeros `pending`."""
+    before = client_with_auth.get("/review/queue").json()
+    assert before["proposals"] == 1
+    assert before["pending"] == 1
+
+    item = before["items"][0]
+    client_with_auth.post(
+        f"/review/{item['source']['obligation_id']}/{item['target']['obligation_id']}",
+        json={"verdict": "approve"},
+    )
+
+    after = client_with_auth.get("/review/queue").json()
+    assert after["proposals"] == 1
+    assert after["pending"] == 0
+    assert after["items"] == []
 
 
 def test_the_review_queue_payload_carries_exactly_these_fields():
@@ -355,6 +379,7 @@ def test_the_review_queue_payload_carries_exactly_these_fields():
         "items",
         "editions_with_obligations",
         "documents_with_obligations",
+        "proposals",
         "pending",
     }
 
