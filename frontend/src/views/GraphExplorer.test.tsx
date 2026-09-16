@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -18,6 +18,8 @@ const { forceGraph, chargeForce, linkForce } = vi.hoisted(() => {
     forceGraph: {
       d3Force: vi.fn((name: string) => (name === 'charge' ? chargeForce : linkForce)),
       d3ReheatSimulation: vi.fn(),
+      pauseAnimation: vi.fn(),
+      resumeAnimation: vi.fn(),
     },
   }
 })
@@ -39,6 +41,12 @@ vi.mock('react-force-graph-2d', () => ({
     )
   },
 }))
+
+/** A click on the drawing. The stand-in above renders the nodes as buttons and
+ *  the panel's keyboard list renders the same labels, so a click meant for the
+ *  canvas has to say so — otherwise the query matches both and the test cannot
+ *  tell which route it exercised. */
+const canvas = () => within(screen.getByTestId('force-graph'))
 
 const getGraph = vi.fn()
 vi.mock('../api/client', () => ({
@@ -136,7 +144,7 @@ describe('GraphExplorer', () => {
 
     await waitFor(() => expect(screen.getByTestId('force-graph')).toBeInTheDocument())
     expect(getGraph).toHaveBeenCalledWith({})
-    expect(screen.getByText('DoDD 5000.01')).toBeInTheDocument()
+    expect(canvas().getByText('DoDD 5000.01')).toBeInTheDocument()
   })
 
   it('shows the name and kind of a clicked node', async () => {
@@ -144,7 +152,7 @@ describe('GraphExplorer', () => {
     showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
-    await userEvent.click(screen.getByRole('button', { name: 'DoDD 5000.01' }))
+    await userEvent.click(canvas().getByRole('button', { name: 'DoDD 5000.01' }))
 
     const panel = await screen.findByTestId('node-detail')
     expect(panel).toHaveTextContent('DoDD 5000.01')
@@ -156,12 +164,34 @@ describe('GraphExplorer', () => {
     showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
-    await userEvent.click(screen.getByRole('button', { name: 'DoDI 3115.14' }))
+    await userEvent.click(canvas().getByRole('button', { name: 'DoDI 3115.14' }))
 
     await waitFor(() =>
       expect(getGraph).toHaveBeenLastCalledWith({ expand: 'dodi-3115-14' }),
     )
-    expect(await screen.findByText('Public Law 116-92')).toBeInTheDocument()
+    await waitFor(() => expect(canvas().getByText('Public Law 116-92')).toBeInTheDocument())
+  })
+
+  it('stops saying externals are hidden once an expansion has pulled them in', async () => {
+    // The caption was gated on the toggle alone. Clicking a corpus node pulls
+    // that document's external references onto the canvas, so the panel read
+    // "Showing 40 documents in the corpus. Documents cited but never ingested
+    // are hidden." over a picture in which 17 of the 40 were exactly those
+    // documents — the sentence contradicting the drawing at the single most
+    // natural demo gesture.
+    getGraph.mockResolvedValueOnce(corpusView).mockResolvedValueOnce(expandedView)
+    showGraphExplorer()
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    await userEvent.click(canvas().getByRole('button', { name: 'DoDI 3115.14' }))
+    await waitFor(() =>
+      expect(getGraph).toHaveBeenLastCalledWith({ expand: 'dodi-3115-14' }),
+    )
+
+    const count = await screen.findByText(/showing 3 documents/i)
+    expect(count.textContent).not.toMatch(/hidden/i)
+    // And it names what arrived, rather than leaving unlabelled grey dots.
+    expect(count.textContent).toMatch(/1 (of them is|cited)/i)
   })
 
   it('renders external nodes in a visually distinct colour from corpus nodes', async () => {
@@ -183,7 +213,7 @@ describe('GraphExplorer', () => {
     showGraphExplorer()
     await waitFor(() => screen.getByTestId('force-graph'))
 
-    await userEvent.click(screen.getByRole('button', { name: 'Public Law 116-92' }))
+    await userEvent.click(canvas().getByRole('button', { name: 'Public Law 116-92' }))
 
     const panel = await screen.findByTestId('node-detail')
     expect(panel).toHaveTextContent('Public Law 116-92')
@@ -471,7 +501,8 @@ describe('GraphExplorer including external references', () => {
     )
     await waitFor(() => expect(getGraph).toHaveBeenLastCalledWith({ includeExternal: true }))
 
-    await userEvent.click(await screen.findByRole('button', { name: 'DoDI 3115.14' }))
+    await waitFor(() => screen.getByTestId('force-graph'))
+    await userEvent.click(canvas().getByRole('button', { name: 'DoDI 3115.14' }))
 
     await waitFor(() =>
       expect(getGraph).toHaveBeenLastCalledWith({
@@ -507,7 +538,8 @@ describe('GraphExplorer selection', () => {
     getGraph.mockResolvedValue(expandedView)
     showGraphExplorer()
 
-    await userEvent.click(await screen.findByRole('button', { name: 'DoDD 5000.01' }))
+    await waitFor(() => screen.getByTestId('force-graph'))
+    await userEvent.click(canvas().getByRole('button', { name: 'DoDD 5000.01' }))
 
     const link = await screen.findByRole('link', { name: /open DoDD 5000\.01/i })
     expect(link).toHaveAttribute('href', '/documents/dodd-5000-01')
@@ -517,9 +549,67 @@ describe('GraphExplorer selection', () => {
     getGraph.mockResolvedValue(expandedView)
     showGraphExplorer()
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Public Law 116-92' }))
+    await waitFor(() => screen.getByTestId('force-graph'))
+    await userEvent.click(canvas().getByRole('button', { name: 'Public Law 116-92' }))
 
     const link = await screen.findByRole('link', { name: /open Public Law 116-92/i })
     expect(link).toHaveAttribute('href', '/documents/public-law-116-92')
+  })
+})
+
+/** Section 508 is a procurement gate for a federal customer, not a nicety, and
+ *  the graph is the screen a demo opens with. Audited before these tests
+ *  existed, the canvas rendered as `<canvas width height>` with no role, no
+ *  label, no tabindex and no fallback: absent from the accessibility tree and
+ *  absent from the tab order, while the panel beside it said "Click a document
+ *  to see its details" — an instruction a keyboard user cannot follow. */
+describe('GraphExplorer without a mouse', () => {
+  it('gives the drawing a text alternative that says what it holds', async () => {
+    getGraph.mockResolvedValue(corpusView)
+
+    showGraphExplorer()
+
+    const drawing = await screen.findByRole('img')
+    // Not "graph": the name has to carry what is on it, because for a
+    // screen-reader user this sentence *is* the picture.
+    expect(drawing).toHaveAccessibleName(/2 documents/i)
+    expect(drawing).toHaveAccessibleName(/1 reference/i)
+  })
+
+  it('reaches every document in the drawing without a mouse', async () => {
+    getGraph.mockResolvedValue(corpusView)
+
+    showGraphExplorer()
+
+    // Scoped: the canvas stand-in in this file also renders buttons, and a bare
+    // getByRole would pass on those without the real list existing at all.
+    const list = await screen.findByRole('group', { name: /documents in the graph/i })
+    const buttons = within(list).getAllByRole('button')
+    expect(buttons.map((b) => b.textContent)).toEqual(
+      expect.arrayContaining(['DoDD 5000.01', 'DoDI 3115.14']),
+    )
+
+    await userEvent.click(within(list).getByRole('button', { name: 'DoDI 3115.14' }))
+
+    // The same selection a click on the canvas makes, so the detail panel and
+    // its "Open …" link are reachable by keyboard too.
+    expect(await screen.findByTestId('node-detail')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /open DoDI 3115.14/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('lets the reader stop the layout moving', async () => {
+    // WCAG 2.2.2: motion over five seconds needs a way to stop it. Measured
+    // before this control existed, the force simulation ran 8.8 to 10.4 seconds
+    // on load, and `prefers-reduced-motion` does not reach it — the CSS rule in
+    // styles.css cannot govern a canvas simulation.
+    getGraph.mockResolvedValue(corpusView)
+
+    showGraphExplorer()
+
+    await userEvent.click(await screen.findByRole('button', { name: /freeze layout/i }))
+
+    expect(forceGraph.pauseAnimation).toHaveBeenCalled()
   })
 })

@@ -160,3 +160,38 @@ describe('search from anywhere', () => {
     )
   })
 })
+
+/** Section 508 is a procurement gate for a federal customer. Audited before
+ *  these tests existed, axe reported `landmark-one-main` and `region` on every
+ *  one of the nine screens — on /documents the region violation covered 624
+ *  nodes, meaning all page content sat outside any landmark. There was also no
+ *  skip link, so a keyboard user paid ten header tab stops on every navigation
+ *  and /documents put 618 focusable elements in front of them with no bypass. */
+describe('App landmarks', () => {
+  it('puts the screen inside a main landmark', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('main')).toBeInTheDocument()
+    // The navigation is a landmark of its own and must stay outside, or the
+    // bypass below would skip nothing.
+    expect(screen.getByRole('navigation', { name: /main/i })).toBeInTheDocument()
+  })
+
+  it('offers a bypass to the content as the first thing a keyboard reaches', async () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    await userEvent.tab()
+
+    const skip = screen.getByRole('link', { name: /skip to content/i })
+    expect(skip).toHaveFocus()
+    expect(skip).toHaveAttribute('href', `#${screen.getByRole('main').id}`)
+  })
+})

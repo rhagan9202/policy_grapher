@@ -6,7 +6,17 @@ import type { GraphNode, GraphOut } from '../api/types'
 import EmptyState from './EmptyState'
 
 const CORPUS_COLOUR = '#2563eb'
-const EXTERNAL_COLOUR = '#94a3b8'
+/** Darkened from #94a3b8, which measured 2.56:1 against the white canvas where
+ *  WCAG 1.4.11 asks 3:1 of a graphical object you need to see to understand the
+ *  content — and corpus-vs-external is the whole point of this drawing. This is
+ *  3.52:1. Colour is still not the only channel: external nodes are drawn
+ *  smaller, and the list beside the canvas says "external" in words. */
+const EXTERNAL_COLOUR = '#7b8a9e'
+
+/** Relative node area. The second, non-colour channel for 1.4.1: a reader who
+ *  cannot separate the blue from the grey can still separate the sizes. */
+const CORPUS_NODE_VALUE = 1
+const EXTERNAL_NODE_VALUE = 0.4
 
 const LABEL_COLOUR = '#0f172a'
 const LABEL_HALO_COLOUR = '#ffffff'
@@ -42,6 +52,8 @@ function edgeKey(source: string, target: string): string {
 type ForceGraphHandle = {
   d3Force: (name: string) => unknown
   d3ReheatSimulation: () => void
+  pauseAnimation: () => void
+  resumeAnimation: () => void
 }
 
 export default function GraphExplorer() {
@@ -122,6 +134,29 @@ export default function GraphExplorer() {
     // neighbours of its own, so expanding one would be a guaranteed no-op.
     if (!node.is_external) setExpanded(node.id)
   }, [])
+
+  // WCAG 2.2.2. The force simulation settles in 8.8 to 10.4 seconds depending on
+  // node count, which is well past the five-second threshold for motion that
+  // needs a stop. `prefers-reduced-motion` cannot reach it — the rule in
+  // styles.css governs CSS animation, and this is a canvas simulation.
+  // How many of the drawn nodes are external, which is not the same question as
+  // whether the toggle is on: an expansion pulls them in regardless.
+  const externalsShown = useMemo(
+    () => (graph?.nodes ?? []).filter((node) => node.is_external).length,
+    [graph],
+  )
+
+  const [frozen, setFrozen] = useState(false)
+  const toggleLayout = useCallback(() => {
+    const handle = forceGraphRef.current
+    if (!handle) return
+    if (frozen) {
+      handle.resumeAnimation()
+    } else {
+      handle.pauseAnimation()
+    }
+    setFrozen(!frozen)
+  }, [frozen])
 
   // react-force-graph mutates the objects it is given (position, velocity,
   // simulation state) and treats a new `graphData` reference as new data.
@@ -216,7 +251,23 @@ export default function GraphExplorer() {
     // the panel under the canvas: at 768px a fixed 20rem panel took 42% of the
     // window and the graph was clipped off both edges.
     <div className="graph">
-      <div ref={canvasRef} className="graph-canvas">
+      {/* `role="img"` with a name that says what is drawn. The canvas itself is
+          a bare <canvas> the library emits — no role, no text, nothing in the
+          accessibility tree — so for a screen-reader user this sentence *is* the
+          picture, and the list in the panel is how they operate it. Marking the
+          subtree as one image also stops assistive tech wandering into a canvas
+          that has nothing to say. */}
+      <div
+        ref={canvasRef}
+        className="graph-canvas"
+        role="img"
+        aria-label={
+          `Reference graph: ${graph.returned_nodes} document` +
+          `${graph.returned_nodes === 1 ? '' : 's'} and ${graph.edges.length} ` +
+          `reference${graph.edges.length === 1 ? '' : 's'} between them. ` +
+          `The same documents are listed beside the drawing as buttons.`
+        }
+      >
         <ForceGraph2D
           // The library's ref type is generic over the inferred node and link
           // shapes; ForceGraphHandle names only the two methods used here.
@@ -230,6 +281,9 @@ export default function GraphExplorer() {
             node.is_external ? EXTERNAL_COLOUR : CORPUS_COLOUR
           }
           nodeRelSize={NODE_RELATIVE_SIZE}
+          nodeVal={(node: GraphNode) =>
+            node.is_external ? EXTERNAL_NODE_VALUE : CORPUS_NODE_VALUE
+          }
           nodeCanvasObjectMode={paintMode}
           nodeCanvasObject={paintNodeLabel}
           linkDirectionalArrowLength={4}
@@ -267,11 +321,29 @@ export default function GraphExplorer() {
               ) : (
                 <>
                   Showing {graph.returned_nodes} document
-                  {graph.returned_nodes === 1 ? '' : 's'} in the corpus.
+                  {graph.returned_nodes === 1 ? '' : 's'}
+                  {/* "in the corpus" is a claim about all of them, so it can
+                      only be made when all of them are. */}
+                  {externalsShown ? '' : ' in the corpus'}.
                 </>
               )}
-              {!includeExternal && (
-                <> Documents cited but never ingested are hidden.</>
+              {/* Gated on what is actually drawn, not on the toggle alone.
+                  Expanding a corpus node pulls that document's external
+                  references onto the canvas, so this used to read "Showing 40
+                  documents in the corpus. Documents cited but never ingested are
+                  hidden." over a picture in which 17 of the 40 were precisely
+                  those documents — the caption contradicting the drawing at the
+                  most natural gesture on the screen. */}
+              {externalsShown ? (
+                <>
+                  {' '}
+                  {externalsShown} of them {externalsShown === 1 ? 'is' : 'are'}{' '}
+                  cited but not ingested.
+                </>
+              ) : (
+                !includeExternal && (
+                  <> Documents cited but never ingested are hidden.</>
+                )
               )}
             </p>
 
@@ -301,6 +373,38 @@ export default function GraphExplorer() {
                   keeps the zoomed-out view readable. */}
               External names are hidden until you zoom in to read them.
             </p>
+
+            <button type="button" onClick={toggleLayout}>
+              {frozen ? 'Resume layout' : 'Freeze layout'}
+            </button>
+
+            {/* The canvas is a mouse-only control: nothing in it is focusable,
+                so selecting a document, expanding it, and reaching its page were
+                all unavailable without a pointer — while the panel said "Click a
+                document to see its details", an instruction a keyboard user
+                cannot follow. These are the same nodes driving the same handler,
+                so the two routes cannot drift apart.
+
+                Visible rather than screen-reader-only: a list of what is on the
+                canvas is useful to everyone at 300 nodes, where the drawing is a
+                hairball and the labels collide. */}
+            <div
+              className="graph-nodes"
+              role="group"
+              aria-label="Documents in the graph"
+            >
+              <ul>
+                {graph.nodes.map((node) => (
+                  <li key={node.id}>
+                    <button type="button" onClick={() => handleNodeClick(node)}>
+                      {node.label}
+                    </button>
+                    {/* The third channel, after colour and size: a word. */}
+                    {node.is_external && <span className="node-kind"> external</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </>
         )}
 

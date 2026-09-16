@@ -292,6 +292,53 @@ legend {
   margin-bottom: var(--s3);
 }
 
+/* Off-screen until focused, which is the whole trick: it must not take space
+   from a sighted mouse user and must be the first thing a keyboard user meets.
+   Not `display: none` — that would remove it from the tab order and defeat the
+   purpose. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: var(--s2) var(--s3);
+  z-index: 10;
+}
+
+.skip-link:focus {
+  left: var(--s2);
+}
+
+/* The keyboard route into a canvas that has none. Bounded because the external
+   view holds up to 300 documents and the panel is not a page. */
+.graph-nodes {
+  max-height: 18rem;
+  overflow-y: auto;
+  margin-bottom: var(--s3);
+}
+
+.graph-nodes ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.graph-nodes button {
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.node-kind {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
 /* A quality floor, not a flourish: keyboard users need to see where they are,
    and the browser default outline disappears against these borders. */
 :focus-visible {

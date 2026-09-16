@@ -97,6 +97,12 @@ export default function App() {
 
   return (
     <>
+      {/* First in the DOM so it is the first tab stop. Without it a keyboard
+          reader paid ten header stops on every navigation, and /documents put
+          618 focusable elements in front of them with nothing to jump past. */}
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
       {!reachable && (
         <div role="alert">
           The backend is not answering. Every screen below will fail to load until it
@@ -127,6 +133,13 @@ export default function App() {
           Without the key the boundary stays caught for the rest of the session
           and every other screen renders the same message, which is a worse
           failure than the one it is containing. */}
+      {/* Every screen's content lives here. Before this there was no `main` at
+          all: axe reported `landmark-one-main` and `region` on all nine screens,
+          and on /documents the region violation covered 624 nodes — the whole
+          page outside any landmark. On the graph screen the only `h1` sat inside
+          an `aside`, so the page title was in a complementary landmark and the
+          content was in none. */}
+      <main id="main">
       <ErrorBoundary key={pathname}>
       <Routes>
         {ROUTES.map((route) => (
@@ -144,6 +157,7 @@ export default function App() {
         <Route path="*" element={<NoSuchScreen />} />
       </Routes>
       </ErrorBoundary>
+      </main>
     </>
   )
 }
