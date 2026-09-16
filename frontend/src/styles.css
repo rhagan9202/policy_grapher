@@ -569,6 +569,16 @@ tbody tr:hover {
   gap: var(--s2);
 }
 
+/* A Triage row is a comparison laid out in columns, not lines of prose, so it
+   takes the exemption the measure rule above describes for lists that are not
+   read in lines. Without it the row inherited `max-width: 68ch` — 544px — while
+   two panes need 2 × 18rem plus the gap, so `.panes` wrapped and the comparison
+   stacked at every viewport width, which is the one thing it must not do.
+   Measured before this: both panes at x=56, 545px wide, on a 1440px screen. */
+.triage-rows > li {
+  max-width: none;
+}
+
 /* ----------------------------------------------- side-by-side citations --- */
 
 /* Triage sets what changed against what it reaches; Review sets the two ends of

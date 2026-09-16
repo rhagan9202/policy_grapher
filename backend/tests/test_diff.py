@@ -4,6 +4,7 @@ import pytest
 
 from policy_grapher.changes.diff import (
     ADDED,
+    AUTO_PAIRED,
     MODIFIED,
     REMOVED,
     _plan_changes,
@@ -393,26 +394,84 @@ def test_a_pairing_found_by_wording_carries_its_evidence():
 
 
 def test_a_wording_pairing_asks_the_pairing_question_not_the_implements_one():
-    """Which scorer the diff calls is visible to a person, and only here.
+    """Which scorer the diff calls is visible to a person, on the candidate.
 
     Both scorers build their rationale from the same `_facts()` head, so every
     other assertion in this file reads the same either way — swap the import for
-    `score_pair as score_pairing` and nothing else complains, while the summary
+    `score_pair as score_pairing` and nothing else complains, while the sentence
     a reviewer reads reverts to telling them to confirm the org clause
     discharges the higher duty. That is advice about a relationship nobody is
     claiming here: this pass asks whether one clause is the other reworded.
     Computed from the scorers rather than pinned as a literal, so it follows the
     sentences test_links.py owns instead of duplicating them.
+
+    The assertion used to be made against the `:Change` summary, which was the
+    only place the sentence appeared. It now lives on the candidate instead —
+    see the test below for why it had to leave the summary — and the candidate
+    is where the pairing reviewer reads it, on the Pairings screen. The
+    guarantee is unchanged; only its home is.
+    """
+    old = _keyed(_entry("o1", ["ENCLOSURE 1"], RENUMBERED_OLD))
+    new = _keyed(_entry("n1", ["SECTION 1"], RENUMBERED_NEW))
+
+    candidate = _plan_changes(old, new).candidates[0]
+
+    assert candidate["outcome"] == AUTO_PAIRED
+    assert score_pairing(RENUMBERED_NEW, RENUMBERED_OLD).rationale in candidate["rationale"]
+    assert "whether the newer clause is the older one reworded" in candidate["rationale"]
+    assert score_pair(RENUMBERED_NEW, RENUMBERED_OLD).rationale not in candidate["rationale"]
+    assert "discharges the higher duty" not in candidate["rationale"]
+
+
+def test_a_change_summary_does_not_ask_the_pairing_reviewers_question():
+    """A `:Change` is read on Triage, by someone asking a different question.
+
+    The pairing reviewer is deciding whether the newer clause is the older one
+    reworded. By the time a change reaches Triage that has been decided — the
+    row exists *because* it was — and the reader is a compliance analyst asking
+    what changed and what of theirs it touches. Ending the one line of prose per
+    row with another reviewer's open question put a question to them that is not
+    theirs and that they cannot act on.
+
+    The facts stay: they say what the pairing was based on, which is the part
+    that survives the change of audience.
     """
     old = _keyed(_entry("o1", ["ENCLOSURE 1"], RENUMBERED_OLD))
     new = _keyed(_entry("n1", ["SECTION 1"], RENUMBERED_NEW))
 
     summary = _plan_changes(old, new).changes[0]["summary"]
 
-    assert score_pairing(RENUMBERED_NEW, RENUMBERED_OLD).rationale in summary
-    assert "whether the newer clause is the older one reworded" in summary
-    assert score_pair(RENUMBERED_NEW, RENUMBERED_OLD).rationale not in summary
-    assert "discharges the higher duty" not in summary
+    assert "whether the newer clause is the older one reworded" not in summary
+    # Still says what changed, and on what evidence.
+    assert "ENCLOSURE 1" in summary and "SECTION 1" in summary
+    assert "distinctive wording" in summary
+
+
+def test_a_declined_pairing_says_what_changed_before_why_it_reads_that_way():
+    """The caveat replaced the description instead of following it.
+
+    A section holding more than one changed obligation is reported as a removal
+    and an addition rather than a guessed pairing, and that is worth saying. But
+    it was said *instead of* "the obligation in section X is gone", so the one
+    line an analyst gets explained the diff's own bookkeeping and never the
+    change. Both facts fit; the reader's comes first.
+    """
+    old = _keyed(
+        _entry("o1", ["3.2"], "The Director shall notify the Comptroller."),
+        _entry("o2", ["3.2"], "The Director shall record the notification."),
+    )
+    new = _keyed(
+        _entry("n1", ["3.2"], "Records shall be destroyed after ten years."),
+        _entry("n2", ["3.2"], "Access shall be reviewed twice a year."),
+    )
+
+    changes = _plan_changes(old, new).changes
+    removed = [c for c in changes if c["kind"] == REMOVED]
+    assert removed, [c["kind"] for c in changes]
+
+    summary = removed[0]["summary"]
+    assert "is gone" in summary, summary
+    assert "more than one obligation that changed" in summary, summary
 
 
 def test_two_unrelated_clauses_are_not_paired():
@@ -502,7 +561,11 @@ def _score_table(monkeypatch, table: dict[tuple[str, str], float]) -> None:
         confidence = table.get((before_statement, after_statement))
         if confidence is None:
             return None
-        return Candidate(confidence=confidence, rationale="stub rationale")
+        return Candidate(
+            confidence=confidence,
+            rationale="stub rationale",
+            facts="stub facts",
+        )
 
     monkeypatch.setattr(
         "policy_grapher.changes.diff.score_pairing", fake_score_pairing
@@ -1387,7 +1450,14 @@ def test_a_distinct_decline_does_not_blame_the_ambiguity_rule(monkeypatch):
         "distinct, so this is reported as a removal and an addition rather "
         "than a pairing."
     )
-    assert summaries == [settled, settled]
+    # Each says what changed first and why it reads that way second — the
+    # caveat follows the description rather than standing in for it, so the
+    # analyst is told the obligation went before being told the bookkeeping.
+    assert all(s.endswith(settled) for s in summaries), summaries
+    assert [s[: -len(settled) - 1] for s in summaries] == [
+        "The obligation in section 3.2 is gone.",
+        "A new obligation appears in section 3.2.",
+    ], summaries
 
 
 def test_a_settled_clause_stops_counting_toward_its_sections_ambiguity(monkeypatch):
@@ -1543,4 +1613,9 @@ def test_diff_versions_applies_a_recorded_distinct_decision(clean_graph, databas
         "distinct, so this is reported as a removal and an addition rather than "
         "a pairing."
     )
-    assert {c["summary"] for c in _changes(clean_graph, database)} == {settled}
+    # The caveat now follows the description rather than replacing it, so the
+    # check is that every persisted sentence carries it — the guarantee is that
+    # a reviewer never reads their own decision back as the ambiguity rule's.
+    persisted = {c["summary"] for c in _changes(clean_graph, database)}
+    assert all(s.endswith(settled) for s in persisted), persisted
+    assert not any("more than one obligation" in s for s in persisted), persisted

@@ -9,11 +9,28 @@ import type {
 } from '../api/types'
 import EmptyState from './EmptyState'
 
-function Citation({ heading, of }: { heading: string; of: TriageCitation }) {
+function Citation({
+  heading,
+  of,
+  previously,
+}: {
+  heading: string
+  of: TriageCitation
+  previously?: string | null
+}) {
   return (
     <div className="pane">
       <h4>{heading}</h4>
       <blockquote>{of.statement}</blockquote>
+      {/* Inside the pane, because it is the previous wording *of this clause*.
+          Rendered after both panes it sat under the other document's clause,
+          putting the before and after of one obligation either side of an
+          unrelated one. */}
+      {previously && (
+        <p>
+          Previously: <q>{previously}</q>
+        </p>
+      )}
       <cite>
         {of.document} · <code>{of.version_id}</code> ·{' '}
         {of.section_path.join('/')} · p. {of.page}
@@ -259,7 +276,7 @@ export default function Triage() {
               </p>
             )
           ) : (
-            <ol>
+            <ol className="triage-rows">
               {result.rows.map((row) => (
                 <li key={row.change_id}>
                   <p>
@@ -268,14 +285,13 @@ export default function Triage() {
                   </p>
                   <p>{row.summary}</p>
                   <div className="panes">
-                    <Citation heading="What changed" of={row.higher} />
+                    <Citation
+                      heading="What changed"
+                      of={row.higher}
+                      previously={row.previous_statement}
+                    />
                     <Citation heading="What it reaches" of={row.ours} />
                   </div>
-                  {row.previous_statement && (
-                    <p>
-                      Previously: <q>{row.previous_statement}</q>
-                    </p>
-                  )}
                 </li>
               ))}
             </ol>

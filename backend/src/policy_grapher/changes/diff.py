@@ -231,7 +231,13 @@ def _pair_by_wording(
                 continue
             if candidate.confidence >= PAIRING_CONFIDENCE:
                 scored.append(
-                    (candidate.confidence, candidate.rationale, before, after)
+                    (
+                        candidate.confidence,
+                        candidate.rationale,
+                        candidate.facts,
+                        before,
+                        after,
+                    )
                 )
             elif candidate.confidence >= MIN_CONFIDENCE:
                 # The floor is this module's own, not inherited: the scorer
@@ -259,14 +265,14 @@ def _pair_by_wording(
         return max(
             (
                 confidence
-                for confidence, _r, before, after in scored
+                for confidence, _rationale, _facts, before, after in scored
                 if obligation_id in (before["id"], after["id"])
                 and partner_id not in (before["id"], after["id"])
             ),
             default=0.0,
         )
 
-    for confidence, rationale, before, after in scored:
+    for confidence, rationale, facts, before, after in scored:
         if before["id"] in paired_old or after["id"] in paired_new:
             # An endpoint went to a higher-scoring pair earlier in this loop.
             # Checked before the margin, and the order is load-bearing: the
@@ -319,11 +325,17 @@ def _pair_by_wording(
                 "statement": after["statement"],
                 "previous_statement": before["statement"],
                 "modality": after["modality"],
+                # `facts`, not `rationale`. The rationale ends with the pairing
+                # reviewer's question, and this line is read on Triage by
+                # someone asking a different one — by the time a change reaches
+                # them the pairing has been decided, and the row exists because
+                # it was. The question stays on the candidate, where the pairing
+                # reviewer reads it.
                 "summary": (
                     f"The obligation moved from section "
                     f"{'/'.join(before['section_path'])} to "
                     f"{'/'.join(after['section_path'])} and was reworded — "
-                    f"{rationale}"
+                    f"{facts}"
                 ),
             }
         )
@@ -555,9 +567,15 @@ def _plan_changes(
         else, so there is no third clause in there whose tally they could
         distort.
         """
+        # The caveat *after* the description, never instead of it. Returning
+        # only the caveat meant the one line an analyst gets explained the
+        # diff's own bookkeeping — why this reads as a removal and an addition —
+        # and never said the obligation had gone. Both facts fit in a sentence
+        # each, and the reader's comes first.
         if entry["id"] in settled_distinct:
-            return SETTLED_DISTINCT.format(section="/".join(section))
-        return _ambiguous(section) or plain
+            return f"{plain} {SETTLED_DISTINCT.format(section='/'.join(section))}"
+        ambiguous = _ambiguous(section)
+        return f"{plain} {ambiguous}" if ambiguous else plain
 
     for entry in unmatched_old.values():
         if entry["id"] in paired_old:

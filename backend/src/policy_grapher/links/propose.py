@@ -40,7 +40,14 @@ DESIGNATOR_WEIGHT = 0.25
 @dataclass(frozen=True)
 class Candidate:
     confidence: float
+    # The full sentence for the reviewer this scorer serves: the facts below,
+    # plus that reviewer's own closing question.
     rationale: str
+    # The same facts without the question. A consumer showing this to a
+    # *different* reader takes these instead — the diff's `:Change` summary is
+    # read on Triage by a compliance analyst, and the pairing reviewer's open
+    # question is not theirs to answer.
+    facts: str
 
 
 def designators(text: str) -> set[str]:
@@ -108,13 +115,15 @@ def score_pair(org_statement: str, higher_statement: str) -> Candidate | None:
     if scored is None:
         return None
     confidence, shared_words, shared_designators, overlap = scored
+    facts = _facts(shared_words, shared_designators, overlap)
     return Candidate(
         confidence=confidence,
         rationale=(
-            _facts(shared_words, shared_designators, overlap)
+            facts
             + " Confirm the org clause actually discharges the higher duty "
             "before approving."
         ),
+        facts=facts,
     )
 
 
@@ -130,13 +139,15 @@ def score_pairing(after_statement: str, before_statement: str) -> Candidate | No
     if scored is None:
         return None
     confidence, shared_words, shared_designators, overlap = scored
+    facts = _facts(shared_words, shared_designators, overlap)
     return Candidate(
         confidence=confidence,
         rationale=(
-            _facts(shared_words, shared_designators, overlap)
+            facts
             + " The question is whether the newer clause is the older one "
             "reworded."
         ),
+        facts=facts,
     )
 
 

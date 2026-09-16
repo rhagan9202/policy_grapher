@@ -156,6 +156,28 @@ describe('Triage', () => {
     ).toBeInTheDocument()
   })
 
+  it('puts the previous wording beside the clause it changed from', async () => {
+    // A MODIFIED row is a before/after of one clause. The previous wording was
+    // rendered after both panes, so with the panes stacked it sat below the
+    // *other* document's clause — the old and new text of one obligation with
+    // an unrelated one between them. Whatever the layout does, it belongs with
+    // the clause it is previous to.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    getTriage.mockResolvedValue(triage)
+    showTriage()
+
+    await chooseAnEdition()
+
+    const previous = await screen.findByText(
+      /Components shall document the cybersecurity strategy\./,
+    )
+    const pane = previous.closest('.pane')
+    expect(pane).not.toBeNull()
+    expect(pane).toHaveTextContent(/cybersecurity strategy annually/)
+    expect(pane).not.toHaveTextContent(/The Program Manager shall document the strategy/)
+  })
+
   it('shows the unlinked count rather than hiding it', async () => {
     // ADR-015: an empty triage with unlinked changes means "nothing reviewed
     // yet", not "nothing affected", and only this number tells them apart.
