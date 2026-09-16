@@ -33,7 +33,15 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
  *
  *  Comparing in `componentDidUpdate` separates the two: the subtree keeps its
  *  identity across every navigation, and only a *caught* boundary resets. */
-type Props = { children: ReactNode; resetKey: string }
+type Props = {
+  children: ReactNode
+  resetKey: string
+  /** Whether the navigation survives this boundary catching. False for the root
+   *  instance in `main.tsx`, which sits outside the chrome — telling that reader
+   *  to "pick another screen from the navigation above" points at something the
+   *  failure took with it. */
+  hasNavigation?: boolean
+}
 type State = { message: string | null }
 
 export default class ErrorBoundary extends Component<Props, State> {
@@ -62,9 +70,10 @@ export default class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="view" role="alert">
         <p>
-          <strong>This screen failed to render.</strong> The rest of the
-          application is still working — pick another screen from the navigation
-          above, or reload to try this one again.
+          <strong>This screen failed to render.</strong>{' '}
+          {this.props.hasNavigation === false
+            ? 'Reload the page to try again.'
+            : 'The rest of the application is still working — pick another screen from the navigation above, or reload to try this one again.'}
         </p>
         <p>
           <code>{this.state.message}</code>

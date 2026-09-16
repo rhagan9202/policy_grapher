@@ -338,6 +338,17 @@ export default function DocumentDetail() {
   // already on the wire; only the reader was missing.
   const refusedChunks = selectedVersion?.build_counts?.chunks_rejected ?? 0
   const refusedItems = selectedVersion?.build_counts?.items_dropped ?? 0
+  // The run panel reads this rather than `run`. The run state is deliberately not
+  // cleared when the reader moves to another document or edition: the component
+  // never remounts (see the pool comment above), and the polling effects must
+  // keep following a build that is still going even while the reader looks
+  // elsewhere. What must not happen is document A's finished panel rendering over
+  // document B — which is what dropping the route's `key` exposed, since the
+  // remount had been clearing it by accident. Same idiom as `shownObligations`
+  // and `poolForThisSlug`: hold the value, read it only where it applies.
+  const runOnScreen =
+    run !== null && run.version_id === obligationTarget ? run : null
+
   // True when the finished-run panel is on screen for this very edition, and so
   // is already stating what the build refused.
   const runPanelCoversRefusals =
@@ -658,6 +669,8 @@ export default function DocumentDetail() {
 
           {runError && <div role="alert">Rebuild failed: {runError}</div>}
 
+          {runOnScreen && (
+            <>
           {run && run.state === 'failed' && (
             <div role="alert">
               The run failed after {run.chunks_done} of {run.chunks_total} chunks:{' '}
@@ -806,6 +819,8 @@ export default function DocumentDetail() {
                 </p>
               )}
             </div>
+          )}
+            </>
           )}
         </section>
       )}

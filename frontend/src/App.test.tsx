@@ -17,7 +17,16 @@ const getHealth = vi.fn()
 // Hoisted: `vi.mock`'s factory is lifted above this file's own declarations, and
 // the factory returns `ApiError` as a value rather than behind a closure the way
 // it does `getHealth`, so a plain `class` here is read before it initialises.
-const { ApiError } = vi.hoisted(() => ({ ApiError: class extends Error {} }))
+const { ApiError } = vi.hoisted(() => ({
+  ApiError: class extends Error {
+    // The status matters: the banner distinguishes a backend that answered for
+    // itself from the dev proxy's 500 on a refused connection, which is what a
+    // real outage looks like from the browser.
+    constructor(readonly status: number, message: string) {
+      super(message)
+    }
+  },
+}))
 vi.mock('./api/client', () => ({
   getHealth: () => getHealth(),
   ApiError,
@@ -125,7 +134,7 @@ describe('App — backend reachability', () => {
     // operator to restart something that was running, past the screen-level
     // message that named the real problem — and on a health-only 503 the banner
     // appeared above a fully working documents table, contradicting itself.
-    getHealth.mockRejectedValue(new ApiError('Invalid token'))
+    getHealth.mockRejectedValue(new ApiError(401, 'Invalid token'))
     render(
       <MemoryRouter initialEntries={['/']}>
         <App />
@@ -134,6 +143,22 @@ describe('App — backend reachability', () => {
 
     await screen.findByText('graph')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('still says so when the proxy turns a refused connection into a 500', async () => {
+    // The correction to a first attempt that read any ApiError as proof of life.
+    // `vite.config.ts` registers no proxy error handler, so a stopped backend
+    // reaches the browser as a plain 500 and `request()` wraps it as an
+    // ApiError — suppressing on that hid the banner during exactly the outage it
+    // exists to report.
+    getHealth.mockRejectedValue(new ApiError(500, 'Internal Server Error'))
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/backend/i)
   })
 })
 

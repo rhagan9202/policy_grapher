@@ -18,7 +18,7 @@ import './styles.css'
 // with; `resetKey` is constant because there is no navigation to reset on.
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ErrorBoundary resetKey="root">
+    <ErrorBoundary resetKey="root" hasNavigation={false}>
       <BrowserRouter>
         <App />
       </BrowserRouter>

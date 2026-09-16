@@ -33,6 +33,7 @@ const answered: Answer = {
       section_path: ['3', '3.2'],
       page: 12,
       quote: 'The Director shall notify the Comptroller.',
+      grounded: true,
     },
   ],
   template_used: 'obligations_for_actor',

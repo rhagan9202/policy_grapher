@@ -97,6 +97,15 @@ export default function Ask() {
                       <code>{citation.version_id}</code>
                       <span>{citation.section_path.join('/')}</span>
                       <span>p. {citation.page}</span>
+                      {/* The answer groups on this, but the Sources list is read
+                          on its own — someone copying a reference out of it
+                          should not have to scroll back up to find out which
+                          half of the answer it came from. */}
+                      {!citation.grounded && (
+                        <span className="citation-ungrounded">
+                          near in meaning only
+                        </span>
+                      )}
                     </cite>
                   </li>
                 ))}

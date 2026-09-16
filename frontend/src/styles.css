@@ -334,6 +334,11 @@ legend {
   text-decoration: underline;
 }
 
+.citation-ungrounded {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .node-kind {
   color: var(--muted);
   font-size: 0.85em;

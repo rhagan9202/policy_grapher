@@ -599,6 +599,32 @@ describe('GraphExplorer without a mouse', () => {
     ).toBeInTheDocument()
   })
 
+  it('tells a screen reader the view is capped, as the caption tells everyone else', async () => {
+    // The caption warns sighted readers that documents are being withheld. The
+    // one sentence a screen-reader user gets did not, so the cap was invisible
+    // to exactly the reader who cannot see the drawing thin out.
+    getGraph.mockResolvedValue({ ...corpusView, total_nodes: 474, truncated: true })
+
+    showGraphExplorer()
+
+    expect(await screen.findByRole('img')).toHaveAccessibleName(
+      /capped at 2 of 474/i,
+    )
+  })
+
+  it('does not promise a list of buttons when there are no documents', async () => {
+    // The node list renders only when the corpus has something in it, so on an
+    // empty corpus the label was pointing at controls that are not there.
+    getGraph.mockResolvedValue({
+      nodes: [], edges: [], total_nodes: 0, returned_nodes: 0, truncated: false,
+    })
+
+    showGraphExplorer()
+
+    await waitFor(() => screen.getByTestId('force-graph'))
+    expect(screen.getByRole('img')).not.toHaveAccessibleName(/buttons/i)
+  })
+
   it('marks external nodes by size as well as colour', async () => {
     // WCAG 1.4.1: colour alone cannot carry the corpus/external distinction, and
     // that distinction is what the drawing exists to show. `nodeColor` has had a

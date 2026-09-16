@@ -88,13 +88,22 @@ export default function App() {
         if (!cancelled) setReachable(true)
       })
       .catch((cause: unknown) => {
-        // An `ApiError` means the backend answered — 401, 503, whatever it was.
-        // That is not "the stack is down", and this banner's whole job is to say
-        // "one cause, not five": raising it over a wrong token sent the operator
-        // to restart a stack that was running, past the screen-level message
-        // that named the real problem. Only a transport failure gets the banner;
-        // an HTTP answer is left to the screen that made the call.
-        if (!cancelled) setReachable(cause instanceof ApiError)
+        // Below 500 the backend answered for itself, and the banner would be
+        // wrong: a 4xx is a bad request or a bad token, which the screen that
+        // made the call reports far better than "check that the stack is up".
+        //
+        // 5xx stays an outage, and this is the correction to a first attempt
+        // that treated every `ApiError` as proof of life. It is not: the dev
+        // proxy registers no error handler (`vite.config.ts`), so when the
+        // backend container is down Vite's default turns ECONNREFUSED into a
+        // plain 500, `request()` wraps that as `ApiError(500)`, and suppressing
+        // on it hid the banner during exactly the outage it exists to report.
+        //
+        // `/health` also carries no auth (`routers/admin.py`), so the wrong-token
+        // case the first attempt was written for cannot arise on this route at
+        // all — the 4xx worth keeping quiet about here is a future one.
+        const answeredForItself = cause instanceof ApiError && cause.status < 500
+        if (!cancelled) setReachable(answeredForItself)
       })
     return () => {
       cancelled = true

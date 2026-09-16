@@ -449,7 +449,7 @@ describe('DocumentDetail — building the derived layer', () => {
       candidate_version_ids: ['dodi-5000-88@2020-09-09'],
     })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'started',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'started',
       chunks_done: 0, chunks_total: 34, counts: {}, rejections: [],
       // `getRebuild` is the typed mock (see its declaration above): a fixture
       // missing any of `RebuildStatus`'s required fields fails `tsc`, not just
@@ -472,9 +472,9 @@ describe('DocumentDetail — building the derived layer', () => {
 
   it('reports progress while the run is in flight', async () => {
     loaded()
-    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'started',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'started',
       chunks_done: 5, chunks_total: 34, counts: {}, rejections: [],
       rejections_total: 0, extractor_adapter: '', embedder_adapter: '', error: null,
     })
@@ -491,9 +491,9 @@ describe('DocumentDetail — building the derived layer', () => {
     // that reads exactly like a broken pipeline, and the reader cannot see the
     // worker's configuration from this screen.
     loaded()
-    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'finished',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'finished',
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 0, proposed: 0, chunks_rejected: 0 },
       rejections: [], rejections_total: 0,
@@ -512,9 +512,9 @@ describe('DocumentDetail — building the derived layer', () => {
 
   it('does not blame the null extractor when a real one ran', async () => {
     loaded()
-    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'finished',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'finished',
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 115, proposed: 265, chunks_rejected: 0 },
       rejections: [], rejections_total: 0,
@@ -530,11 +530,73 @@ describe('DocumentDetail — building the derived layer', () => {
     expect(status).not.toHaveTextContent(/null.*extractor/i)
   })
 
+  it('states the refusals once when a build finishes in this tab', async () => {
+    // Both accounts are on screen at that moment — the run's own, and the record
+    // it wrote — and printing the counts twice reads as two separate losses. The
+    // suppression branch had never been driven true by any test.
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue([
+      versions[0],
+      built({
+        build_run_id: 'r1',
+        build_counts: {
+          chunks_written: 34, obligations_written: 61,
+          chunks_rejected: 7, items_dropped: 19,
+        },
+      }),
+    ])
+    listChunks.mockResolvedValue(chunks)
+    startRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [],
+    })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'finished',
+      chunks_done: 34, chunks_total: 34,
+      counts: {
+        chunks_written: 34, obligations_written: 61,
+        chunks_rejected: 7, items_dropped: 19,
+      },
+      rejections: [], rejections_total: 0,
+      extractor_adapter: 'local', embedder_adapter: 'local', error: null,
+    })
+    const view = renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+    await screen.findByText(/7 chunks rejected/i)
+
+    const said = view.container.textContent ?? ''
+    expect(said.match(/7 chunks rejected/gi)).toHaveLength(1)
+  })
+
+  it('does not show one edition\'s finished run over another edition', async () => {
+    // The run state is deliberately not cleared across navigation — the polling
+    // effects have to keep following a build that is still going. Dropping the
+    // route's `key` removed the remount that had been clearing it by accident,
+    // so document A's "Finished" panel rendered over document B.
+    loaded()
+    startRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'some-other-doc@2019-01-01', candidate_version_ids: [],
+    })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'some-other-doc@2019-01-01', state: 'finished',
+      chunks_done: 34, chunks_total: 34,
+      counts: { chunks_written: 34, obligations_written: 115, proposed: 0 },
+      rejections: [], rejections_total: 0,
+      extractor_adapter: 'local', embedder_adapter: 'local', error: null,
+    })
+    const view = renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+
+    await waitFor(() => expect(getRebuild).toHaveBeenCalled())
+    expect(view.container.textContent ?? '').not.toMatch(/Finished\. 34 chunks/i)
+  })
+
   it('reports what a finished run produced, including what it rejected', async () => {
     loaded()
-    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'finished',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'finished',
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 121, proposed: 313, chunks_rejected: 1 },
       rejections: [{ chunk_id: 'c9', reason: 'modality: Input should be SHALL, MUST, WILL, SHOULD or MAY' }],
@@ -556,9 +618,9 @@ describe('DocumentDetail — building the derived layer', () => {
 
   it('surfaces a failed run rather than leaving it spinning', async () => {
     loaded()
-    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'failed',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'failed',
       chunks_done: 5, chunks_total: 38, counts: {}, rejections: [],
       rejections_total: 0, extractor_adapter: 'local', embedder_adapter: 'local',
       error: 'model output did not match the obligation schema',
@@ -575,9 +637,9 @@ describe('DocumentDetail — building the derived layer', () => {
     // worker picks it up, and "Building: 0 of 0 chunks" reads as a rebuild that
     // found nothing to do rather than one that has not started.
     loaded()
-    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'started',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'started',
       chunks_done: 0, chunks_total: 0, counts: {}, rejections: [],
       rejections_total: 0, extractor_adapter: '', embedder_adapter: '', error: null,
     })
@@ -594,9 +656,9 @@ describe('DocumentDetail — building the derived layer', () => {
 
   it('says why chunks were rejected, not only how many', async () => {
     loaded()
-    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'finished',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'finished',
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 115, proposed: 0, chunks_rejected: 2 },
       rejections: [
@@ -622,9 +684,9 @@ describe('DocumentDetail — building the derived layer', () => {
     // drop ADR-030 made a defect; `rejections_total` was added to the status
     // payload for it.
     loaded()
-    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'finished',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'finished',
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 115, proposed: 0, chunks_rejected: 213 },
       rejections: [
@@ -646,9 +708,9 @@ describe('DocumentDetail — building the derived layer', () => {
 
   it('says nothing about a cap the run did not reach', async () => {
     loaded()
-    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'finished',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'finished',
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 115, proposed: 0, chunks_rejected: 1 },
       rejections: [{ chunk_id: 'c9', reason: 'statement: Field required' }],
@@ -670,9 +732,9 @@ describe('DocumentDetail — building the derived layer', () => {
     // has ever shown it. An approval that stopped being represented in the graph
     // is exactly the case a healthy-looking rebuild must not hide (ADR-027).
     loaded()
-    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'finished',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'finished',
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 115, proposed: 265,
                 chunks_rejected: 0, decisions_repointed: 2, unpromotable: 3 },
@@ -692,9 +754,9 @@ describe('DocumentDetail — building the derived layer', () => {
 
   it('stays quiet about decisions when there were none to carry or lose', async () => {
     loaded()
-    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'v', candidate_version_ids: [] })
+    startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })
     getRebuild.mockResolvedValue({
-      run_id: 'r1', version_id: 'v', state: 'finished',
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'finished',
       chunks_done: 34, chunks_total: 34,
       counts: { chunks_written: 34, obligations_written: 115, proposed: 265,
                 chunks_rejected: 0, decisions_repointed: 0, unpromotable: 0 },

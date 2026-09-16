@@ -333,6 +333,12 @@ export interface Citation {
   section_path: string[]
   page: number
   quote: string
+  /** Whether the question's own words reached this passage, or the embedding
+   *  index merely ranked it highest. The answer text groups on this — grounded
+   *  passages under "The corpus states:", the rest under a heading that says
+   *  they are close in meaning and not in wording — and the field carries the
+   *  same fact as data, so a reader of this type never has to match on English. */
+  grounded: boolean
 }
 
 export interface Answer {
