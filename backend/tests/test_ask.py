@@ -8,7 +8,9 @@ from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.obligations import write_obligations
+from policy_grapher.retrieval.hybrid import RetrievedChunk
 from policy_grapher.retrieval.templates import TEMPLATES, select_template
+from policy_grapher.routers.ask import _compose, _corroborated, _hits_to_citations
 
 WRITE_CLAUSE = re.compile(
     r"\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP|CALL\s*\{[^}]*\bCREATE)\b",
@@ -113,6 +115,81 @@ def test_an_unrecognised_question_falls_back_to_grounded_passages():
     """Not a failure — most questions are not one of three shapes, and the
     retrieval path answers them from the same corpus with the same citations."""
     assert select_template("tell me about widget calibration").name == "grounded_passages"
+
+
+# --- what an answer claims ----------------------------------------------------
+
+
+def _hit(signals):
+    return RetrievedChunk(
+        chunk_id="c1",
+        text="Personnel shall safeguard classified material at all times.",
+        document="ORG 1.0",
+        document_slug="org-1-0",
+        version_id="org-1-0@2020-01-01",
+        section_path=["1.1"],
+        page=1,
+        score=0.5,
+        signals=signals,
+    )
+
+
+def test_a_vector_only_answer_does_not_claim_the_corpus_states_it():
+    """The defect this guards: a vector index ranks every chunk it holds against
+    any vector at all, so the vector leg has a top hit for `zzqqxx wibblefrotz`
+    and the answer presented ten passages under "The corpus states:".
+
+    A minimum cosine does not fix it. Measured against the sample corpus,
+    `quarterly dividend policy for shareholders` scores 0.9071 and
+    `cybersecurity`, which the corpus does answer, scores 0.8690 — the bands
+    overlap, so no floor refuses the first without refusing the second. Nor can
+    retrieval refuse to return the row: in a one-chunk corpus a real paraphrase
+    and a nonsense query rank that same chunk top, which is exactly what
+    `test_a_paraphrase_is_found_by_the_vector_leg` requires to keep working.
+
+    So the honesty lives in what the answer *claims*, not in what retrieval
+    returns. The passages still come back; the sentence above them stops
+    asserting that they are on the subject asked about.
+    """
+    hits = [_hit(("vector",))]
+
+    answer = _compose(_hits_to_citations(hits), corroborated=_corroborated(hits))
+
+    assert not answer.startswith("The corpus states:")
+    assert "words of this question" in answer
+    # Still extractive, still quoted: the caveat replaces the claim, not the
+    # evidence.
+    assert "safeguard classified material" in answer
+
+
+def test_a_lexically_grounded_answer_still_states_what_the_corpus_says():
+    """The caveat must not swallow the ordinary case, or it becomes noise the
+    reader learns to skip."""
+    hits = [_hit(("fulltext", "vector"))]
+
+    answer = _compose(_hits_to_citations(hits), corroborated=_corroborated(hits))
+
+    assert answer.startswith("The corpus states:")
+
+
+def test_a_graph_hop_alone_does_not_corroborate():
+    """The edge is human-approved; the reason for arriving at it may not be.
+
+    The graph leg expands from whatever the other legs seeded, so when the vector
+    leg supplies an arbitrary seed the hop is arbitrary too — along a real
+    `IMPLEMENTS` edge, which is what makes it convincing and wrong. Measured on
+    the sample corpus before this was fixed, `zzqqxx wibblefrotz` returned
+    `{'graph': 5, 'vector': 5}`: five hops and no lexical hit anywhere, presented
+    as "The corpus states:".
+
+    The leg's own purpose survives, because a question that reaches a duty
+    lexically and then hops to the clause discharging it still carries the
+    `fulltext` hit on that duty — see
+    `test_the_graph_leg_reaches_what_no_other_leg_can`, whose query matches the
+    higher obligation's wording.
+    """
+    assert not _corroborated([_hit(("graph",)), _hit(("vector",))])
+    assert _corroborated([_hit(("graph",)), _hit(("fulltext",))])
 
 
 # --- the route ----------------------------------------------------------------

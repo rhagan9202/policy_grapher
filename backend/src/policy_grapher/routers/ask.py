@@ -41,6 +41,45 @@ NOTHING_FOUND = (
     "that the answer is no."
 )
 
+# Said instead of "The corpus states:" when every passage was reached by
+# embedding similarity alone.
+#
+# A vector index ranks every chunk it holds against whatever vector it is given,
+# so the vector leg has a top hit for any input at all — `zzqqxx wibblefrotz`
+# returned ten passages under "The corpus states:", which asserts a
+# responsiveness nothing established. A minimum cosine does not repair it:
+# measured against the sample corpus, `quarterly dividend policy for
+# shareholders` scores 0.9071 while `cybersecurity`, which the corpus does
+# answer, scores 0.8690, so the bands overlap and no floor refuses the one
+# without refusing the other. Refusing to *return* the rows is wrong too — in a
+# small corpus a genuine paraphrase and a nonsense query rank the same chunk
+# top, and the paraphrase is the case the vector leg exists to serve.
+#
+# What can be said truthfully is narrower, and it is this: no passage uses the
+# words of the question. The evidence is still shown; only the claim over it
+# changes.
+UNCORROBORATED = (
+    "No passage in the corpus uses the words of this question, so nothing below "
+    "is a quotation on the subject you asked about. These are the passages "
+    "closest to it by meaning — leads to check, not an answer:"
+)
+
+# The one leg that cannot fire without the question's own words occurring in the
+# corpus.
+#
+# `graph` looks like it belongs here and does not, which cost a round of live
+# verification to learn: the graph leg expands from whatever the other legs
+# seeded, so a spurious vector seed produces a spurious hop along a perfectly
+# real `IMPLEMENTS` edge. Measured on the sample corpus, `zzqqxx wibblefrotz`
+# comes back `{'graph': 5, 'vector': 5}` — five hops, no lexical hit anywhere.
+# The edges are human-approved; the reason for arriving at them was not.
+#
+# The leg still earns its place in the answer, and the case it exists for is
+# unaffected: a question that reaches a higher-level duty lexically and then hops
+# to the clause discharging it already carries a `fulltext` hit on the duty
+# (ADR-014).
+CORROBORATING = frozenset({"fulltext"})
+
 
 def _truncate(text: str) -> str:
     quote = " ".join((text or "").split())
@@ -72,7 +111,7 @@ def _from_template(driver, database, template, parameters) -> list[CitationOut]:
     ]
 
 
-def _from_retrieval(driver, database, *, question, embedder) -> list[CitationOut]:
+def _hits_to_citations(hits) -> list[CitationOut]:
     return [
         CitationOut(
             document=hit.document,
@@ -81,13 +120,25 @@ def _from_retrieval(driver, database, *, question, embedder) -> list[CitationOut
             page=hit.page,
             quote=_truncate(hit.text),
         )
-        for hit in retrieve(
-            driver, database, query=question, embedder=embedder, limit=ROW_LIMIT
-        )
+        for hit in hits
     ]
 
 
-def _compose(citations: list[CitationOut]) -> str:
+def _corroborated(hits) -> bool:
+    """Whether anything but embedding similarity put these passages here."""
+    return any(signal in CORROBORATING for hit in hits for signal in hit.signals)
+
+
+def _from_retrieval(
+    driver, database, *, question, embedder
+) -> tuple[list[CitationOut], bool]:
+    hits = retrieve(
+        driver, database, query=question, embedder=embedder, limit=ROW_LIMIT
+    )
+    return _hits_to_citations(hits), _corroborated(hits)
+
+
+def _compose(citations: list[CitationOut], *, corroborated: bool = True) -> str:
     """Build the answer out of the citations themselves.
 
     Deliberately extractive. A generative step here would be the one place in the
@@ -99,7 +150,7 @@ def _compose(citations: list[CitationOut]) -> str:
     if not citations:
         return NOTHING_FOUND
 
-    lines = ["The corpus states:"]
+    lines = ["The corpus states:" if corroborated else UNCORROBORATED]
     for citation in citations:
         where = "/".join(citation.section_path)
         lines.append(
@@ -133,8 +184,12 @@ def ask(
         )
 
     database = settings.neo4j_database
+    # A template's rows came from a structured query that named the document, so
+    # they are corroborated by construction; only the retrieval path can be
+    # carried by embedding similarity alone.
+    corroborated = True
     if template.cypher is None:
-        citations = _from_retrieval(
+        citations, corroborated = _from_retrieval(
             driver,
             database,
             question=body.question,
@@ -145,7 +200,7 @@ def ask(
         if not citations:
             # A structured query that matched nothing is not the end of the road:
             # the passage may still be there under different words.
-            citations = _from_retrieval(
+            citations, corroborated = _from_retrieval(
                 driver,
                 database,
                 question=body.question,
@@ -153,13 +208,13 @@ def ask(
             )
             if citations:
                 return AnswerOut(
-                    answer=_compose(citations),
+                    answer=_compose(citations, corroborated=corroborated),
                     citations=citations,
                     template_used=GROUNDED_PASSAGES,
                 )
 
     return AnswerOut(
-        answer=_compose(citations),
+        answer=_compose(citations, corroborated=corroborated),
         citations=citations,
         template_used=template.name if citations else GROUNDED_PASSAGES,
     )
