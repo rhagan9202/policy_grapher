@@ -146,6 +146,39 @@ describe('Ask', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend down/i)
   })
+
+  it('marks a citation the question\'s words did not reach', async () => {
+    // The field exists so a reader is not left matching on English, and the
+    // Sources list is read on its own — someone copying a reference out of it
+    // should not have to scroll back to find which half of the answer it came
+    // from. Nothing set `grounded: false` in any fixture, so the marker was
+    // rendered by no test at all.
+    ask.mockResolvedValue({
+      ...answered,
+      answer:
+        'The corpus states:\n— "The Director shall notify the Comptroller." (a)\n' +
+        'Also close in meaning, though not in wording:\n— "Widget calibration is quarterly." (b)',
+      citations: [
+        answered.citations[0],
+        {
+          document: 'ORG 1.0',
+          version_id: 'org-1-0@2020-01-01',
+          section_path: ['4'],
+          page: 2,
+          quote: 'Widget calibration is quarterly.',
+          grounded: false,
+        },
+      ],
+    })
+
+    showAsk()
+    await userEvent.type(screen.getByRole('searchbox'), 'anything')
+    await userEvent.click(screen.getByRole('button', { name: /ask/i }))
+
+    const items = await screen.findAllByRole('listitem')
+    expect(items[0]).not.toHaveTextContent(/near in meaning only/i)
+    expect(items[1]).toHaveTextContent(/near in meaning only/i)
+  })
 })
 
 describe('Ask when nothing has been ingested', () => {
@@ -158,4 +191,5 @@ describe('Ask when nothing has been ingested', () => {
     )
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
   })
+
 })

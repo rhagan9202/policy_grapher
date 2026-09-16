@@ -349,6 +349,25 @@ export default function DocumentDetail() {
   const runOnScreen =
     run !== null && run.version_id === obligationTarget ? run : null
 
+  // A build still going on a *different* edition of this document.
+  //
+  // Not the panel itself — showing that would attribute one edition's counts to
+  // another, which is the misattribution `runOnScreen` exists to stop. But
+  // silence is its own defect: scoping the panel meant a reader who started an
+  // hour-long build and then used the edition picker to read an older edition
+  // watched the progress vanish with nothing to say it was still going. One line
+  // that names the edition costs nothing and misattributes nothing.
+  //
+  // `slug` rather than the full version id, because a version id encodes both
+  // document and edition and it is only the edition that differs here.
+  const buildingElsewhere =
+    run !== null &&
+    (run.state === 'started' || run.state === 'queued') &&
+    run.version_id !== obligationTarget &&
+    run.version_id.startsWith(`${slug}@`)
+      ? run
+      : null
+
   // True when the finished-run panel is on screen for this very edition, and so
   // is already stating what the build refused.
   const runPanelCoversRefusals =
@@ -668,6 +687,21 @@ export default function DocumentDetail() {
           </button>
 
           {runError && <div role="alert">Rebuild failed: {runError}</div>}
+
+          {buildingElsewhere && (
+            <p role="status">
+              A build is still running on edition{' '}
+              <code>{buildingElsewhere.version_id}</code>
+              {buildingElsewhere.chunks_total > 0 && (
+                <>
+                  {' '}
+                  ({buildingElsewhere.chunks_done} of{' '}
+                  {buildingElsewhere.chunks_total} chunks)
+                </>
+              )}
+              . Select that edition to watch it.
+            </p>
+          )}
 
           {runOnScreen && (
             <>

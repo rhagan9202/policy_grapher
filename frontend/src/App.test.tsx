@@ -129,11 +129,10 @@ describe('App — backend reachability', () => {
   })
 
   it('does not blame the stack when the backend answered with an error', async () => {
-    // A 401 from a wrong token, or a 503 from a degraded health check, means the
-    // backend answered. Raising "check that the stack is up" over either sent the
-    // operator to restart something that was running, past the screen-level
-    // message that named the real problem — and on a health-only 503 the banner
-    // appeared above a fully working documents table, contradicting itself.
+    // A 4xx means the backend answered for itself: the request or the token was
+    // wrong, and the screen that made the call says so far better than "check
+    // that the stack is up", which sends the operator to restart something that
+    // is running. A 5xx is the opposite — see the 503 case below.
     getHealth.mockRejectedValue(new ApiError(401, 'Invalid token'))
     render(
       <MemoryRouter initialEntries={['/']}>
@@ -143,6 +142,23 @@ describe('App — backend reachability', () => {
 
     await screen.findByText('graph')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('raises the banner when the backend fails its own health check', async () => {
+    // The boundary the rule turns on, pinned rather than left to a comment. A
+    // 503 from `/health` is the backend reporting itself unhealthy, so the
+    // banner is right — and it cannot be told apart from the proxy's 500 on a
+    // refused connection anyway, which must raise it. An earlier round treated
+    // a health-only 503 as harmless because the rest of the API still answered;
+    // that reasoning is what let a real outage go unannounced.
+    getHealth.mockRejectedValue(new ApiError(503, 'Service Unavailable'))
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/backend/i)
   })
 
   it('still says so when the proxy turns a refused connection into a 500', async () => {

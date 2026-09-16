@@ -340,6 +340,58 @@ def test_a_citation_says_whether_the_question_reached_it(client_with_auth):
 
 
 @pytest.mark.integration
+def test_the_route_returns_citations_in_the_order_it_quotes_them(
+    client_with_auth, monkeypatch
+):
+    """At the level the defect actually lived, and sensitive to it.
+
+    The unit test beside this one exercises `_grounded_first` directly, and a
+    reviewer proved that is not enough: reassigning `_grounded_first` to the
+    identity function after collection left all of `test_ask.py` passing,
+    because nothing asserted the *route* still called it.
+
+    A seeded corpus cannot pin this down either — the first attempt here used
+    one lexical and one vector-only chunk, and reciprocal rank fusion returns
+    those grounded-first anyway, so the assertion held with the ordering removed.
+    Interleaving is what the route has to survive, and the way to get it
+    reliably is to state it: `retrieve` is replaced with a batch whose order is
+    known and wrong, so anything but a re-ordering route fails.
+    """
+    from policy_grapher.retrieval.hybrid import RetrievedChunk
+
+    def _chunk(chunk_id: str, text: str, *, grounded: bool) -> RetrievedChunk:
+        return RetrievedChunk(
+            chunk_id=chunk_id, text=text, document="DoDI 5000.88",
+            document_slug="dodi-5000-88", version_id="dodi-5000-88@2020-09-09",
+            section_path=["3"], page=1, score=0.5,
+            signals=("fulltext",) if grounded else ("vector",), grounded=grounded,
+        )
+
+    interleaved = [
+        _chunk("a", "The Comptroller shall audit the programme.", grounded=True),
+        _chunk("b", "Widget calibration shall be quarterly.", grounded=False),
+        _chunk("c", "The Director shall countersign the audit.", grounded=True),
+    ]
+    monkeypatch.setattr(
+        "policy_grapher.routers.ask.retrieve",
+        lambda *args, **kwargs: interleaved,
+    )
+
+    body = client_with_auth.post(
+        "/ask", json={"question": "tell me about the audit"}
+    ).json()
+
+    flags = [citation["grounded"] for citation in body["citations"]]
+    # Guard: a batch that is all one thing, or already sorted, proves nothing.
+    assert flags == [True, True, False], flags
+
+    quoted = [
+        line.split('"')[1] for line in body["answer"].splitlines() if line.startswith("—")
+    ]
+    assert quoted == [citation["quote"] for citation in body["citations"]]
+
+
+@pytest.mark.integration
 def test_every_sentence_of_an_answer_is_backed_by_a_citation(client_with_auth):
     """The answer is composed from the retrieved rows, not written about them, so
     there is no step at which a claim could enter without a passage behind it."""

@@ -218,7 +218,12 @@ def ask(
             )
         )
     else:
-        citations = _from_template(driver, database, template, selection.parameters)
+        # Ordered too, though a template's rows are all grounded today. The
+        # invariant is "the array is in the order the answer quotes them", and
+        # resting that on a constant in another function is how it broke once.
+        citations = _grounded_first(
+            _from_template(driver, database, template, selection.parameters)
+        )
         if not citations:
             # A structured query that matched nothing is not the end of the road:
             # the passage may still be there under different words.

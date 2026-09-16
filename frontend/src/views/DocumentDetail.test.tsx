@@ -592,6 +592,45 @@ describe('DocumentDetail — building the derived layer', () => {
     expect(view.container.textContent ?? '').not.toMatch(/Finished\. 34 chunks/i)
   })
 
+  it('says a build is still running on another edition rather than going silent', async () => {
+    // Scoping the panel to its own edition stopped one edition's counts being
+    // read as another's — and, uncaught, made an hour-long build vanish the
+    // moment the reader used the edition picker to look at something else.
+    loaded()
+    startRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [],
+    })
+    getRebuild.mockResolvedValue({
+      run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', state: 'started',
+      chunks_done: 12, chunks_total: 122, counts: {}, rejections: [],
+      rejections_total: 0, extractor_adapter: 'local', embedder_adapter: 'local',
+      error: null,
+    })
+    renderAt()
+    await screen.findByRole('article')
+    await userEvent.click(screen.getByRole('button', { name: /build derived layer/i }))
+    await screen.findByText(/building: 12 of 122/i)
+
+    // Look at the older edition while it runs.
+    await userEvent.selectOptions(
+      screen.getByLabelText(/edition/i),
+      'dodd-5000-01@2018-08-31',
+    )
+
+    expect(
+      await screen.findByText(/still running on edition/i),
+    ).toHaveTextContent(/dodd-5000-01@2020-09-09/)
+    // And the panel itself is not repeated against the wrong edition.
+    expect(screen.queryByText(/building: 12 of 122/i)).not.toBeInTheDocument()
+
+    // Coming back brings it into view again — the state was hidden, not lost.
+    await userEvent.selectOptions(
+      screen.getByLabelText(/edition/i),
+      'dodd-5000-01@2020-09-09',
+    )
+    expect(await screen.findByText(/building: 12 of 122/i)).toBeInTheDocument()
+  })
+
   it('reports what a finished run produced, including what it rejected', async () => {
     loaded()
     startRebuild.mockResolvedValue({ run_id: 'r1', version_id: 'dodd-5000-01@2020-09-09', candidate_version_ids: [] })

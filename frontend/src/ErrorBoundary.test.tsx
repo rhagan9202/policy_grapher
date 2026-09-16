@@ -115,4 +115,36 @@ describe('ErrorBoundary', () => {
 
     logged.mockRestore()
   })
+
+  it('does not offer navigation the failure took with it', () => {
+    // The root instance in main.tsx sits outside the chrome, so "pick another
+    // screen from the navigation above" points at something that is gone.
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    render(
+      <ErrorBoundary resetKey="root" hasNavigation={false}>
+        <Boom />
+      </ErrorBoundary>,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/reload the page/i)
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/navigation above/i)
+
+    logged.mockRestore()
+  })
+
+  it('offers the navigation when there is navigation to offer', () => {
+    // The default, which the boundary inside App relies on.
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    render(
+      <ErrorBoundary resetKey="/documents">
+        <Boom />
+      </ErrorBoundary>,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/navigation above/i)
+
+    logged.mockRestore()
+  })
 })
