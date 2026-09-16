@@ -20,8 +20,12 @@ WRITE_CLAUSE = re.compile(
 
 def _seed(
     client, *, version_id, doc_name, text, statement=None,
-    modality=Modality.SHALL, doc_slug=None,
+    modality=Modality.SHALL, doc_slug=None, section="3.2. DUTIES.",
 ):
+    # `section` is a parameter because the diff pairs structurally as well as by
+    # wording: one unmatched clause on each side of the *same* section is read as
+    # a rewording, so two clauses seeded under one heading become MODIFIED however
+    # unlike they are. A test that needs a genuine REMOVED has to separate them.
     # Two editions of one instrument share one :Document node — Document.name
     # is unique, so seeding them under separate slugs violates the constraint.
     doc_slug = doc_slug or version_id
@@ -34,7 +38,7 @@ def _seed(
         {"slug": doc_slug, "name": doc_name, "vid": version_id},
         database_=database,
     )
-    chunk = chunk_pages([f"3.2. DUTIES.\n{text}\n"], version_id=version_id)[-1]
+    chunk = chunk_pages([f"{section}\n{text}\n"], version_id=version_id)[-1]
     with driver.session(database=database) as session:
         session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
         if statement is not None:
@@ -383,6 +387,94 @@ def test_asking_what_changed_answers_from_the_changes_template(client_with_auth)
     assert body["template_used"] == "changes_for_document"
     assert body["citations"]
     assert "MODIFIED" in body["answer"]
+
+
+@pytest.mark.integration
+def test_a_clause_dropped_by_two_reissues_is_two_rows_that_say_which(client_with_auth):
+    """One clause, two reissues that both lack it, two `:Change` nodes — and the
+    projection named neither of them, so the answer printed the same sentence
+    twice with nothing to tell the rows apart.
+
+    The edition cannot come from the citation: a REMOVED change carries an
+    obligation of the *from*-version, so the citation must point at the old
+    edition where the text actually is (ADR-011). The reissue that dropped it is
+    a different fact, and the row now carries both.
+    """
+    from policy_grapher.changes.diff import diff_versions
+
+    # The replacements sit under a different heading so the structural pass
+    # cannot read them as this clause reworded; it has to be a genuine removal in
+    # both reissues, which is what puts two `:Change` nodes on one obligation.
+    for version_id, section, text in (
+        ("v1", "3.2. DUTIES.", "The Director shall notify the Comptroller."),
+        ("v2", "4.1. OTHER.", "The Secretary shall approve unrelated matters."),
+        ("v3", "4.1. OTHER.", "The Administrator shall approve different matters."),
+    ):
+        _seed(
+            client_with_auth, version_id=version_id, doc_slug="dodd-5000-01",
+            doc_name="DoDD 5000.01", text=text, statement=text, section=section,
+        )
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+    with driver.session(database=database) as session:
+        session.execute_write(diff_versions, from_version_id="v1", to_version_id="v2")
+        session.execute_write(diff_versions, from_version_id="v1", to_version_id="v3")
+
+    body = client_with_auth.post(
+        "/ask", json={"question": "what changed in DoDD 5000.01?"}
+    ).json()
+
+    removals = [
+        line for line in body["answer"].splitlines() if line.startswith('— "REMOVED')
+    ]
+    dropped = [line for line in removals if "notify the Comptroller" in line]
+    # Both reissues dropped it, and the reader can tell which is which.
+    assert len(dropped) == 2, body["answer"]
+    assert len(set(dropped)) == 2, dropped
+    assert any("v2" in line for line in dropped), dropped
+    assert any("v3" in line for line in dropped), dropped
+
+
+@pytest.mark.integration
+def test_one_higher_duty_many_of_our_clauses_is_stated_once(client_with_auth):
+    """The query matched once per clause of ours and projected only the higher
+    end, so a duty four of our clauses discharge was printed four times as four
+    separate findings — and `limit` spent four rows saying one thing."""
+    driver = client_with_auth.app.state.driver
+    database = client_with_auth.app.state.settings.neo4j_database
+
+    _seed(
+        client_with_auth, version_id="higher", doc_slug="dodi-5000-88",
+        doc_name="DoDI 5000.88",
+        text="Components must document the cybersecurity strategy.",
+        statement="Components must document the cybersecurity strategy.",
+        modality=Modality.MUST,
+    )
+    for version_id, text in (
+        ("ours-a", "Widget calibration must be performed quarterly."),
+        ("ours-b", "Gadget calibration must be performed annually."),
+    ):
+        _seed(
+            client_with_auth, version_id=version_id, doc_slug="org-1-0",
+            doc_name="ORG 1.0", text=text, statement=text, modality=Modality.MUST,
+        )
+    driver.execute_query(
+        "MATCH (:DocumentVersion {version_id: $higher})-[:MANDATES]->(h:Obligation) "
+        "MATCH (:DocumentVersion)-[:MANDATES]->(o:Obligation) "
+        "WHERE o.statement CONTAINS 'calibration' "
+        "MERGE (o)-[:IMPLEMENTS]->(h)",
+        {"higher": "higher"},
+        database_=database,
+    )
+
+    body = client_with_auth.post(
+        "/ask", json={"question": "what does ORG 1.0 implement?"}
+    ).json()
+
+    assert body["template_used"] == "implements_for_document"
+    quotes = [c["quote"] for c in body["citations"]]
+    assert len(quotes) == len(set(quotes)), quotes
+    assert sum("cybersecurity strategy" in q for q in quotes) == 1, quotes
 
 
 @pytest.mark.integration

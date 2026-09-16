@@ -66,7 +66,13 @@ WHERE toLower(d.name) CONTAINS toLower($document)
 MATCH (ours)-[:IMPLEMENTS]->(higher:Obligation)
 --ANCHOR--
 MATCH (higher_doc:Document)-[:HAS_VERSION]->(higher_v:DocumentVersion)-[:MANDATES]->(higher)
-RETURN higher.statement AS statement,
+// DISTINCT because the match is per clause of *ours* while the projection is
+// entirely of the higher end: four of our clauses discharging one duty returned
+// that duty four times, as four separate findings, and spent four of `limit`
+// saying one thing. Which of ours discharges it is a real question and this
+// template does not answer it — it answers "what does this document implement",
+// and each duty belongs in that list once.
+RETURN DISTINCT higher.statement AS statement,
        higher.modality  AS modality,
        higher_doc.name  AS document,
        higher_v.version_id AS version_id,
@@ -90,7 +96,14 @@ WHERE toLower(d.name) CONTAINS toLower($document)
 MATCH (c)-[:AFFECTS]->(o:Obligation)
 MATCH (ov:DocumentVersion)-[:MANDATES]->(o)
 --ANCHOR--
-RETURN c.kind || ': ' || c.statement AS statement,
+// The reissue that made the change belongs in the row, and cannot come from the
+// citation. One clause dropped by two successive editions is two `:Change`
+// nodes over one obligation, and with only the obligation's edition projected
+// both rows were byte-identical — the answer printed the same sentence twice
+// with nothing to tell them apart, and "which reissue dropped this?" was
+// unanswerable. `v` is the edition the change is recorded against; `ov` below
+// stays the edition the quotation is actually in (ADR-011).
+RETURN DISTINCT c.kind || ' in ' || v.version_id || ': ' || c.statement AS statement,
        o.modality  AS modality,
        d.name      AS document,
        ov.version_id AS version_id,
