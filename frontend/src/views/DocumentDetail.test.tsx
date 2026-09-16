@@ -413,6 +413,34 @@ describe('DocumentDetail — building the derived layer', () => {
     expect(screen.getByText(/choosing none rebuilds/i)).toBeInTheDocument()
   })
 
+  it('names which way a proposed link points, and what the wrong way costs', async () => {
+    // The control decides the direction of every IMPLEMENTS this corpus will
+    // ever hold, and it used to say only "Propose links against". A live
+    // instance was built with it backwards: 25 approved links all ran outward
+    // from DoDD 5000.01, so Triage returned zero rows on every edition pair and
+    // the only way back was hours of re-extraction. The direction existed in
+    // two JSX comments and a FastAPI docstring, and nowhere a user could read.
+    loaded()
+    corpusOfTwo()
+    renderAt()
+    await screen.findByRole('article')
+
+    const fieldset = await screen.findByRole('group')
+    const said = fieldset.textContent ?? ''
+
+    // Which end of the arrow the reader is standing on, named with the document
+    // rather than left as "this one".
+    expect(said).toContain('DoDD 5000.01')
+    expect(said).toMatch(/sits underneath/i)
+    // What a wrong answer produces: a green build and a Triage that can never
+    // fill, which is indistinguishable from "nothing is affected".
+    expect(said).toMatch(/triage/i)
+    // Priced for *this* edition, from the chunk count the page already holds —
+    // the paragraph above quotes a 38-chunk edition whatever you are looking at.
+    expect(said).toMatch(/2 chunks/)
+    expect(said).toMatch(/about 3 minutes/)
+  })
+
   it('proposes against the editions the reader chose', async () => {
     loaded()
     corpusOfTwo()

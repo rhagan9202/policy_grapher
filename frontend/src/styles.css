@@ -285,6 +285,13 @@ legend {
   font-weight: 600;
 }
 
+/* One document's editions, in the candidate list. Paragraphs carry no top margin
+   (see the reset above), so without this the guidance under the list sits flush
+   against the last checkbox and reads as part of it. */
+.candidate-group {
+  margin-bottom: var(--s3);
+}
+
 /* A quality floor, not a flourish: keyboard users need to see where they are,
    and the browser default outline disappears against these borders. */
 :focus-visible {

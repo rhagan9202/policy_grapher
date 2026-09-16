@@ -20,6 +20,25 @@ import type {
 
 type PoolEntry = { slug: string; name: string; versions: DocumentVersionOut[] }
 
+/** What a rebuild of an edition this size costs, in words.
+ *
+ * ~90 seconds a chunk with a real extractor — the same rate the section's own
+ * paragraph quotes, applied to the edition actually on screen instead of to the
+ * 38-chunk one the paragraph names whatever you are looking at. A reader
+ * deciding whether to press the button is deciding about *this* edition, and the
+ * corpus ranges from 37 chunks to 204.
+ */
+function rebuildEstimate(chunkCount: number): string {
+  const minutes = Math.round(chunkCount * 1.5)
+  if (minutes < 60) {
+    return `about ${minutes} minute${minutes === 1 ? '' : 's'}`
+  }
+  // To the nearest half hour: past an hour, the extra precision is noise against
+  // a rate that is itself approximate.
+  const hours = Math.round(minutes / 30) / 2
+  return `about ${hours} hour${hours === 1 ? '' : 's'}`
+}
+
 // STORY-017, the "corpus management" MVP item. `GET /documents/{slug}/chunks` has
 // served ordered text with `page` and `section_path` since ADR-012, and `client.ts`
 // had no function for the route at all — so nothing in the UI could read a
@@ -288,6 +307,10 @@ export default function DocumentDetail() {
   )
   const recordedRunId = selectedVersion?.build_run_id ?? null
   const recordedState = selectedVersion?.build_state ?? null
+  // `chunks` is fetched for the edition on screen, so this is the count the
+  // rebuild would re-chunk. 0 while it is still loading, and the estimate is
+  // withheld rather than shown as "0 chunks".
+  const chunkCount = chunks?.length ?? 0
 
   // Only ever read a pool answer that belongs to the document currently being
   // read — the same guard `shownObligations` applies below, and for the same
@@ -520,7 +543,9 @@ export default function DocumentDetail() {
             )
           ) : (
             <fieldset>
-              <legend>Propose links against</legend>
+              <legend>
+                Which higher-tier issuances does this document implement?
+              </legend>
               {/* Other documents' editions, never this document's own. A
                   proposal whose two obligations share a `:Document` is skipped —
                   `IMPLEMENTS` means our lower-tier clause discharges a
@@ -532,7 +557,7 @@ export default function DocumentDetail() {
                   by version id alone, so other documents' editions could always
                   be named by a direct call and never by this control. */}
               {poolForThisSlug.map((entry) => (
-                <div key={entry.slug}>
+                <div className="candidate-group" key={entry.slug}>
                   <h4>{entry.name}</h4>
                   {entry.versions.map((v) => (
                     <label key={v.version_id} className="stacked">
@@ -555,7 +580,41 @@ export default function DocumentDetail() {
               {/* Naming candidates is the only way proposals are generated:
                   nothing in the graph records which documents are higher-tier, so
                   the caller states it and the route does not guess. Choosing none
-                  is a valid request that rebuilds without proposing. */}
+                  is a valid request that rebuilds without proposing.
+
+                  The direction used to live only here, in a comment, and in the
+                  rebuild route's docstring. A live instance was then built with
+                  it backwards — 25 approved links all leaving this document —
+                  and Triage returned zero rows on every edition pair with no way
+                  back but hours of re-extraction. A control that decides the
+                  direction of every IMPLEMENTS in the corpus has to say which
+                  way it points on the screen where it is operated. */}
+              <p>
+                Ticking an edition proposes that a clause of{' '}
+                <strong>{document?.name ?? 'this document'}</strong> discharges a
+                duty that edition imposes — so tick the issuances this document{' '}
+                <em>sits underneath</em>, never the ones that sit under it.
+              </p>
+              <p>
+                The wrong direction still builds, and still fills Review with
+                plausible pairs to approve. What it cannot do is fill Triage,
+                which asks which of ours implements a clause that changed{' '}
+                <em>there</em>: links made this way point the other way, and the
+                screen reads as though nothing is affected.
+                {chunkCount > 0 && (
+                  <>
+                    {' '}
+                    Undoing it means rebuilding, and this edition is {chunkCount}{' '}
+                    chunk{chunkCount === 1 ? '' : 's'} — {rebuildEstimate(chunkCount)}.
+                  </>
+                )}
+              </p>
+              <p>
+                Where a higher document has more than one edition, tick its
+                predecessor as well as its current one. A clause the newer edition
+                dropped is recorded against the older edition, and those removals
+                are the changes Triage ranks highest.
+              </p>
               <p>Choosing none rebuilds the edition without proposing any links.</p>
             </fieldset>
           )}
