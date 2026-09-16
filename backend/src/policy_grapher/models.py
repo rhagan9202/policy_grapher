@@ -484,9 +484,11 @@ class CitationOut(BaseModel):
     # Whether the question's own words reached this passage, rather than the
     # embedding index simply ranking it highest. A field and not only a turn of
     # phrase in `answer`, so that a caller can tell the two apart without
-    # matching on English. `True` for a passage a structured template returned,
-    # which was selected by naming the document.
-    grounded: bool = True
+    # matching on English. Required, with no default: the only default it could
+    # carry is `True`, and defaulting to the confident direction is precisely the
+    # failure this field was added to stop. A structured template's rows pass
+    # `True` explicitly, having been selected by naming the document.
+    grounded: bool
 
 
 class AnswerOut(BaseModel):
@@ -496,14 +498,17 @@ class AnswerOut(BaseModel):
     question. An answer with no citation behind it is a hallucination with good
     grammar (ADR-017).
 
-    There are three answer shapes, not two, and the third is deliberate. A
-    question whose words appear nowhere in the corpus still returns passages —
-    the closest by meaning — but the answer opens by saying so rather than with
-    "The corpus states:", because a vector index ranks every chunk it holds
-    against any input and so always has a top hit. The rows are evidence to
-    check, not an answer, and the prose says which of the two it is. The
-    distinction is in the wording only: a consumer that needs it as data should
-    be given a field rather than left to match on English.
+    Four answer shapes, and the last two are deliberate. Beyond "nothing
+    addresses that" and a straightforward answer, a question whose words appear
+    nowhere in the corpus still returns passages — the closest by meaning — under
+    a lead-in that says so, because a vector index ranks every chunk it holds
+    against any input and so always has a top hit. And an answer can be mixed:
+    some passages the question's words reached and some merely near it, in which
+    case both sections appear, grounded first.
+
+    Which a given passage is, is `CitationOut.grounded` — a field, so that a
+    caller is not left matching on English. `citations` is ordered to match the
+    order the answer quotes them in.
     """
 
     answer: str

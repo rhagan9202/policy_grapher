@@ -37,12 +37,11 @@ from policy_grapher.embedding.schema import INDEX_NAME, check_identity
 # the top hit of any one leg dominate.
 RRF_K = 60
 
-# The leg names, named once. They travel out of here on `RetrievedChunk.signals`
-# and are read by callers deciding what a result is evidence of — `routers/ask.py`
-# will not claim the corpus states something unless a passage carries
-# `FULLTEXT_SIGNAL`. Retyping that literal there would make a rename here a silent
-# behaviour change at a distance: every answer would quietly lose its claim, and
-# no test would fail.
+# The leg names, named once. They key `legs` below, travel out on
+# `RetrievedChunk.signals`, and — for `FULLTEXT_SIGNAL` — decide grounding at
+# `anchored` further down. Naming them keeps that last use from turning on a bare
+# literal: a rename would otherwise leave the grounding rule silently matching
+# nothing, and every answer would lose its claim with no test failing.
 VECTOR_SIGNAL = "vector"
 FULLTEXT_SIGNAL = "fulltext"
 GRAPH_SIGNAL = "graph"
@@ -261,6 +260,13 @@ def retrieve(
     # via the lexical leg, or along an approved link from a passage they reached.
     # Everything else is the vector leg, which ranks every chunk it holds against
     # any input at all and so vouches for nothing on its own.
+    #
+    # Read exactly: this is the lexical leg's top `k`, not every passage the
+    # question matches. A chunk that matches lexically but ranks below `k` there,
+    # and surfaces only because another leg found it, is treated as ungrounded —
+    # the answer under-claims rather than over-claims, which is the safe
+    # direction. `k` is four times the row limit, so the corpus would have to
+    # return more than 40 lexical matches for a returned row to fall in that gap.
     anchored = set(legs[FULLTEXT_SIGNAL])
     legs[GRAPH_SIGNAL], hopped_from_anchor = _graph_leg(
         driver,

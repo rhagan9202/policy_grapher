@@ -211,6 +211,58 @@ def test_a_graph_hop_inherits_the_grounding_of_its_seed(clean_graph, database):
 
 
 @pytest.mark.integration
+def test_a_hop_from_an_unanchored_seed_is_not_grounded(clean_graph, database):
+    """The negative case, and the one the rule exists for.
+
+    The edge is human-approved either way. What differs is why retrieval arrived
+    at it: here the seed was found by embedding similarity alone, so the hop
+    inherits nothing. Measured before the rule was per-passage, `zzqqxx
+    wibblefrotz` came back `{'graph': 5, 'vector': 5}` — five hops along real
+    links, no lexical hit anywhere, presented as what the corpus states.
+
+    The question shares no word with either passage, so the lexical leg returns
+    nothing and the seed can only have come from the vector leg.
+    """
+    embedder = local_or_skip()
+    _seed(
+        clean_graph, database, version_id="higher", doc_name="DoDI 5000.88",
+        text="Personnel must safeguard classified material at all times.",
+        statement="Personnel must safeguard classified material at all times.",
+    )
+    ours = _seed(
+        clean_graph, database, version_id="ours", doc_name="ORG 1.0",
+        text="Widget calibration must be performed quarterly by the technician.",
+        statement="Widget calibration must be performed quarterly by the technician.",
+    )
+    # Only the seed is embedded. Embedding ours too let the vector leg find it
+    # directly, so the hop was never exercised — the guard below caught that.
+    embed_chunks(clean_graph, database, version_id="higher", embedder=embedder)
+    clean_graph.execute_query(
+        "MATCH (a:Obligation {obligation_id: $ours}) "
+        "MATCH (b:Obligation {obligation_id: $higher}) MERGE (a)-[:IMPLEMENTS]->(b)",
+        {
+            "ours": _obligation_id(clean_graph, database, "ours"),
+            "higher": _obligation_id(clean_graph, database, "higher"),
+        },
+        database_=database,
+    )
+
+    found = _by_id(
+        retrieve(
+            clean_graph, database, query="protecting secret documents",
+            embedder=embedder,
+        )
+    )
+
+    # Guard against passing for the wrong reason: the hop has to have happened.
+    assert ours.chunk_id in found, [r.text for r in found.values()]
+    assert "graph" in found[ours.chunk_id].signals
+    assert found[ours.chunk_id].grounded is False
+    # And the seed it came from is itself ungrounded, which is why.
+    assert all(not hit.grounded for hit in found.values())
+
+
+@pytest.mark.integration
 def test_a_query_embedded_by_the_wrong_model_is_refused(clean_graph, database):
     """Searching a model-A index with a model-B query vector is the same silent
     failure as writing one, and it must be refused at the same volume."""

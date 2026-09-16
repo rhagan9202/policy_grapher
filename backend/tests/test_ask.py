@@ -13,6 +13,7 @@ from policy_grapher.retrieval.templates import TEMPLATES, select_template
 from policy_grapher.routers.ask import (
     NEAR_IN_MEANING,
     _compose,
+    _grounded_first,
     _hits_to_citations,
 )
 
@@ -202,6 +203,28 @@ def test_one_lexical_hit_does_not_vouch_for_the_rest_of_the_batch():
     # above it.
     assert "acquisition strategy" not in before
     assert "acquisition strategy" in after
+
+
+def test_the_citations_ship_in_the_order_the_answer_quotes_them():
+    """`Ask.tsx` documents the citations array as being in quote order, and the
+    Sources list carries no quote text — so when the prose started grouping and
+    the array did not, a reader had no way to recover which reference belonged to
+    which quotation. Mixed answers are the common case now that grounding is
+    decided per passage.
+    """
+    hits = [
+        _hit(("fulltext",), text="The Director shall notify the Comptroller."),
+        _hit(("vector",), text="Unrelated text about acquisition strategy."),
+        _hit(("fulltext",), text="The Secretary shall approve the baseline."),
+    ]
+
+    citations = _grounded_first(_hits_to_citations(hits))
+    answer = _compose(citations)
+
+    quoted = [line.split('"')[1] for line in answer.splitlines() if line.startswith("—")]
+    assert quoted == [citation.quote for citation in citations]
+    # And the interleaved ungrounded one really did move.
+    assert quoted[-1] == "Unrelated text about acquisition strategy."
 
 
 def test_a_graph_hop_is_grounded_by_the_seed_it_came_from():

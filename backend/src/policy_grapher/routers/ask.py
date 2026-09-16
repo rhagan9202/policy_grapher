@@ -136,6 +136,21 @@ def _cite(citation: CitationOut) -> str:
     )
 
 
+def _grounded_first(citations: list[CitationOut]) -> list[CitationOut]:
+    """The order the answer quotes them in, which is also the order they ship in.
+
+    `_compose` groups, so the prose no longer follows retrieval rank. The
+    response's `citations` did, and `Ask.tsx` documents that array as being "in
+    the order the answer quotes them" — so on any mixed answer, which is now the
+    common case, the Sources list and the quotations disagreed. The list carries
+    no quote text, so a reader had no way to recover the mapping.
+
+    Ordering once, here, and using the result for both is what keeps the two from
+    drifting again. Each group holds its retrieval rank.
+    """
+    return [c for c in citations if c.grounded] + [c for c in citations if not c.grounded]
+
+
 def _compose(citations: list[CitationOut]) -> str:
     """Build the answer out of the citations themselves.
 
@@ -194,22 +209,26 @@ def ask(
 
     database = settings.neo4j_database
     if template.cypher is None:
-        citations = _from_retrieval(
-            driver,
-            database,
-            question=body.question,
-            embedder=embedder,
+        citations = _grounded_first(
+            _from_retrieval(
+                driver,
+                database,
+                question=body.question,
+                embedder=embedder,
+            )
         )
     else:
         citations = _from_template(driver, database, template, selection.parameters)
         if not citations:
             # A structured query that matched nothing is not the end of the road:
             # the passage may still be there under different words.
-            citations = _from_retrieval(
-                driver,
-                database,
-                question=body.question,
-                embedder=embedder,
+            citations = _grounded_first(
+                _from_retrieval(
+                    driver,
+                    database,
+                    question=body.question,
+                    embedder=embedder,
+                )
             )
             if citations:
                 return AnswerOut(
