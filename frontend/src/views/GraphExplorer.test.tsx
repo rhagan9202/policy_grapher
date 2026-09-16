@@ -599,6 +599,35 @@ describe('GraphExplorer without a mouse', () => {
     ).toBeInTheDocument()
   })
 
+  it('marks external nodes by size as well as colour', async () => {
+    // WCAG 1.4.1: colour alone cannot carry the corpus/external distinction, and
+    // that distinction is what the drawing exists to show. `nodeColor` has had a
+    // test since it was added; the second channel needs one too, or it can be
+    // dropped without anything failing.
+    getGraph.mockResolvedValue(expandedView)
+    showGraphExplorer()
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const props = graphProps[graphProps.length - 1]
+    const nodeVal = props.nodeVal as (node: { is_external: boolean }) => number
+
+    expect(nodeVal({ is_external: true })).toBeLessThan(
+      nodeVal({ is_external: false }),
+    )
+  })
+
+  it('lets the reader start the layout moving again', async () => {
+    // The resume half of the toggle. Only freeze was covered, so a control that
+    // froze and then refused to unfreeze would have passed.
+    getGraph.mockResolvedValue(corpusView)
+    showGraphExplorer()
+
+    await userEvent.click(await screen.findByRole('button', { name: /freeze layout/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /resume layout/i }))
+
+    expect(forceGraph.resumeAnimation).toHaveBeenCalled()
+  })
+
   it('lets the reader stop the layout moving', async () => {
     // WCAG 2.2.2: motion over five seconds needs a way to stop it. Measured
     // before this control existed, the force simulation ran 8.8 to 10.4 seconds

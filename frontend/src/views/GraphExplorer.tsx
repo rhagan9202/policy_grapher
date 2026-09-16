@@ -135,10 +135,6 @@ export default function GraphExplorer() {
     if (!node.is_external) setExpanded(node.id)
   }, [])
 
-  // WCAG 2.2.2. The force simulation settles in 8.8 to 10.4 seconds depending on
-  // node count, which is well past the five-second threshold for motion that
-  // needs a stop. `prefers-reduced-motion` cannot reach it — the rule in
-  // styles.css governs CSS animation, and this is a canvas simulation.
   // How many of the drawn nodes are external, which is not the same question as
   // whether the toggle is on: an expansion pulls them in regardless.
   const externalsShown = useMemo(
@@ -146,6 +142,17 @@ export default function GraphExplorer() {
     [graph],
   )
 
+  // The drawing's text alternative and the caption beside it report the same
+  // count, so they share one phrase rather than pluralising it twice and risking
+  // the two wordings drifting apart.
+  const documentsDrawn = graph
+    ? `${graph.returned_nodes} document${graph.returned_nodes === 1 ? '' : 's'}`
+    : ''
+
+  // WCAG 2.2.2. The force simulation settles in 8.8 to 10.4 seconds depending on
+  // node count, which is well past the five-second threshold for motion that
+  // needs a stop. `prefers-reduced-motion` cannot reach it — the rule in
+  // styles.css governs CSS animation, and this is a canvas simulation.
   const [frozen, setFrozen] = useState(false)
   const toggleLayout = useCallback(() => {
     const handle = forceGraphRef.current
@@ -262,10 +269,19 @@ export default function GraphExplorer() {
         className="graph-canvas"
         role="img"
         aria-label={
-          `Reference graph: ${graph.returned_nodes} document` +
-          `${graph.returned_nodes === 1 ? '' : 's'} and ${graph.edges.length} ` +
-          `reference${graph.edges.length === 1 ? '' : 's'} between them. ` +
-          `The same documents are listed beside the drawing as buttons.`
+          `Reference graph: ${documentsDrawn} and ${graph.edges.length} ` +
+          `reference${graph.edges.length === 1 ? '' : 's'} between them.` +
+          // The cap and the list are both conditional, and the label has to
+          // agree with the screen: an empty corpus renders no buttons to point
+          // at, and a capped view withholds documents the caption warns sighted
+          // readers about. Saying either unconditionally makes the one sentence
+          // a screen-reader user gets the least accurate thing on the page.
+          (graph.truncated
+            ? ` Capped at ${graph.returned_nodes} of ${graph.total_nodes}; narrow the view to see the rest.`
+            : '') +
+          (graph.total_nodes > 0
+            ? ' The same documents are listed beside the drawing as buttons.'
+            : '')
         }
       >
         <ForceGraph2D
@@ -320,8 +336,7 @@ export default function GraphExplorer() {
                 </>
               ) : (
                 <>
-                  Showing {graph.returned_nodes} document
-                  {graph.returned_nodes === 1 ? '' : 's'}
+                  Showing {documentsDrawn}
                   {/* "in the corpus" is a claim about all of them, so it can
                       only be made when all of them are. */}
                   {externalsShown ? '' : ' in the corpus'}.
@@ -421,7 +436,10 @@ export default function GraphExplorer() {
             </p>
           </div>
         ) : (
-          <p>Click a document to see its details and pull in its external references.</p>
+          <p>
+            Choose a document — on the drawing or from the list above — to see its
+            details and pull in its external references.
+          </p>
         )}
 
         {expanded && (

@@ -20,6 +20,23 @@ import type {
 
 type PoolEntry = { slug: string; name: string; versions: DocumentVersionOut[] }
 
+/* The two refusal counts (ADR-023 for a rejected chunk, ADR-030 for a dropped
+ * statement), worded once.
+ *
+ * Both the live run report and the stored edition record state these, and they
+ * were assembling the same sentence — same counts, same pluralisation — from two
+ * sources of the same shape. The surrounding prose still differs, because the
+ * two say different things: a run report always prints the count, zero included,
+ * while the edition line appears only when something was actually refused. So
+ * the phrase is shared and the sentence around it is not. */
+function chunksRejectedPhrase(count: number): string {
+  return `${count} chunk${count === 1 ? '' : 's'} rejected by the schema`
+}
+
+function itemsDroppedPhrase(count: number): string {
+  return `${count} statement${count === 1 ? '' : 's'} dropped from chunks that were otherwise kept`
+}
+
 /** What a rebuild of an edition this size costs, in words.
  *
  * ~90 seconds a chunk with a real extractor — the same rate the section's own
@@ -321,6 +338,12 @@ export default function DocumentDetail() {
   // already on the wire; only the reader was missing.
   const refusedChunks = selectedVersion?.build_counts?.chunks_rejected ?? 0
   const refusedItems = selectedVersion?.build_counts?.items_dropped ?? 0
+  // True when the finished-run panel is on screen for this very edition, and so
+  // is already stating what the build refused.
+  const runPanelCoversRefusals =
+    run !== null &&
+    run.state === 'finished' &&
+    run.run_id === selectedVersion?.build_run_id
 
   // Only ever read a pool answer that belongs to the document currently being
   // read — the same guard `shownObligations` applies below, and for the same
@@ -677,16 +700,9 @@ export default function DocumentDetail() {
               {/* Not optional. A rejected chunk is silent incompleteness unless the
                   number is on screen — the reason ADR-023 reports it at all. */}
               <p>
-                {run.counts.chunks_rejected ?? 0} chunk
-                {(run.counts.chunks_rejected ?? 0) === 1 ? '' : 's'} rejected by the
-                schema and skipped.
+                {chunksRejectedPhrase(run.counts.chunks_rejected ?? 0)} and skipped.
                 {(run.counts.items_dropped ?? 0) > 0 && (
-                  <>
-                    {' '}
-                    A further {run.counts.items_dropped} statement
-                    {run.counts.items_dropped === 1 ? '' : 's'} dropped from chunks
-                    that were otherwise kept.
-                  </>
+                  <> A further {itemsDroppedPhrase(run.counts.items_dropped)}.</>
                 )}
               </p>
 
@@ -832,20 +848,24 @@ export default function DocumentDetail() {
               {/* Absent rather than zeroed when nothing was refused: "0 chunks
                   rejected" on every clean edition is noise that teaches the
                   reader to skip the line on the one edition where it matters. */}
-              {(refusedChunks > 0 || refusedItems > 0) && (
+              {/* Withheld while the run panel above is already reporting the
+                  same run's refusals. A tab that watched its own build to the
+                  end has both on screen — the run's own account and the record
+                  it wrote — and printing the counts twice reads as two separate
+                  losses. */}
+              {!runPanelCoversRefusals && (refusedChunks > 0 || refusedItems > 0) && (
                 <>
                   {' '}
+                  {/* Assembled from whichever counts are non-zero. Naming the
+                      chunk count unconditionally printed "0 chunks rejected by
+                      the schema, and a further 12 statements dropped" when only
+                      statements were lost — reinstating, inside the very
+                      sentence meant to avoid it, the "0 chunks rejected" noise
+                      the comment above rules out. */}
                   <strong>
-                    {refusedChunks} chunk{refusedChunks === 1 ? '' : 's'} rejected
-                    by the schema
-                    {refusedItems > 0 && (
-                      <>
-                        , and a further {refusedItems} statement
-                        {refusedItems === 1 ? '' : 's'} dropped from chunks that
-                        were kept
-                      </>
-                    )}
-                    .
+                    {refusedChunks > 0 ? chunksRejectedPhrase(refusedChunks) : ''}
+                    {refusedChunks > 0 && refusedItems > 0 ? ', and a further ' : ''}
+                    {refusedItems > 0 ? itemsDroppedPhrase(refusedItems) : ''}.
                   </strong>{' '}
                   So this edition holds less than the document does. Which
                   statements were refused is recorded against the build run

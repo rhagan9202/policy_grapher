@@ -1490,6 +1490,57 @@ describe('DocumentDetail build state', () => {
     expect(said).toMatch(/135 statements/i)
   })
 
+  it('does not say "0 chunks" when only statements were dropped', async () => {
+    // The sentence used to name the chunk count unconditionally, so an edition
+    // that lost only statements read "0 chunks rejected by the schema, and a
+    // further 12 statements dropped" — reinstating, inside the very sentence
+    // meant to avoid it, the zero-noise the comment above it rules out.
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue([
+      versions[0],
+      built({
+        build_counts: {
+          chunks_written: 42,
+          obligations_written: 61,
+          chunks_rejected: 0,
+          items_dropped: 12,
+        },
+      }),
+    ])
+    listChunks.mockResolvedValue(chunks)
+
+    const view = renderAt()
+
+    await screen.findByText(/built/i)
+    const said = view.container.textContent ?? ''
+    expect(said).toMatch(/12 statements/i)
+    expect(said).not.toMatch(/0 chunks/i)
+  })
+
+  it('estimates a long build in hours rather than a precise-looking minute count', async () => {
+    // The minutes branch was the only one any test reached, because every
+    // fixture is two chunks. The corpus runs to 204.
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue([versions[0], { ...versions[1] }])
+    // The estimate lives in the candidate fieldset, which only renders when
+    // there is another document to propose against.
+    corpusOfTwo()
+    listChunks.mockResolvedValue(
+      Array.from({ length: 122 }, (_unused, index) => ({
+        chunk_id: `c${index}`,
+        text: 'Some text.',
+        page: index + 1,
+        section_path: ['1.1'],
+        ordinal: index,
+      })),
+    )
+
+    renderAt()
+
+    const fieldset = await screen.findByRole('group')
+    expect(fieldset.textContent ?? '').toMatch(/122 chunks — about 3 hours/)
+  })
+
   it('says nothing about refusals when the build refused nothing', async () => {
     // The disclosure has to be absent, not zeroed: "0 chunks rejected" on every
     // clean edition is noise that trains the reader to skip the line on the one
