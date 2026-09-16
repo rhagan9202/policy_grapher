@@ -9,6 +9,7 @@ import {
   useSearchParams,
 } from 'react-router-dom'
 import { getHealth } from './api/client'
+import ErrorBoundary from './ErrorBoundary'
 import { ROUTES } from './routes'
 import DocumentDetail from './views/DocumentDetail'
 
@@ -78,6 +79,7 @@ export default function App() {
   // the app must not misrepresent about its own state. Checked once at mount: this
   // answers "is anything there at all", not "is it there right now".
   const [reachable, setReachable] = useState(true)
+  const { pathname } = useLocation()
 
   useEffect(() => {
     let cancelled = false
@@ -121,6 +123,11 @@ export default function App() {
         <SearchDocuments />
       </nav>
 
+      {/* Keyed by path so that leaving a screen that threw clears the failure.
+          Without the key the boundary stays caught for the rest of the session
+          and every other screen renders the same message, which is a worse
+          failure than the one it is containing. */}
+      <ErrorBoundary key={pathname}>
       <Routes>
         {ROUTES.map((route) => (
           <Route key={route.to} path={route.to} element={route.element} />
@@ -136,6 +143,7 @@ export default function App() {
             the address rather than the app. */}
         <Route path="*" element={<NoSuchScreen />} />
       </Routes>
+      </ErrorBoundary>
     </>
   )
 }
