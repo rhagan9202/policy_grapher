@@ -14,9 +14,13 @@ vi.mock('./views/Reset', () => ({ default: () => <div>reset</div> }))
 vi.mock('./views/DocumentDetail', () => ({ default: () => <div>detail</div> }))
 
 const getHealth = vi.fn()
+// Hoisted: `vi.mock`'s factory is lifted above this file's own declarations, and
+// the factory returns `ApiError` as a value rather than behind a closure the way
+// it does `getHealth`, so a plain `class` here is read before it initialises.
+const { ApiError } = vi.hoisted(() => ({ ApiError: class extends Error {} }))
 vi.mock('./api/client', () => ({
   getHealth: () => getHealth(),
-  ApiError: class extends Error {},
+  ApiError,
 }))
 
 import App from './App'
@@ -113,6 +117,23 @@ describe('App — backend reachability', () => {
     )
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/backend/i)
+  })
+
+  it('does not blame the stack when the backend answered with an error', async () => {
+    // A 401 from a wrong token, or a 503 from a degraded health check, means the
+    // backend answered. Raising "check that the stack is up" over either sent the
+    // operator to restart something that was running, past the screen-level
+    // message that named the real problem — and on a health-only 503 the banner
+    // appeared above a fully working documents table, contradicting itself.
+    getHealth.mockRejectedValue(new ApiError('Invalid token'))
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('graph')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
 

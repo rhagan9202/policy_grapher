@@ -20,7 +20,7 @@ function Boom(): never {
 describe('ErrorBoundary', () => {
   it('renders its children when nothing throws', () => {
     render(
-      <ErrorBoundary>
+      <ErrorBoundary resetKey="/">
         <p>the screen</p>
       </ErrorBoundary>,
     )
@@ -34,7 +34,7 @@ describe('ErrorBoundary', () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     render(
-      <ErrorBoundary>
+      <ErrorBoundary resetKey="/">
         <Boom />
       </ErrorBoundary>,
     )
@@ -54,7 +54,7 @@ describe('ErrorBoundary', () => {
     render(
       <>
         <nav aria-label="Main">the navigation</nav>
-        <ErrorBoundary>
+        <ErrorBoundary resetKey="/">
           <Boom />
         </ErrorBoundary>
       </>,
@@ -62,6 +62,56 @@ describe('ErrorBoundary', () => {
 
     // The whole point: the reader can still leave the broken screen.
     expect(screen.getByText('the navigation')).toBeInTheDocument()
+
+    logged.mockRestore()
+  })
+
+  it('clears a caught failure when the location changes', () => {
+    // The behaviour the boundary's own comment calls safety-critical, and which
+    // had no test. `resetKey` carries the query string as well as the path,
+    // because the case that stung was a crash on /documents?q=X: the pathname
+    // does not change when the reader types a new search term, so a boundary
+    // keyed on path alone stayed caught and the app's own search could not
+    // recover from a crash it had triggered.
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const view = render(
+      <ErrorBoundary resetKey="/documents?q=first">
+        <Boom />
+      </ErrorBoundary>,
+    )
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+
+    view.rerender(
+      <ErrorBoundary resetKey="/documents?q=second">
+        <p>recovered</p>
+      </ErrorBoundary>,
+    )
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText('recovered')).toBeInTheDocument()
+
+    logged.mockRestore()
+  })
+
+  it('stays caught while the location is unchanged', () => {
+    // Otherwise any re-render would clear it and the failed screen would try to
+    // render again immediately, looping.
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const view = render(
+      <ErrorBoundary resetKey="/documents">
+        <Boom />
+      </ErrorBoundary>,
+    )
+    view.rerender(
+      <ErrorBoundary resetKey="/documents">
+        <p>should not be reached</p>
+      </ErrorBoundary>,
+    )
+
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByText('should not be reached')).not.toBeInTheDocument()
 
     logged.mockRestore()
   })

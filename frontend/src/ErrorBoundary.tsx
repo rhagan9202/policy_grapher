@@ -18,7 +18,22 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
  * the console is not somewhere an analyst is asked to look.
  */
 
-type Props = { children: ReactNode }
+/** `resetKey` clears a caught failure when it changes — pass the current
+ *  location. It is a prop and not React's `key` for a reason both halves of
+ *  which were found in review.
+ *
+ *  As `key` on this component it was too coarse *and* too fine at once. Too
+ *  coarse because a `key` of the path alone ignores the query string, so a
+ *  render that threw on `/documents?q=X` stayed caught while the reader typed a
+ *  new search term — the app's own search could not recover from a crash it had
+ *  triggered. Too fine because a `key` that does change remounts the whole
+ *  subtree: navigating between two documents threw away `DocumentDetail`'s state
+ *  and re-ran its corpus-wide fetch, which the guards in that file exist
+ *  precisely to make unnecessary.
+ *
+ *  Comparing in `componentDidUpdate` separates the two: the subtree keeps its
+ *  identity across every navigation, and only a *caught* boundary resets. */
+type Props = { children: ReactNode; resetKey: string }
 type State = { message: string | null }
 
 export default class ErrorBoundary extends Component<Props, State> {
@@ -26,6 +41,12 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(error: unknown): State {
     return { message: error instanceof Error ? error.message : String(error) }
+  }
+
+  componentDidUpdate(previous: Props) {
+    if (previous.resetKey !== this.props.resetKey && this.state.message !== null) {
+      this.setState({ message: null })
+    }
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
