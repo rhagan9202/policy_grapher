@@ -64,21 +64,15 @@ UNCORROBORATED = (
     "closest to it by meaning — leads to check, not an answer:"
 )
 
-# The one leg that cannot fire without the question's own words occurring in the
-# corpus.
+# Printed above passages the question's words did not reach, when others did.
 #
-# `graph` looks like it belongs here and does not, which cost a round of live
-# verification to learn: the graph leg expands from whatever the other legs
-# seeded, so a spurious vector seed produces a spurious hop along a perfectly
-# real `IMPLEMENTS` edge. Measured on the sample corpus, `zzqqxx wibblefrotz`
-# comes back `{'graph': 5, 'vector': 5}` — five hops, no lexical hit anywhere.
-# The edges are human-approved; the reason for arriving at them was not.
-#
-# The leg still earns its place in the answer, and the case it exists for is
-# unaffected: a question that reaches a higher-level duty lexically and then hops
-# to the clause discharging it already carries a `fulltext` hit on the duty
-# (ADR-014).
-CORROBORATING = frozenset({"fulltext"})
+# Grouping rather than one lead-in over everything. The claim used to be computed
+# as an OR across the whole batch, so a single unrelated lexical hit put nine
+# unrelated vector hits under "The corpus states:" — the overclaim this was built
+# to stop, moved rather than removed. Which passages are grounded is now decided
+# one at a time in `retrieval/hybrid.py`, and the answer says so by putting them
+# in different places.
+NEAR_IN_MEANING = "Also close in meaning, though not in wording:"
 
 
 def _truncate(text: str) -> str:
@@ -106,6 +100,9 @@ def _from_template(driver, database, template, parameters) -> list[CitationOut]:
             section_path=record["section_path"],
             page=record["page"],
             quote=_truncate(record["statement"] or record["quote"]),
+            # A structured template was selected by naming the document, so its
+            # rows are grounded by construction.
+            grounded=True,
         )
         for record in records
     ]
@@ -119,26 +116,27 @@ def _hits_to_citations(hits) -> list[CitationOut]:
             section_path=hit.section_path,
             page=hit.page,
             quote=_truncate(hit.text),
+            grounded=hit.grounded,
         )
         for hit in hits
     ]
 
 
-def _corroborated(hits) -> bool:
-    """Whether anything but embedding similarity put these passages here."""
-    return any(signal in CORROBORATING for hit in hits for signal in hit.signals)
-
-
-def _from_retrieval(
-    driver, database, *, question, embedder
-) -> tuple[list[CitationOut], bool]:
-    hits = retrieve(
-        driver, database, query=question, embedder=embedder, limit=ROW_LIMIT
+def _from_retrieval(driver, database, *, question, embedder) -> list[CitationOut]:
+    return _hits_to_citations(
+        retrieve(driver, database, query=question, embedder=embedder, limit=ROW_LIMIT)
     )
-    return _hits_to_citations(hits), _corroborated(hits)
 
 
-def _compose(citations: list[CitationOut], *, corroborated: bool = True) -> str:
+def _cite(citation: CitationOut) -> str:
+    where = "/".join(citation.section_path)
+    return (
+        f'— "{citation.quote}" ({citation.document}, edition '
+        f"{citation.version_id}, {where}, p. {citation.page})"
+    )
+
+
+def _compose(citations: list[CitationOut]) -> str:
     """Build the answer out of the citations themselves.
 
     Deliberately extractive. A generative step here would be the one place in the
@@ -146,17 +144,28 @@ def _compose(citations: list[CitationOut], *, corroborated: bool = True) -> str:
     compliance tool that is not a trade worth making. A model could later render
     prose *from these same rows* behind a port — the citations requirement is what
     would keep that safe.
+
+    Grouped by whether the question's words actually reached each passage, so the
+    sentence over a quotation is true of that quotation. A vector index has a top
+    hit for any input at all, so a batch that contains one lexical match and nine
+    arbitrary neighbours is not ten things the corpus states.
     """
     if not citations:
         return NOTHING_FOUND
 
-    lines = ["The corpus states:" if corroborated else UNCORROBORATED]
-    for citation in citations:
-        where = "/".join(citation.section_path)
-        lines.append(
-            f'— "{citation.quote}" ({citation.document}, edition '
-            f"{citation.version_id}, {where}, p. {citation.page})"
-        )
+    grounded = [citation for citation in citations if citation.grounded]
+    nearby = [citation for citation in citations if not citation.grounded]
+
+    lines: list[str] = []
+    if grounded:
+        lines.append("The corpus states:")
+        lines.extend(_cite(citation) for citation in grounded)
+    if nearby:
+        # The standalone admission when nothing is grounded, a section heading
+        # when something is: on its own it has to explain why there is no answer,
+        # beneath grounded rows it only has to mark where they stop.
+        lines.append(NEAR_IN_MEANING if grounded else UNCORROBORATED)
+        lines.extend(_cite(citation) for citation in nearby)
     return "\n".join(lines)
 
 
@@ -184,12 +193,8 @@ def ask(
         )
 
     database = settings.neo4j_database
-    # A template's rows came from a structured query that named the document, so
-    # they are corroborated by construction; only the retrieval path can be
-    # carried by embedding similarity alone.
-    corroborated = True
     if template.cypher is None:
-        citations, corroborated = _from_retrieval(
+        citations = _from_retrieval(
             driver,
             database,
             question=body.question,
@@ -200,7 +205,7 @@ def ask(
         if not citations:
             # A structured query that matched nothing is not the end of the road:
             # the passage may still be there under different words.
-            citations, corroborated = _from_retrieval(
+            citations = _from_retrieval(
                 driver,
                 database,
                 question=body.question,
@@ -208,13 +213,13 @@ def ask(
             )
             if citations:
                 return AnswerOut(
-                    answer=_compose(citations, corroborated=corroborated),
+                    answer=_compose(citations),
                     citations=citations,
                     template_used=GROUNDED_PASSAGES,
                 )
 
     return AnswerOut(
-        answer=_compose(citations, corroborated=corroborated),
+        answer=_compose(citations),
         citations=citations,
         template_used=template.name if citations else GROUNDED_PASSAGES,
     )

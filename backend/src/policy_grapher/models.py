@@ -481,14 +481,29 @@ class CitationOut(BaseModel):
     section_path: list[str]
     page: int
     quote: str
+    # Whether the question's own words reached this passage, rather than the
+    # embedding index simply ranking it highest. A field and not only a turn of
+    # phrase in `answer`, so that a caller can tell the two apart without
+    # matching on English. `True` for a passage a structured template returned,
+    # which was selected by naming the document.
+    grounded: bool = True
 
 
 class AnswerOut(BaseModel):
     """An answer and everything it rests on.
 
     `citations` is empty only when `answer` says the corpus does not address the
-    question. There is no third state — an answer with no citation behind it is a
-    hallucination with good grammar (ADR-017).
+    question. An answer with no citation behind it is a hallucination with good
+    grammar (ADR-017).
+
+    There are three answer shapes, not two, and the third is deliberate. A
+    question whose words appear nowhere in the corpus still returns passages —
+    the closest by meaning — but the answer opens by saying so rather than with
+    "The corpus states:", because a vector index ranks every chunk it holds
+    against any input and so always has a top hit. The rows are evidence to
+    check, not an answer, and the prose says which of the two it is. The
+    distinction is in the wording only: a consumer that needs it as data should
+    be given a field rather than left to match on English.
     """
 
     answer: str

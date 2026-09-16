@@ -140,6 +140,77 @@ def test_a_paraphrase_is_found_by_the_vector_leg(clean_graph, database):
 
 
 @pytest.mark.integration
+def test_a_paraphrase_is_reached_but_not_grounded(clean_graph, database):
+    """The vector leg's whole purpose, and the limit of what it proves.
+
+    The passage comes back — that is `test_a_paraphrase_is_found_by_the_vector_leg`
+    above — but nothing about the question's wording reached it, so it is not
+    evidence that the corpus addresses the question. A vector index ranks every
+    chunk it holds against any input, so it always has a top hit; `zzqqxx
+    wibblefrotz` gets one too. The caller decides what to say over a passage;
+    this decides what the passage is.
+    """
+    embedder = local_or_skip()
+    chunk = _seed(
+        clean_graph, database, version_id="v", doc_name="ORG 1.0",
+        text="Personnel shall safeguard classified material at all times.",
+    )
+    embed_chunks(clean_graph, database, version_id="v", embedder=embedder)
+
+    found = _by_id(
+        retrieve(
+            clean_graph, database, query="protecting secret documents",
+            embedder=embedder,
+        )
+    )
+
+    assert found[chunk.chunk_id].signals == ("vector",)
+    assert found[chunk.chunk_id].grounded is False
+
+
+@pytest.mark.integration
+def test_a_graph_hop_inherits_the_grounding_of_its_seed(clean_graph, database):
+    """A hop is as grounded as where it started.
+
+    Our clause shares no wording with the question and is reachable only across a
+    human-approved IMPLEMENTS edge — but the passage that seeded the hop *was*
+    matched lexically, so the question's words did reach ours, by one link. The
+    check is made on the hop rather than on the returned rows because reciprocal
+    rank fusion can drop the seed out of the result while keeping what it
+    reached, which would otherwise make a properly linked answer look ungrounded.
+    """
+    _seed(
+        clean_graph, database, version_id="higher", doc_name="DoDI 5000.88",
+        text="Components must document the cybersecurity strategy.",
+        statement="Components must document the cybersecurity strategy.",
+    )
+    ours = _seed(
+        clean_graph, database, version_id="ours", doc_name="ORG 1.0",
+        text="Widget calibration must be performed quarterly by the technician.",
+        statement="Widget calibration must be performed quarterly by the technician.",
+    )
+    clean_graph.execute_query(
+        "MATCH (a:Obligation {obligation_id: $ours}) "
+        "MATCH (b:Obligation {obligation_id: $higher}) MERGE (a)-[:IMPLEMENTS]->(b)",
+        {
+            "ours": _obligation_id(clean_graph, database, "ours"),
+            "higher": _obligation_id(clean_graph, database, "higher"),
+        },
+        database_=database,
+    )
+
+    found = _by_id(
+        retrieve(
+            clean_graph, database, query="cybersecurity strategy",
+            embedder=NullEmbedder(),
+        )
+    )
+
+    assert found[ours.chunk_id].signals == ("graph",)
+    assert found[ours.chunk_id].grounded is True
+
+
+@pytest.mark.integration
 def test_a_query_embedded_by_the_wrong_model_is_refused(clean_graph, database):
     """Searching a model-A index with a model-B query vector is the same silent
     failure as writing one, and it must be refused at the same volume."""

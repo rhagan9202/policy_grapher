@@ -8,9 +8,13 @@ from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
 from policy_grapher.extraction.schema import ExtractedObligation, Modality
 from policy_grapher.obligations import write_obligations
-from policy_grapher.retrieval.hybrid import RetrievedChunk
+from policy_grapher.retrieval.hybrid import FULLTEXT_SIGNAL, RetrievedChunk
 from policy_grapher.retrieval.templates import TEMPLATES, select_template
-from policy_grapher.routers.ask import _compose, _corroborated, _hits_to_citations
+from policy_grapher.routers.ask import (
+    NEAR_IN_MEANING,
+    _compose,
+    _hits_to_citations,
+)
 
 WRITE_CLAUSE = re.compile(
     r"\b(CREATE|MERGE|DELETE|DETACH|SET|REMOVE|DROP|CALL\s*\{[^}]*\bCREATE)\b",
@@ -124,10 +128,10 @@ def test_an_unrecognised_question_falls_back_to_grounded_passages():
 # --- what an answer claims ----------------------------------------------------
 
 
-def _hit(signals):
+def _hit(signals, *, grounded=None, text=None):
     return RetrievedChunk(
         chunk_id="c1",
-        text="Personnel shall safeguard classified material at all times.",
+        text=text or "Personnel shall safeguard classified material at all times.",
         document="ORG 1.0",
         document_slug="org-1-0",
         version_id="org-1-0@2020-01-01",
@@ -135,6 +139,9 @@ def _hit(signals):
         page=1,
         score=0.5,
         signals=signals,
+        # Defaults to what the leg names imply, so a test that cares only about
+        # the signals does not have to restate it.
+        grounded=(FULLTEXT_SIGNAL in signals) if grounded is None else grounded,
     )
 
 
@@ -155,9 +162,7 @@ def test_a_vector_only_answer_does_not_claim_the_corpus_states_it():
     returns. The passages still come back; the sentence above them stops
     asserting that they are on the subject asked about.
     """
-    hits = [_hit(("vector",))]
-
-    answer = _compose(_hits_to_citations(hits), corroborated=_corroborated(hits))
+    answer = _compose(_hits_to_citations([_hit(("vector",))]))
 
     assert not answer.startswith("The corpus states:")
     assert "words of this question" in answer
@@ -169,31 +174,53 @@ def test_a_vector_only_answer_does_not_claim_the_corpus_states_it():
 def test_a_lexically_grounded_answer_still_states_what_the_corpus_says():
     """The caveat must not swallow the ordinary case, or it becomes noise the
     reader learns to skip."""
-    hits = [_hit(("fulltext", "vector"))]
-
-    answer = _compose(_hits_to_citations(hits), corroborated=_corroborated(hits))
+    answer = _compose(_hits_to_citations([_hit(("fulltext", "vector"))]))
 
     assert answer.startswith("The corpus states:")
 
 
-def test_a_graph_hop_alone_does_not_corroborate():
-    """The edge is human-approved; the reason for arriving at it may not be.
+def test_one_lexical_hit_does_not_vouch_for_the_rest_of_the_batch():
+    """The defect a reviewer reproduced by running the code: grounding was an OR
+    over the whole batch, so one unrelated lexical match put nine unrelated
+    vector neighbours under "The corpus states:" — the overclaim this feature
+    exists to stop, moved rather than removed.
 
-    The graph leg expands from whatever the other legs seeded, so when the vector
-    leg supplies an arbitrary seed the hop is arbitrary too — along a real
-    `IMPLEMENTS` edge, which is what makes it convincing and wrong. Measured on
-    the sample corpus before this was fixed, `zzqqxx wibblefrotz` returned
-    `{'graph': 5, 'vector': 5}`: five hops and no lexical hit anywhere, presented
-    as "The corpus states:".
-
-    The leg's own purpose survives, because a question that reaches a duty
-    lexically and then hops to the clause discharging it still carries the
-    `fulltext` hit on that duty — see
-    `test_the_graph_leg_reaches_what_no_other_leg_can`, whose query matches the
-    higher obligation's wording.
+    Each passage is now judged on its own, and the answer groups them, so the
+    sentence above a quotation is true of that quotation.
     """
-    assert not _corroborated([_hit(("graph",)), _hit(("vector",))])
-    assert _corroborated([_hit(("graph",)), _hit(("fulltext",))])
+    hits = [
+        _hit(("fulltext",), text="The Director shall notify the Comptroller."),
+        _hit(("vector",), text="Unrelated text about acquisition strategy."),
+    ]
+
+    answer = _compose(_hits_to_citations(hits))
+    before, after = answer.split(NEAR_IN_MEANING)
+
+    assert before.startswith("The corpus states:")
+    assert "notify the Comptroller" in before
+    # The vector-only neighbour is below the line, not vouched for by the hit
+    # above it.
+    assert "acquisition strategy" not in before
+    assert "acquisition strategy" in after
+
+
+def test_a_graph_hop_is_grounded_by_the_seed_it_came_from():
+    """The edge is human-approved; whether arriving at it meant anything depends
+    on where the hop started.
+
+    A hop from a passage the question's words matched carries that grounding
+    along the link — the case the graph leg exists for (ADR-014). A hop from an
+    arbitrary vector seed carries nothing: measured on the sample corpus before
+    this was fixed, `zzqqxx wibblefrotz` returned `{'graph': 5, 'vector': 5}`,
+    five hops and no lexical hit anywhere, presented as what the corpus states.
+    `retrieval/hybrid.py` decides which of the two a hop was; this only checks the
+    answer respects it.
+    """
+    from_anchor = _compose(_hits_to_citations([_hit(("graph",), grounded=True)]))
+    from_nothing = _compose(_hits_to_citations([_hit(("graph",), grounded=False)]))
+
+    assert from_anchor.startswith("The corpus states:")
+    assert not from_nothing.startswith("The corpus states:")
 
 
 # --- the route ----------------------------------------------------------------
@@ -263,6 +290,30 @@ def test_finding_nothing_is_stated_rather_than_answered(client_with_auth):
 
     assert body["citations"] == []
     assert "nothing in the corpus" in body["answer"].lower()
+
+
+@pytest.mark.integration
+def test_a_citation_says_whether_the_question_reached_it(client_with_auth):
+    """The route end of grounding, which the unit tests above cannot reach: they
+    hand `_compose` hand-built rows, so a wiring mistake between `retrieve` and
+    the response — the field dropped, or defaulted the wrong way — would not fail
+    any of them.
+
+    It is a field and not only a turn of phrase in `answer` so that a caller can
+    tell a quotation from a lead without matching on English.
+    """
+    _seed(
+        client_with_auth, version_id="v", doc_name="DoDI 5000.88",
+        text="The Director shall notify the Comptroller of any breach.",
+    )
+
+    body = client_with_auth.post(
+        "/ask", json={"question": "who shall notify the Comptroller?"}
+    ).json()
+
+    assert body["citations"], body["answer"]
+    assert all(citation["grounded"] for citation in body["citations"])
+    assert body["answer"].startswith("The corpus states:")
 
 
 @pytest.mark.integration

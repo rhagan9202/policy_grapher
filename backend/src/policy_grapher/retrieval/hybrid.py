@@ -37,6 +37,16 @@ from policy_grapher.embedding.schema import INDEX_NAME, check_identity
 # the top hit of any one leg dominate.
 RRF_K = 60
 
+# The leg names, named once. They travel out of here on `RetrievedChunk.signals`
+# and are read by callers deciding what a result is evidence of — `routers/ask.py`
+# will not claim the corpus states something unless a passage carries
+# `FULLTEXT_SIGNAL`. Retyping that literal there would make a rename here a silent
+# behaviour change at a distance: every answer would quietly lose its claim, and
+# no test would fail.
+VECTOR_SIGNAL = "vector"
+FULLTEXT_SIGNAL = "fulltext"
+GRAPH_SIGNAL = "graph"
+
 # Lucene's own operators. A query arriving from a search box is text, not syntax,
 # and an unescaped `(` or `~` raises rather than returning nothing.
 LUCENE_SPECIAL = re.compile(r'([+\-!(){}\[\]^"~*?:\\/]|&&|\|\|)')
@@ -100,6 +110,16 @@ class RetrievedChunk:
     page: int
     score: float
     signals: tuple[str, ...]
+    # Whether the question's own words reached this passage — directly through
+    # the lexical leg, or along an approved `IMPLEMENTS` link from a passage they
+    # did reach. False means the vector leg alone put it here, which is no
+    # evidence that the corpus addresses the question: the index ranks every
+    # chunk it holds against any input, so it always has a top hit.
+    #
+    # Per passage, not per answer. Computed as an OR over the whole batch, one
+    # unrelated lexical hit vouched for nine unrelated vector hits and the answer
+    # presented all ten as what the corpus states.
+    grounded: bool
 
 
 def escape_lucene(query: str) -> str:
@@ -166,16 +186,30 @@ def _fulltext_leg(driver: Driver, database: str, *, query: str, k: int) -> list[
 
 
 def _graph_leg(
-    driver: Driver, database: str, *, seeds: list[str], seed_rank: dict[str, int]
-) -> list[str]:
+    driver: Driver,
+    database: str,
+    *,
+    seeds: list[str],
+    seed_rank: dict[str, int],
+    anchored_seeds: set[str],
+) -> tuple[list[str], set[str]]:
     """Expand from the seeds along approved links.
 
     A reached chunk inherits the rank of the best-ranked seed that found it, so
     an expansion from the top hit outranks one from the tail — the traversal is
     only as trustworthy as the passage it started from.
+
+    Returns the ranked chunk ids and, separately, those reached from at least one
+    seed in `anchored_seeds`. A hop is only as grounded as where it started: from
+    a passage the question's own words matched it carries that grounding along
+    the approved link, and from an arbitrary vector seed it carries nothing.
+    Tracked per hop rather than read off the final result, because reciprocal
+    rank fusion can drop the anchoring seed out of the returned rows while
+    keeping the hop — which would otherwise make a legitimately linked answer
+    look ungrounded.
     """
     if not seeds:
-        return []
+        return [], set()
     hits, _, _ = driver.execute_query(
         GRAPH_LEG,
         {"seed_ids": seeds},
@@ -183,11 +217,18 @@ def _graph_leg(
         routing_=RoutingControl.READ,
     )
     best: dict[str, int] = {}
+    anchored: set[str] = set()
     for record in hits:
         chunk_id = record["chunk_id"]
-        rank = seed_rank.get(record["seed_id"], len(seed_rank) + 1)
+        seed_id = record["seed_id"]
+        rank = seed_rank.get(seed_id, len(seed_rank) + 1)
         best[chunk_id] = min(best.get(chunk_id, rank), rank)
-    return [chunk_id for chunk_id, _ in sorted(best.items(), key=lambda kv: (kv[1], kv[0]))]
+        if seed_id in anchored_seeds:
+            anchored.add(chunk_id)
+    ranked = [
+        chunk_id for chunk_id, _ in sorted(best.items(), key=lambda kv: (kv[1], kv[0]))
+    ]
+    return ranked, anchored
 
 
 def retrieve(
@@ -205,23 +246,30 @@ def retrieve(
     """
     k = max(limit * 4, 20)
     legs = {
-        "vector": _vector_leg(
+        VECTOR_SIGNAL: _vector_leg(
             driver, database, query=query, embedder=embedder, k=k
         ),
-        "fulltext": _fulltext_leg(driver, database, query=query, k=k),
+        FULLTEXT_SIGNAL: _fulltext_leg(driver, database, query=query, k=k),
     }
 
     seeds: list[str] = []
-    for ranked in (legs["vector"], legs["fulltext"]):
+    for ranked in (legs[VECTOR_SIGNAL], legs[FULLTEXT_SIGNAL]):
         for chunk_id in ranked:
             if chunk_id not in seeds:
                 seeds.append(chunk_id)
-    legs["graph"] = _graph_leg(
+    # A passage is *grounded* when the question's own words reached it: directly,
+    # via the lexical leg, or along an approved link from a passage they reached.
+    # Everything else is the vector leg, which ranks every chunk it holds against
+    # any input at all and so vouches for nothing on its own.
+    anchored = set(legs[FULLTEXT_SIGNAL])
+    legs[GRAPH_SIGNAL], hopped_from_anchor = _graph_leg(
         driver,
         database,
         seeds=seeds,
         seed_rank={chunk_id: rank for rank, chunk_id in enumerate(seeds, start=1)},
+        anchored_seeds=anchored,
     )
+    grounded = anchored | hopped_from_anchor
 
     scores: dict[str, float] = {}
     signals: dict[str, list[str]] = {}
@@ -253,6 +301,7 @@ def retrieve(
             page=by_id[chunk_id]["page"],
             score=scores[chunk_id],
             signals=tuple(signals[chunk_id]),
+            grounded=chunk_id in grounded,
         )
         for chunk_id in ordered
         if chunk_id in by_id
