@@ -311,6 +311,16 @@ export default function DocumentDetail() {
   // rebuild would re-chunk. 0 while it is still loading, and the estimate is
   // withheld rather than shown as "0 chunks".
   const chunkCount = chunks?.length ?? 0
+  // ADR-023's refusal counts, read from the edition record rather than from a
+  // live run. They were rendered only from `run`, which is populated only while
+  // this tab is attached to a build it started — and a build takes about an
+  // hour, so in practice that was nobody. Reload, or open the page a day later,
+  // and an edition that kept 13 of 148 candidate statements said "13
+  // obligations" and stopped. That number reads as "this directive imposes 13
+  // duties" when it means "we kept 13, and are not telling you". The counts are
+  // already on the wire; only the reader was missing.
+  const refusedChunks = selectedVersion?.build_counts?.chunks_rejected ?? 0
+  const refusedItems = selectedVersion?.build_counts?.items_dropped ?? 0
 
   // Only ever read a pool answer that belongs to the document currently being
   // read — the same guard `shownObligations` applies below, and for the same
@@ -819,6 +829,30 @@ export default function DocumentDetail() {
             <>
               Built {selectedVersion.build_changed_at?.slice(0, 10)} with extractor{' '}
               <code>{selectedVersion.build_extractor_adapter}</code>.
+              {/* Absent rather than zeroed when nothing was refused: "0 chunks
+                  rejected" on every clean edition is noise that teaches the
+                  reader to skip the line on the one edition where it matters. */}
+              {(refusedChunks > 0 || refusedItems > 0) && (
+                <>
+                  {' '}
+                  <strong>
+                    {refusedChunks} chunk{refusedChunks === 1 ? '' : 's'} rejected
+                    by the schema
+                    {refusedItems > 0 && (
+                      <>
+                        , and a further {refusedItems} statement
+                        {refusedItems === 1 ? '' : 's'} dropped from chunks that
+                        were kept
+                      </>
+                    )}
+                    .
+                  </strong>{' '}
+                  So this edition holds less than the document does. Which
+                  statements were refused is recorded against the build run
+                  rather than the edition, and is shown while a build is being
+                  watched.
+                </>
+              )}
               {builtWithoutAModel && (
                 <>
                   {' '}

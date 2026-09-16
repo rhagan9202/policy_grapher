@@ -1459,6 +1459,61 @@ describe('DocumentDetail build state', () => {
     expect(screen.getByText(/local/)).toBeInTheDocument()
   })
 
+  it('reports what the build refused, on a page nobody was watching', async () => {
+    // The rejection counts were rendered only from the live `run` object, and
+    // `run` is populated only while this tab is attached to a build it started.
+    // A build takes about an hour, so in practice that is nobody: reload, or
+    // open the page later, and an edition that kept 13 of 148 candidate
+    // statements said "13 obligations" and nothing else. The number reads as
+    // "this directive imposes 13 duties" when it means "we kept 13 and are not
+    // telling you". ADR-023 reports the count precisely so it can be shown.
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue([
+      versions[0],
+      built({
+        build_counts: {
+          chunks_written: 42,
+          obligations_written: 13,
+          chunks_rejected: 24,
+          items_dropped: 135,
+        },
+      }),
+    ])
+    listChunks.mockResolvedValue(chunks)
+
+    const view = renderAt()
+
+    await screen.findByText(/built/i)
+    const said = view.container.textContent ?? ''
+    expect(said).toMatch(/24 chunks/i)
+    expect(said).toMatch(/rejected/i)
+    expect(said).toMatch(/135 statements/i)
+  })
+
+  it('says nothing about refusals when the build refused nothing', async () => {
+    // The disclosure has to be absent, not zeroed: "0 chunks rejected" on every
+    // clean edition is noise that trains the reader to skip the line on the one
+    // edition where it matters.
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue([
+      versions[0],
+      built({
+        build_counts: {
+          chunks_written: 42,
+          obligations_written: 61,
+          chunks_rejected: 0,
+          items_dropped: 0,
+        },
+      }),
+    ])
+    listChunks.mockResolvedValue(chunks)
+
+    const view = renderAt()
+
+    await screen.findByText(/built/i)
+    expect(view.container.textContent ?? '').not.toMatch(/rejected/i)
+  })
+
   it('explains a build that used no extraction model', async () => {
     getDocument.mockResolvedValue(document)
     listVersions.mockResolvedValue([
