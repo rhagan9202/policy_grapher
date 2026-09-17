@@ -1,6 +1,6 @@
 # ADR-042: An ingest that would rewrite nothing rewrites nothing
 
-**Status:** Proposed · **Date:** 2026-09-17 · **Deciders:** Project owner
+**Status:** Accepted · **Date:** 2026-09-17 · **Deciders:** Project owner
 
 *Dated record — written once, not edited afterward. Supersede rather than revise.*
 

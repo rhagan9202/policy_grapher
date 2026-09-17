@@ -1,6 +1,6 @@
 # ADR-041: The bar for inference is accreditation, not locality
 
-**Status:** Proposed · **Date:** 2026-09-17 · **Deciders:** Project owner
+**Status:** Accepted · **Date:** 2026-09-17 · **Deciders:** Project owner
 
 *Dated record — written once, not edited afterward. Supersede rather than revise.*
 

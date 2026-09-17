@@ -1,6 +1,6 @@
 # ADR-016: Embeddings are a port, and the index remembers whose vectors it holds
 
-**Status:** Accepted · **Date:** 2026-08-20 · **Deciders:** Project owner
+**Status:** Accepted, amended by [ADR-041](ADR-041-accredited-managed-inference-is-permitted.md) · **Date:** 2026-08-20 · **Deciders:** Project owner
 
 *Frozen once accepted. To change this decision, write a new ADR and mark this one superseded.*
 
