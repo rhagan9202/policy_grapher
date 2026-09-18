@@ -163,9 +163,48 @@ def ingest_file(
     )
 
 
+# What the parser learned about this document's own references section, written
+# down because nothing can recompute it later.
+#
+# `locate_references` returns an unknown format rather than raising when it
+# cannot find the section (sources/pdf.py), so `references=()` means one of two
+# different things: the document cites nothing, or nobody could read what it
+# cites. Until now that distinction survived only in the `DocumentIngestResult`
+# the write returned — a reader who reloaded the page lost it, and a node with
+# no outgoing edges rendered the same either way. ADR-015 calls that shape the
+# most dangerous output this tool can produce, and it is the same shape here.
+#
+# Three states, and the absent one is deliberate: a `:Document` created by a
+# manifest row or by being cited elsewhere has never been through the parser, so
+# it carries neither property. `false` means parsed and no section found. A
+# reader must not collapse absent into `false` — "we have not looked" and "we
+# looked and there was nothing" are the two the distinction exists to separate.
+#
+# Both properties accumulate rather than overwrite, because reference state is a
+# fact about the document and `MERGE_EDGES` below already treats it that way: no
+# ingest path deletes a `:REFERENCES` edge (ADR-007), so a document's edges are
+# the union of every parse of it. A status that described only the newest parse
+# would contradict the edges standing beside it — re-ingest an edition whose
+# references section has become unreadable and the graph would show the earlier
+# parse's dependencies next to a flag saying nothing was read.
+#
+# Accumulation resolves that in the one direction ADR-015 allows. `section_found`
+# is sticky-true: once any parse has read this document's references, the edges
+# from that parse persist, so the document has a readable references section and
+# a later failure to find one must not claim otherwise. Unattributed entries
+# union: a later parse that reads cleanly must not silently retire the gaps an
+# earlier parse reported while that parse's edges remain, which would be exactly
+# the false all-clear. Over-reporting a gap is a person's to close; under-
+# reporting one is the output ADR-015 names as most dangerous. Re-ingesting the
+# same bytes reports the same entries, so the write stays idempotent (ADR-042).
 MERGE_DOCUMENT = """
 MERGE (d:Document {slug: $slug})
-SET d.name = $name
+SET d.name = $name,
+    d.references_section_found =
+        coalesce(d.references_section_found, false) OR $section_found,
+    d.references_unattributed =
+        [entry IN coalesce(d.references_unattributed, [])
+         WHERE NOT entry IN $unattributed] + $unattributed
 """
 
 MERGE_CITED = """
@@ -187,15 +226,37 @@ def _write_document(
     checksum: str,
     effective_date: date | None,
     pages: list[str],
+    section_found: bool,
+    unattributed: list[str],
 ) -> tuple[int, int, str, int]:
-    nodes_created = tx.run(MERGE_DOCUMENT, {"slug": slug, "name": name}).consume().counters.nodes_created
+    nodes_created = (
+        tx.run(
+            MERGE_DOCUMENT,
+            {
+                "slug": slug,
+                "name": name,
+                "section_found": section_found,
+                # Stored as the names themselves rather than a count. A reader
+                # deciding whether to trust a neighbourhood needs to know *which*
+                # citations went unresolved — a bare number says something is
+                # missing without saying enough to act on it.
+                "unattributed": unattributed,
+            },
+        )
+        .consume()
+        .counters.nodes_created
+    )
     if cited:
-        nodes_created += tx.run(MERGE_CITED, {"docs": cited}).consume().counters.nodes_created
+        nodes_created += (
+            tx.run(MERGE_CITED, {"docs": cited}).consume().counters.nodes_created
+        )
     relationships_created = 0
     if edges:
-        relationships_created = tx.run(
-            MERGE_EDGES, {"edges": edges}
-        ).consume().counters.relationships_created
+        relationships_created = (
+            tx.run(MERGE_EDGES, {"edges": edges})
+            .consume()
+            .counters.relationships_created
+        )
 
     # Provenance bookkeeping: consumed for its side effects, but not counted
     # toward nodes_created/relationships_created — those report Document nodes
@@ -317,17 +378,21 @@ def ingest_document(
     checksum = hashlib.sha256(path.read_bytes()).hexdigest()
 
     with driver.session(database=database) as session:
-        nodes_created, relationships_created, version_id, chunks_written = session.execute_write(
-            _write_document,
-            filename=path.name,
-            slug=slug,
-            name=extracted.name,
-            cited=cited,
-            edges=edges,
-            path=path,
-            checksum=checksum,
-            effective_date=extracted.effective_date,
-            pages=extracted.pages,
+        nodes_created, relationships_created, version_id, chunks_written = (
+            session.execute_write(
+                _write_document,
+                filename=path.name,
+                slug=slug,
+                name=extracted.name,
+                cited=cited,
+                edges=edges,
+                path=path,
+                checksum=checksum,
+                effective_date=extracted.effective_date,
+                pages=extracted.pages,
+                section_found=extracted.report.section_found,
+                unattributed=list(extracted.report.unattributed),
+            )
         )
     return IngestedDocument(
         slug=slug,

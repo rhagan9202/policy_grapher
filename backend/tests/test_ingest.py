@@ -1,10 +1,12 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from neo4j import RoutingControl
 
-from policy_grapher.ingest import ingest_file, ingest_parsed
+from policy_grapher.ingest import ingest_document, ingest_file, ingest_parsed
 from policy_grapher.slugs import assign_slugs, hash_suffix
+from policy_grapher.sources import pdf
 from policy_grapher.sources.manifest import parse_corpus
 
 pytestmark = pytest.mark.integration
@@ -296,3 +298,194 @@ def test_ingest_endpoint_returns_the_result(client_with_auth):
     assert body["relationships_created"] == 672
     assert body["self_references_skipped"] == 4
     assert len(body["suspected_duplicates"]) == 2
+
+
+def _outgoing_references(driver, database, slug: str) -> int:
+    """How many `:REFERENCES` edges this document draws, by slug rather than by
+    interpolation — no Cypher is authored from a value (ADR-017)."""
+    records, _, _ = driver.execute_query(
+        "MATCH (:Document {slug: $slug})-[r:REFERENCES]->() RETURN count(r) AS n",
+        {"slug": slug},
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    return records[0]["n"]
+
+
+def _reference_outcome(driver, database, slug: str):
+    """What the graph now remembers about one document's references section.
+
+    Returned as a pair so a caller can tell the three states apart: `(None, None)`
+    is a document the parser has never seen, `(False, [])` is one it read and
+    found no section in, and `(True, [...])` is one it read successfully.
+    """
+    records, _, _ = driver.execute_query(
+        "MATCH (d:Document {slug: $slug}) "
+        "RETURN d.references_section_found AS found, "
+        "       d.references_unattributed AS unattributed",
+        {"slug": slug},
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    return records[0]["found"], records[0]["unattributed"]
+
+
+def _parsed_as(path: Path, *, section_found: bool, unattributed=()):
+    """A real extraction with its report swapped.
+
+    The pages are the genuine ones, because `_write_document` refuses a document
+    that chunks to nothing and a hand-built page would be testing the chunker
+    rather than this. Only the report varies, which is the thing under test.
+    """
+    real = pdf.extract_document(path)
+    return replace(
+        real,
+        report=replace(
+            real.report,
+            format=real.report.format if section_found else "unknown",
+            section_found=section_found,
+            unattributed=tuple(unattributed),
+        ),
+    )
+
+
+def test_a_document_whose_references_section_was_not_found_says_so(
+    clean_graph, database
+):
+    """ADR-015's shape, one level down.
+
+    `locate_references` returns an unknown format rather than raising, so this
+    document ingests successfully and draws no `REFERENCES` edges. Without the
+    stored outcome a reader cannot tell that from a document that genuinely cites
+    nothing, and the ingest response that once carried the difference is gone the
+    moment the page reloads.
+    """
+    extracted = _parsed_as(REPO_DATA / PDF_FIRST, section_found=False)
+    merged = ingest_document(clean_graph, database, extracted, REPO_DATA / PDF_FIRST)
+
+    found, unattributed = _reference_outcome(clean_graph, database, merged.slug)
+    assert found is False
+    assert unattributed == []
+
+
+def test_a_document_whose_references_all_resolved_is_distinguishable(
+    clean_graph, database
+):
+    """The middle state, and the one the other two are defined against."""
+    extracted = _parsed_as(REPO_DATA / PDF_FIRST, section_found=True)
+    merged = ingest_document(clean_graph, database, extracted, REPO_DATA / PDF_FIRST)
+
+    found, unattributed = _reference_outcome(clean_graph, database, merged.slug)
+    assert found is True
+    assert unattributed == []
+
+
+def test_unresolved_reference_names_are_stored_in_full(clean_graph, database):
+    """A count would say something is missing without saying enough to act on it.
+
+    The names are what a reader needs to judge whether the gap matters — an
+    unresolved public law is a different thing from an unresolved DoD issuance
+    the corpus should be holding.
+    """
+    names = ("Public Law 99-145", "Some Memorandum Nobody Filed")
+    extracted = _parsed_as(
+        REPO_DATA / PDF_FIRST, section_found=True, unattributed=names
+    )
+    merged = ingest_document(clean_graph, database, extracted, REPO_DATA / PDF_FIRST)
+
+    found, unattributed = _reference_outcome(clean_graph, database, merged.slug)
+    assert found is True
+    assert sorted(unattributed) == sorted(names)
+
+
+def test_a_document_the_parser_never_saw_reads_as_never_parsed(clean_graph, database):
+    """Absent is not `false`, and this is the case that makes the difference real.
+
+    Every document a manifest row creates, and every document that exists only
+    because something cited it, has never been through the parser. Reading those
+    as "parsed, no section found" would assert a negative finding about 470 of
+    the 474 documents this corpus holds.
+    """
+    ingest_file(clean_graph, database, SAMPLE, REPO_DATA)
+
+    found, unattributed = _reference_outcome(clean_graph, database, "dodd-5000-01")
+    assert found is None
+    assert unattributed is None
+
+
+def test_a_later_unreadable_parse_does_not_retract_a_readable_one(
+    clean_graph, database
+):
+    """Finding #8, settled: reference state is a fact about the document.
+
+    No ingest path deletes a `:REFERENCES` edge (ADR-007), so the edges this
+    document carries are the union of every parse of it. If the status described
+    only the newest parse, re-ingesting an edition whose references section has
+    become unreadable would leave the earlier parse's dependencies on the graph
+    beside a flag saying nothing was read — the contradiction the accumulating
+    write exists to prevent. `section_found` is therefore sticky-true.
+    """
+    readable = _parsed_as(REPO_DATA / PDF_FIRST, section_found=True)
+    merged = ingest_document(clean_graph, database, readable, REPO_DATA / PDF_FIRST)
+
+    edges_after_first = _outgoing_references(clean_graph, database, merged.slug)
+    assert edges_after_first > 0, (
+        "fixture must draw edges for the contradiction to exist"
+    )
+
+    unreadable = _parsed_as(REPO_DATA / PDF_FIRST, section_found=False)
+    ingest_document(clean_graph, database, unreadable, REPO_DATA / PDF_FIRST)
+
+    found, _ = _reference_outcome(clean_graph, database, merged.slug)
+    assert found is True
+    assert (
+        _outgoing_references(clean_graph, database, merged.slug) == edges_after_first
+    ), "the edges the flag would have contradicted are still here"
+
+
+def test_a_clean_later_parse_does_not_retire_gaps_an_earlier_one_reported(
+    clean_graph, database
+):
+    """The same rule on the other property, and the false-all-clear direction.
+
+    A later parse that resolves everything must not silently drop the entries an
+    earlier parse could not attribute, because that earlier parse's edges remain.
+    Dropping them would report a document as fully resolved when part of its
+    reference set came from a read that had gaps — ADR-015's most dangerous
+    output. Over-reporting a gap is a person's to close; under-reporting one is
+    not recoverable by a reader who is never told.
+    """
+    first = ("Some Memorandum Nobody Filed", "Public Law 99-145")
+    earlier = _parsed_as(REPO_DATA / PDF_FIRST, section_found=True, unattributed=first)
+    merged = ingest_document(clean_graph, database, earlier, REPO_DATA / PDF_FIRST)
+
+    later = _parsed_as(REPO_DATA / PDF_FIRST, section_found=True, unattributed=())
+    ingest_document(clean_graph, database, later, REPO_DATA / PDF_FIRST)
+
+    _, unattributed = _reference_outcome(clean_graph, database, merged.slug)
+    assert sorted(unattributed) == sorted(first)
+
+
+def test_a_new_parse_adds_its_gaps_without_duplicating_the_standing_ones(
+    clean_graph, database
+):
+    """Union, not append — and re-reading the same bytes changes nothing.
+
+    Accumulation must not turn a repeated ingest into a growing list of the same
+    entry: an ingest that would rewrite nothing rewrites nothing (ADR-042). The
+    second ingest here repeats one entry and introduces one, so a plain
+    concatenation shows the repeated entry twice and this test fails.
+    """
+    earlier = _parsed_as(
+        REPO_DATA / PDF_FIRST, section_found=True, unattributed=("Entry A", "Entry B")
+    )
+    merged = ingest_document(clean_graph, database, earlier, REPO_DATA / PDF_FIRST)
+
+    later = _parsed_as(
+        REPO_DATA / PDF_FIRST, section_found=True, unattributed=("Entry B", "Entry C")
+    )
+    ingest_document(clean_graph, database, later, REPO_DATA / PDF_FIRST)
+
+    _, unattributed = _reference_outcome(clean_graph, database, merged.slug)
+    assert sorted(unattributed) == ["Entry A", "Entry B", "Entry C"]
+    assert len(unattributed) == len(set(unattributed)), "an entry was recorded twice"
