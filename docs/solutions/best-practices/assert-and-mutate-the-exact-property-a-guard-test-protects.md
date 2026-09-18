@@ -1,8 +1,9 @@
 ---
 title: Assert and mutate the exact property a guard test protects
 date: 2026-09-17
+last_updated: 2026-09-18
 category: best-practices
-module: policy_grapher.graph (focused-view render budget, backend/src/policy_grapher/graph.py)
+module: policy_grapher.graph (focused-view render budget and reference-assessment precedence, backend/src/policy_grapher/graph.py)
 problem_type: best_practice
 component: testing_framework
 related_components:
@@ -10,7 +11,7 @@ related_components:
   - api_layer
 severity: high
 applies_when:
-  - A test guards an ordering, priority, or tier-selection invariant
+  - A test guards an ordering, priority, tier-selection, or branch-precedence invariant
   - Code orders a collection and then truncates it to a budget or cap
   - A test fixture sits on the boundary between two priority tiers
   - Validating a new test by mutation before trusting it
@@ -23,7 +24,7 @@ tags:
   - ordering-invariants
   - boundary-conditions
   - truncation
-  - regression-testing
+  - branch-precedence
 ---
 
 # Assert and mutate the exact property a guard test protects
@@ -71,6 +72,46 @@ node's *position* in the ordering, the truncation-reason field's *nullability*, 
 *composition* of the neighbourhood set. None perturbed the tier ordering — the one property the
 count-based test claimed to guard. A fourth mutation, reversing corpus-before-external, was run
 only after review flagged the gap; it failed the new identity-based test.
+
+## A second incident: precedence between two branches, not items
+
+The rule above is about the order of items inside one collection. The same defect shape recurs one
+level down, in the order of two `if` branches.
+
+`_assessment` (`backend/src/policy_grapher/graph.py:192`) decides which of four states a document's
+own references section is in. Two of its branches are ordered on purpose, and the docstring says so
+in as many words: the unresolved-names branch is tested before the "resolved nothing" one, and *the
+order is the whole point*, because a document whose section was located but not one of whose entries
+could be attributed has resolved nothing and does not cite nothing.
+
+```python
+if names:                                     # graph.py:215-216
+    return ASSESSED_NAMES_UNRESOLVED, names
+if resolved:                                  # graph.py:217-218
+    return ASSESSED_ALL_RESOLVED, []
+```
+
+A full set of tests was written for the four-state decision, and by the standard this document
+already argues for they were good ones: every assertion pins an exact state string rather than a
+count, and every branch has a test that reaches it.
+
+**The precedence was still unguarded.** Every document driving an assessment-state assertion
+satisfied at most one of the two conditions — either it had unresolved names and zero outgoing
+references, or it had references and no unresolved names. Swap the two `if`s under any of those
+fixtures and nothing changes: whichever branch used to fire first still fires, because the other
+one's condition was never true to begin with.
+
+Note what that is *not*. The first incident's assertions were blind to order for every possible
+input — a count cannot observe a permutation, ever. These assertions were not blind at all; they
+would have moved under a reorder, on the right input. The fixtures simply never supplied one. The
+first failure is in the shape of the assertion; the second is in the choice of input, and the
+checkable rule that catches the first does not fire on the second.
+
+The fix was not a new assertion on an old fixture. It was a new fixture,
+`test_a_partly_resolved_section_reports_the_names_it_could_not_attribute`
+(`backend/tests/test_graph.py:805`), giving one node both signals at once: an outgoing
+`:REFERENCES` edge *and* a non-empty `references_unattributed`. Only there do the two conditions
+both hold, and only there does the branch order have anything to say.
 
 ## Guidance
 
@@ -181,6 +222,32 @@ The same plan anticipated the *adjacent* failure and still did not prevent this 
 and still produced an assertion blind to the allocation. Deliberateness is necessary and not
 sufficient; the invariance check in rule 1 is what makes it sufficient.
 
+### 5. A precedence is a property of the order alone — mutate the order, not the conditions
+
+The invariance check generalises to a pair of `if` branches ordered against each other, but it is
+easy to run it against the wrong mutation. Two different things can be done to the pair, and only
+one of them tests what the docstring calls the whole point:
+
+- **Rewrite a branch's condition** — say `if not resolved:` in place of `if names:`. That changes
+  what the branch fires *on*, which is a different property from *which branch wins when both are
+  true*. A fixture satisfying only one condition can catch this rewrite, and catching it there
+  proves nothing about precedence.
+- **Reorder the two branches**, leaving both conditions untouched. This is the only mutation that
+  isolates precedence, and it is observable on exactly one kind of input: the one where both
+  conditions hold. On any input satisfying one condition, the reordered code returns what the
+  original did; there is nothing to disagree about.
+
+That distinction is what this incident cost. Per the working session's own record, a mutation was
+run in the function under test, on the very branch in question — a rewrite — and it was caught and
+logged as a mutation that held, while certifying nothing about the order. Only the reorder appears
+in the commit that fixed this, so the rewrite that produced the false assurance is visible in the
+session rather than in the repository.
+
+**The checkable rule:** *a precedence between two conditions is observable only on the input where
+both hold; write that fixture before trusting any mutation of the branches that express it.* Rule 3
+says a mutation certifies only the property it perturbs. This is the sharper corollary: perturbing a
+sibling property of the same branch is still not perturbing the order.
+
 ## Why This Matters
 
 The failure mode is silent, which is why nothing downstream would have caught it. A focused request
@@ -209,6 +276,27 @@ The rule was already known here, written seven lines deep in one test's comment,
 corpus-wide path — and the new focused path repeated the mistake it documents. That is the argument
 for stating it as a practice rather than a comment on one test.
 
+**This project has now rediscovered the same thing five times.** A branch merged a week before
+these two incidents ran a TDD plan where every new test carried its own named mutation check, and
+it hit this failure three separate times (session history). One task's new tests passed under their
+own named mutation, and the diagnosis written at the time is the clearest statement of the cause
+anyone has managed: *"Written in the same direction as every other fixture, two equal values take
+the swapping branch, and swapping a decision that's already the wrong way round happens to be
+correct."* That sentence is from the working session's own transcript rather than from a commit
+message or a test docstring, so searching the repository for it will not find it; the test it
+describes is in the branch merged as `c05f673`, where the docstring makes the same point in
+different words. Another ordering defect surfaced "only when one edition has a date and the other
+doesn't", and the first fixture did not create that asymmetry. A third was a value-swap asserted
+only on the row kind where the two compared values coincidentally matched. Each was fixed by
+rebuilding the fixture, and each was then forgotten.
+
+The through-line is a fixture written *in the same direction as every other fixture in the file*.
+Copied orientation is what keeps two conditions from ever being in tension, and it is exactly what
+happened here: the ladder fixture gives outgoing references to one node, and both unresolved-names
+tests were pointed at a different one. That branch also found the antidote and did not write it
+down either — on the one task where precedence was tested properly, the reviewer deliberately built
+fixtures for every configuration where both conditions fire on the same clause.
+
 ## When to Apply
 
 Run the invariance check whenever the code under test does any of these:
@@ -220,6 +308,8 @@ Run the invariance check whenever the code under test does any of these:
   interchangeable by every measure except identity.
 - **Filters, deduplicates, or merges** where two different rules yield sets of the same size.
 - **Sorts for presentation** where the test looks at how many rows came back.
+- **Tries two branches in a fixed order because one is meant to win when both conditions hold.** A
+  fixture satisfying only one condition cannot tell the order from either branch alone.
 
 A quicker trigger for the same set: *if you can compute the assertion's expected value from the
 fixture size and the parameters, without knowing how the code ranks anything, the assertion is blind
@@ -303,6 +393,39 @@ and the nodes the `NEIGHBOURS` traversal returned. The wider corpus is not ranke
 present. The slice at `graph.py:149` uses `max(1, limit)` so the focused document survives any
 budget, and the docstring at `graph.py:99-106` carries the reasoning forward for the next reader.
 
+### A second guard: precedence, not truncation
+
+`test_a_partly_resolved_section_reports_the_names_it_could_not_attribute`
+(`backend/tests/test_graph.py:805`) gives one node both signals at once — an outgoing
+`:REFERENCES` edge for a resolved reference, and `references_unattributed` carrying an entry
+nothing could attribute — then asserts the state and the names.
+
+Run the invariance check. W = swap the two branches at `graph.py:215-218`:
+
+```python
+# correct
+if names:
+    return ASSESSED_NAMES_UNRESOLVED, names
+if resolved:
+    return ASSESSED_ALL_RESOLVED, []
+# W
+if resolved:
+    return ASSESSED_ALL_RESOLVED, []
+if names:
+    return ASSESSED_NAMES_UNRESOLVED, names
+```
+
+| | correct | under W |
+|---|---|---|
+| `assessment_state` | `assessed_names_unresolved` | `assessed_all_resolved` |
+| `unresolved_names` | `["An entry nobody could parse"]` | `[]` |
+
+Every other assessment-state test in the file puts unresolved names on a node with no outgoing
+references, or leaves names empty on a node that has them. W changes no assertion in any of those.
+This one fixture is the only place in the file where W disagrees with the correct code at all —
+which is the whole reason it had to be written rather than an assertion being added to something
+already there.
+
 ## Related
 
 - `AGENTS.md:47` — standing rule 4, "A gate must exercise the thing it gates". The governing
@@ -319,12 +442,25 @@ budget, and the docstring at `graph.py:99-106` carries the reasoning forward for
   438 figures and of the corpus-first allocation the buggy draft copied instead of replacing.
 - `docs/specs/adr/ADR-038-the-document-table-pages-rather-than-caps.md` — the other place this repo
   reasons about caps, truncation, and what a reader can still reach.
+- `backend/tests/test_graph.py:805` — the fixture that puts both `_assessment` conditions on one
+  node, which is the guard rule 5 exists to describe.
+- `docs/specs/adr/ADR-015-changes-are-detected-and-ranked.md:104` — the "false all-clear" standing
+  decision `_assessment`'s docstring cites for why a located-but-unattributed section must not
+  report as citing nothing. Verified: that line is where the principle is stated.
+- `docs/backlog/stories/STORY-119-the-assessment-axis-reads-edges-a-person-can-edit.md` — a
+  different defect found in the same function during the same review, filed rather than fixed. It
+  concerns where `_assessment`'s inputs come from, not the order its branches are tried in.
 - `docs/plans/2026-09-17-0801-feat-dependency-map-home-plan.md:244` (KTD2), `:374`, `:377` — where the
   rule was written down before the code, and did not prevent the defect.
 
-**Merge state:** the work this documents is uncommitted on the branch named
-docs/dependency-map-home-plan, across `backend/src/policy_grapher/graph.py`,
-`backend/src/policy_grapher/routers/graph.py`, `backend/src/policy_grapher/ingest.py`,
-`backend/src/policy_grapher/models.py`, `backend/tests/test_graph.py`, and
-`backend/tests/test_ingest.py`. There is no PR. The backend suite is container-backed and was not
-re-run while writing this.
+**Merge state, as of 2026-09-18.** Both incidents are committed on the feature branch named
+dependency-map-home-plan, and both live only there: neither is merged into the default branch, and
+no pull request exists for it, open or closed. The render-budget work of the first incident is
+commit 3b520d5, and the second incident's feature and its precedence fix landed together as
+588eda1 — the fixture is inside
+that commit rather than a later one. Those two short SHAs are stable on the feature branch but will
+be rewritten if it is rebased or squash-merged, and there is no PR number to cite in their place
+yet; resolve them against the branch rather than the default branch. An earlier version of this note
+called the first incident's work uncommitted, which was true when written. The backend suite is
+container-backed and was not re-run while writing this document; both gates were run green before
+each commit.

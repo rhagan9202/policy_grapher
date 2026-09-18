@@ -11,11 +11,23 @@ A single policy issuance, identified by a stable slug and carrying the name it i
 One Document citing another, drawn from the citing document's own references section. References are directional and carry no weight: the graph records that the citation exists, not how important it is. A document that cites itself contributes no Reference.
 
 ### Corpus
-The Documents the project holds as its subject — the ones whose source was ingested and whose references were read. The Corpus is what most views mean by "the graph": it is small and legible where the full reference structure is neither.
+The Documents the project holds as its subject, as opposed to those it knows of only because something cited them. The Corpus is what most views mean by "the graph": it is small and legible where the full reference structure is neither.
+
+Membership does not mean the document has been read. Most of the Corpus is named by a manifest, which supplies that document's citations without anything having parsed the document itself — so a Corpus document can draw References while its own Assessment state says nothing has ever been read from it.
 
 ### External reference
 A Document present only because something in the Corpus cites it. Its name is known, its source is not, and nothing has been read from it — so ingesting the Corpus only ever gives it incoming References, never outgoing ones. A person may still assert an outgoing reference from it directly, and that is a legitimate state rather than corruption: asserting that an edge exists is a different act from describing a document. External references vastly outnumber the Corpus, which is why views scope to the Corpus by default rather than filtering externals out afterwards.
 *Avoid:* external node, non-corpus document
+
+### Fidelity tier
+How much the system has actually done to a Document, as an ordinal: known only because something cites it, named by a manifest, text ingested, obligations built, links reviewed.
+
+It is worked out when asked rather than recorded on the document, so it cannot drift from the graph it describes — there is no stored tier for a rebuild to leave stale.
+
+### Assessment state
+What the parser made of a Document's own references section: never read, read and citing nothing, read with some names left unresolved, or read with every name resolved.
+
+This is a separate axis from the Fidelity tier and the two are deliberately not collapsed into one scale. A document at the top of the ladder whose references section was never located is a real state, and it must not render as one that genuinely cites nothing. The state is reported only from the tier at which the parser has actually seen the document; below that the tier is already the statement that nothing has been read, so repeating it would mark almost every Document while distinguishing none of them.
 
 ## Graph views
 
