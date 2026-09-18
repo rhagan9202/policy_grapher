@@ -683,13 +683,24 @@ cite > * + *::before {
   overflow-y: auto;
 }
 
+/* The two states with no drawing beside the panel — no document focused, and a
+   failed load — are this view's landing surface rather than edge cases. As a
+   20rem sidebar with a left border the panel reads as a card stranded in empty
+   space, so when it is the page, it becomes the page. */
+.graph-solo {
+  height: auto;
+}
+
+.graph-solo .graph-panel {
+  width: 100%;
+  max-width: 44rem;
+  border-left: 0;
+}
+
 .graph-count {
   color: var(--muted);
 }
 
-.graph-toggle {
-  margin-bottom: var(--s3);
-}
 
 .legend {
   list-style: none;

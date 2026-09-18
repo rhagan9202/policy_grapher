@@ -224,6 +224,18 @@ describe('DocumentDetail', () => {
     expect(getDocument).toHaveBeenCalledWith('dodd-5000-01')
   })
 
+  it('offers to draw the map around the document being read', async () => {
+    // The map is addressed only by a URL naming a document, so without a link
+    // from a screen that already has one it can only be landed on empty. This
+    // is one of exactly two places that link exists.
+    getDocument.mockResolvedValue(document)
+    listVersions.mockResolvedValue(versions)
+    listChunks.mockResolvedValue(chunks)
+    renderAt()
+    const link = await screen.findByRole('link', { name: /draw the map around this document/i })
+    expect(link).toHaveAttribute('href', '/?focus=dodd-5000-01')
+  })
+
   it('renders the extracted text in order, with its page and section', async () => {
     getDocument.mockResolvedValue(document)
     listVersions.mockResolvedValue(versions)

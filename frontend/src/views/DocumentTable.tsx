@@ -495,6 +495,15 @@ export default function DocumentTable() {
                   )}
                 </td>
                 <td>
+                  {/* Named for its row, like Delete beside it: "Map" repeated down
+                      a column tells a reader moving by link nothing about which
+                      document each one leads to. */}
+                  <Link
+                    to={`/?focus=${document.slug}`}
+                    aria-label={`Draw the map around ${document.name}`}
+                  >
+                    Map
+                  </Link>{' '}
                   <button
                     type="button"
                     disabled={busy}

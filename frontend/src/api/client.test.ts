@@ -103,6 +103,49 @@ describe('getGraph', () => {
     expect(url).toContain('limit=300')
   })
 
+  it('serialises focus and depth, which the focused view is entirely made of', async () => {
+    const fetchMock = mockJson({
+      nodes: [], edges: [], total_nodes: 3, returned_nodes: 3, truncated: false,
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getGraph({ focus: 'dodd-5000-01', depth: 2 })
+
+    const url = fetchMock.mock.calls[0][0] as string
+    expect(url).toContain('focus=dodd-5000-01')
+    expect(url).toContain('depth=2')
+  })
+
+  it('sends a zero depth rather than silently dropping it', async () => {
+    // `if (options.depth)` is the natural way to write this and is wrong for 0,
+    // which is a depth the API accepts and reads as "the focused document
+    // alone". Dropped, it becomes the server's default of 1 — a different
+    // neighbourhood returned under the caller's request for a narrower one.
+    const fetchMock = mockJson({
+      nodes: [], edges: [], total_nodes: 1, returned_nodes: 1, truncated: false,
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getGraph({ focus: 'dodd-5000-01', depth: 0 })
+
+    expect(fetchMock.mock.calls[0][0] as string).toContain('depth=0')
+  })
+
+  it('escapes a slug that would otherwise change which parameters are sent', async () => {
+    // Slugs reach here from a hand-editable URL. Unescaped, an `&` in one
+    // splits into a second parameter the caller never asked for.
+    const fetchMock = mockJson({
+      nodes: [], edges: [], total_nodes: 0, returned_nodes: 0, truncated: false,
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getGraph({ focus: 'a&limit=1', depth: 1 })
+
+    const url = fetchMock.mock.calls[0][0] as string
+    expect(url).toContain('focus=a%26limit%3D1')
+    expect(url).not.toContain('&limit=1')
+  })
+
   it('throws ApiError on a non-2xx response', async () => {
     vi.stubGlobal('fetch', mockJson({ detail: 'No document' }, 404))
     await expect(getGraph({ expand: 'nope' })).rejects.toBeInstanceOf(ApiError)
