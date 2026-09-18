@@ -108,6 +108,7 @@ Understood well enough to discuss, not yet ready to start.
 | ID | Item | Epic | Notes |
 | --- | --- | --- | --- |
 | ~~STORY-013~~ | ~~Referenced documents that aren't in the corpus are distinguishable~~ | — | **Superseded by STORY-026.** Resolved by [ADR-002](../specs/adr/ADR-002-external-references-and-corpus-first-graph.md); ID retained per [CONVENTIONS](../CONVENTIONS.md) |
+| STORY-119 | The assessment axis reads edges a person can edit | — | **Est. S.** `_assessment` decides *all resolved* vs *cites nothing* from the document's outgoing `:REFERENCES` edges, which `POST`/`DELETE /documents/{slug}/references/{target_slug}` let a person edit — so deleting a parsed edge makes a node claim it cites nothing while the stored parse says otherwise. The axis is meant to report what the parser found. Fix is a write-path change U1 left open: persist the attributed count, not just the unattributed entries. Found by the cross-model reviewer in U3's review. Needs a backfill answer that interacts with ADR-042. See [STORY-119](stories/STORY-119-the-assessment-axis-reads-edges-a-person-can-edit.md) |
 | STORY-035 | Ingestion accepts a DOCX issuance | — | Same `extract_document` protocol as STORY-016, own extraction rules. Blocked: no DOCX sample exists to design against. Likely easier than PDF — `python-docx` exposes heading styles, so locating the references section stops being the risky stage |
 
 ## Ideas
