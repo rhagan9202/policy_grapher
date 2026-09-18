@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Policy Grapher is split into a FastAPI backend and a Vite/React frontend. Backend code lives in `backend/src/policy_grapher/`, with routers in `routers/` and document-source logic in `sources/`; tests live in `backend/tests/`. Frontend code lives in `frontend/src/`, with views in `views/` and API helpers in `api/`. Sample policy data is in `data/samples/`. Project docs, specs, ADRs, sprint notes, and planning material live under `docs/`; follow `docs/CONVENTIONS.md`.
+Policy Grapher is split into a FastAPI backend and a Vite/React frontend. Backend code lives in `backend/src/policy_grapher/`, with routers in `routers/` and document-source logic in `sources/`; tests live in `backend/tests/`. Frontend code lives in `frontend/src/`, with views in `views/` and API helpers in `api/`. Sample policy data is in `data/samples/`. Project docs, specs, ADRs, sprint notes, and planning material live under `docs/`; follow `docs/CONVENTIONS.md`. `docs/solutions/` holds documented solutions to past problems (bugs, best practices, workflow patterns), organized by category with YAML frontmatter (`module`, `tags`, `problem_type`) — relevant when implementing or debugging in documented areas. `CONCEPTS.md` at the repo root holds the shared domain vocabulary — relevant when orienting to the codebase or discussing domain concepts.
 
 ## Build, Test, and Development Commands
 
