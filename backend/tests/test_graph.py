@@ -64,6 +64,10 @@ def test_including_externals_hits_the_render_cap(loaded):
     assert result.returned_nodes == 300
     assert result.truncated is True
     assert len(result.nodes) == 300
+    # A response that dropped 138 nodes must say on what basis, the same as the
+    # focused mode does. Null is defined on the field as "nothing was dropped",
+    # so leaving it unset here claimed completeness on a truncated answer.
+    assert result.truncation_basis is not None
 
 
 def test_every_corpus_document_survives_truncation(loaded):
@@ -292,3 +296,229 @@ def test_graph_endpoint_404s_for_an_unknown_expand_slug_regardless_of_include_ex
         "/graph", params={"include_external": "true", "expand": "no-such-document"}
     )
     assert response.status_code == 404
+
+
+def test_a_focused_view_holds_the_neighbourhood_and_nothing_else(loaded):
+    """R5: the focused view is not the corpus filtered, it is a different set.
+
+    `dodi-3115-14` is a corpus document with a handful of references, so at depth
+    one the answer is itself plus what it cites plus what cites it — and none of
+    the other twenty-two corpus documents, which a corpus-first view would draw
+    unconditionally.
+    """
+    driver, database = loaded
+    graph = build_graph(driver, database, focus="dodi-3115-14")
+
+    ids = {node.id for node in graph.nodes}
+    assert "dodi-3115-14" in ids
+
+    expected, _, _ = driver.execute_query(
+        "MATCH (d:Document {slug: 'dodi-3115-14'})-[:REFERENCES]-(n:Document) "
+        "RETURN collect(DISTINCT n.slug) AS slugs",
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    assert ids == {"dodi-3115-14", *expected[0]["slugs"]}
+
+    corpus_total = build_graph(driver, database).returned_nodes
+    assert len(ids) < corpus_total, (
+        "a focused view that is not smaller than the corpus view is the corpus "
+        "view, which is what this mode exists to stop being"
+    )
+
+
+def test_documents_outside_the_neighbourhood_are_never_admitted(loaded):
+    """The defect this unit was written to fix.
+
+    An allocation that put the focused document first and then let the wider
+    corpus fill the remaining budget looks like a priority order. It is not: this
+    corpus holds 23 documents against a cap of 300, so that second tier always
+    fits whole and every focused request would quietly return the corpus.
+    """
+    driver, database = loaded
+    graph = build_graph(driver, database, focus="dodi-3115-14", limit=300)
+
+    ids = {node.id for node in graph.nodes}
+    reachable, _, _ = driver.execute_query(
+        "MATCH (d:Document {slug: 'dodi-3115-14'})-[:REFERENCES]-(n:Document) "
+        "RETURN collect(DISTINCT n.slug) AS slugs",
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    assert ids == {"dodi-3115-14", *reachable[0]["slugs"]}
+
+
+def test_a_truncated_neighbourhood_says_so_and_on_what_basis(loaded):
+    """AE6: a partial neighbourhood must not render like a complete one."""
+    driver, database = loaded
+    graph = build_graph(driver, database, focus="dodi-3115-14", limit=3)
+
+    assert graph.returned_nodes == 3
+    assert graph.truncated is True
+    assert graph.truncation_basis is not None
+    assert graph.total_nodes > graph.returned_nodes
+
+
+def test_an_untruncated_neighbourhood_claims_no_basis(loaded):
+    """Null and "nothing was cut" are the same thing for this field, unlike the
+    parse outcome, where absent and false are different facts."""
+    driver, database = loaded
+    graph = build_graph(driver, database, focus="dodi-3115-14")
+
+    assert graph.truncated is False
+    assert graph.truncation_basis is None
+
+
+def test_the_focused_document_survives_any_budget(loaded):
+    """A view that dropped the thing it is a view of would answer nothing."""
+    driver, database = loaded
+    graph = build_graph(driver, database, focus="dodi-3115-14", limit=1)
+
+    assert [node.id for node in graph.nodes] == ["dodi-3115-14"]
+    assert graph.truncated is True
+
+
+def test_depth_two_reaches_the_neighbours_neighbours(loaded):
+    """R5 expands outward a degree at a time, so degree two is a superset."""
+    driver, database = loaded
+    near = build_graph(driver, database, focus="dodi-3115-14", depth=1)
+    far = build_graph(driver, database, focus="dodi-3115-14", depth=2)
+
+    near_ids = {node.id for node in near.nodes}
+    far_ids = {node.id for node in far.nodes}
+    assert near_ids < far_ids
+    assert far.nodes[0].id == "dodi-3115-14", "the focus stays first at any depth"
+
+
+def test_focusing_an_unknown_slug_raises(loaded):
+    """Refused distinctly from a known document that simply has no neighbours."""
+    driver, database = loaded
+    with pytest.raises(UnknownDocumentError):
+        build_graph(driver, database, focus="no-such-document")
+
+
+def test_the_corpus_wide_mode_is_unchanged_by_the_focused_one(loaded):
+    """This unit changes which mode is primary, not which modes exist."""
+    driver, database = loaded
+    graph = build_graph(driver, database)
+
+    assert graph.returned_nodes == 23
+    assert graph.truncated is False
+    assert all(not node.is_external for node in graph.nodes)
+
+
+def test_truncation_keeps_corpus_neighbours_over_external_ones(loaded):
+    """The ordering the focused mode exists to get right, pinned by identity.
+
+    Counting survivors is not enough: `dodi-3115-14` sits on exactly the corpus
+    and external tier boundary, so reversing the priority at the sort still
+    returns the same number of nodes and the same `truncated` flag. Only asking
+    *which* nodes came back can tell the two apart — and dropping a corpus
+    dependency to keep a more-cited external name is the failure this ordering
+    was written to prevent.
+    """
+    driver, database = loaded
+    corpus_neighbours, _, _ = driver.execute_query(
+        "MATCH (d:Document {slug: 'dodi-3115-14'})-[:REFERENCES]-(n:Document) "
+        "WHERE NOT n:External "
+        "RETURN collect(DISTINCT n.slug) AS slugs",
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    expected = set(corpus_neighbours[0]["slugs"])
+    assert expected, "fixture no longer has corpus neighbours to prioritise"
+
+    graph = build_graph(
+        driver, database, focus="dodi-3115-14", limit=1 + len(expected)
+    )
+
+    assert {node.id for node in graph.nodes} == {"dodi-3115-14", *expected}
+    assert all(not node.is_external for node in graph.nodes)
+    assert graph.truncated is True
+
+
+def test_focused_edges_are_the_edges_between_returned_nodes(loaded):
+    """Nothing else asserts edges, so a regression there would pass the suite."""
+    driver, database = loaded
+    graph = build_graph(driver, database, focus="dodi-3115-14")
+
+    ids = {node.id for node in graph.nodes}
+    expected, _, _ = driver.execute_query(
+        "MATCH (s:Document)-[:REFERENCES]->(t:Document) "
+        "WHERE s.slug IN $ids AND t.slug IN $ids "
+        "RETURN collect([s.slug, t.slug]) AS pairs",
+        {"ids": sorted(ids)},
+        database_=database,
+        routing_=RoutingControl.READ,
+    )
+    assert {(e.source, e.target) for e in graph.edges} == {
+        (pair[0], pair[1]) for pair in expected[0]["pairs"]
+    }
+
+
+def test_graph_endpoint_serves_a_focused_view(client_with_auth):
+    """The eight build_graph tests never cross the router, and the router is
+    what production traffic hits — it resolves the render cap before calling in,
+    so the unbounded path those tests exercise is unreachable from a request."""
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    response = client_with_auth.get("/graph", params={"focus": "dodi-3115-14"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["nodes"][0]["id"] == "dodi-3115-14"
+    assert body["returned_nodes"] == body["total_nodes"]
+    assert body["truncated"] is False
+    assert body["truncation_basis"] is None
+
+
+def test_graph_endpoint_honours_depth_on_a_focused_view(client_with_auth):
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    near = client_with_auth.get("/graph", params={"focus": "dodi-3115-14"})
+    far = client_with_auth.get(
+        "/graph", params={"focus": "dodi-3115-14", "depth": 2}
+    )
+
+    assert far.status_code == 200
+    assert far.json()["returned_nodes"] > near.json()["returned_nodes"]
+
+
+def test_graph_endpoint_rejects_a_depth_outside_its_bounds(client_with_auth):
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    for depth in (0, 4):
+        response = client_with_auth.get(
+            "/graph", params={"focus": "dodi-3115-14", "depth": depth}
+        )
+        assert response.status_code == 422, f"depth={depth} was accepted"
+
+
+def test_graph_endpoint_404s_for_an_unknown_focus_slug(client_with_auth):
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    response = client_with_auth.get("/graph", params={"focus": "no-such-document"})
+    assert response.status_code == 404
+
+
+def test_graph_endpoint_refuses_focus_combined_with_the_corpus_parameters(
+    client_with_auth,
+):
+    """Answering 200 while dropping a parameter the caller sent reads as though
+    the narrower answer was the one they asked for."""
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    for params in (
+        {"focus": "dodi-3115-14", "expand": "dodi-8500-01"},
+        {"focus": "dodi-3115-14", "include_external": "true"},
+        # Explicitly false, not merely absent: the caller still asked for
+        # something the focused mode cannot honour.
+        {"focus": "dodi-3115-14", "include_external": "false"},
+    ):
+        response = client_with_auth.get("/graph", params=params)
+        assert response.status_code == 422, f"{params} was accepted"
+
+
+def test_the_corpus_parameters_still_work_without_focus(client_with_auth):
+    """The refusal above must not cost the existing mode its defaults."""
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    response = client_with_auth.get(
+        "/graph", params={"include_external": "false", "expand": "dodi-3115-14"}
+    )
+    assert response.status_code == 200
+    assert response.json()["returned_nodes"] == 29

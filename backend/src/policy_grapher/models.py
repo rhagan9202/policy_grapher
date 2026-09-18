@@ -74,6 +74,13 @@ class GraphOut(BaseModel):
     total_nodes: int
     returned_nodes: int
     truncated: bool
+    # Which ordering decided what was dropped, said in words rather than left for
+    # the reader to infer. `truncated` alone tells a surface that something is
+    # missing; it cannot tell anyone *what*, and a neighbourhood showing part of
+    # itself must not render like a document with no further references. Null
+    # when nothing was dropped — absent and "nothing was cut" are the same thing
+    # here, which is not true of the fields that describe a parse.
+    truncation_basis: str | None = None
 
 
 type JSONScalar = str | int | float | bool
