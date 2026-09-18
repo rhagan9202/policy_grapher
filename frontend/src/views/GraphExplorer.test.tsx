@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { GraphOut } from '../api/types'
+import type { GraphNode, GraphOut } from '../api/types'
 import { OBSERVED_SIZE, observedElements, resetObservedElements } from '../setupTests'
 
 const graphProps: Record<string, unknown>[] = []
@@ -65,21 +65,51 @@ const showGraphExplorer = () =>
     </MemoryRouter>,
   )
 
+/**
+ * A graph node fixture. Every node the API returns carries a tier and an
+ * assessment state, so the defaults here are real values rather than
+ * placeholders — a plainly-read corpus document — and a test that is not about
+ * fidelity does not have to restate them.
+ */
+function node(id: string, label: string, overrides: Partial<GraphNode> = {}): GraphNode {
+  return {
+    id,
+    label,
+    is_external: false,
+    fidelity_tier: 3,
+    assessment_state: 'assessed_all_resolved',
+    unresolved_names: [],
+    ...overrides,
+  }
+}
+
+/** A cited-only neighbour: lowest tier, and nothing has been read of it. */
+function external(id: string, label: string): GraphNode {
+  return node(id, label, {
+    is_external: true,
+    fidelity_tier: 1,
+    assessment_state: null,
+    unresolved_names: null,
+  })
+}
+
 const corpusView: GraphOut = {
   nodes: [
-    { id: 'dodd-5000-01', label: 'DoDD 5000.01', is_external: false },
-    { id: 'dodi-3115-14', label: 'DoDI 3115.14', is_external: false },
+    node('dodd-5000-01', 'DoDD 5000.01'),
+    node('dodi-3115-14', 'DoDI 3115.14'),
   ],
   edges: [{ source: 'dodd-5000-01', target: 'dodi-3115-14' }],
   total_nodes: 2,
   returned_nodes: 2,
   truncated: false,
+  truncation_basis: null,
+  unread_corpus_documents: 0,
 }
 
 const expandedView: GraphOut = {
   nodes: [
     ...corpusView.nodes,
-    { id: 'public-law-116-92', label: 'Public Law 116-92', is_external: true },
+    external('public-law-116-92', 'Public Law 116-92'),
   ],
   edges: [
     ...corpusView.edges,
@@ -88,13 +118,15 @@ const expandedView: GraphOut = {
   total_nodes: 3,
   returned_nodes: 3,
   truncated: false,
+  truncation_basis: null,
+  unread_corpus_documents: 0,
 }
 
 const reciprocalView: GraphOut = {
   nodes: [
-    { id: 'a', label: 'DoDD A', is_external: false },
-    { id: 'b', label: 'DoDD B', is_external: false },
-    { id: 'c', label: 'DoDD C', is_external: false },
+    node('a', 'DoDD A'),
+    node('b', 'DoDD B'),
+    node('c', 'DoDD C'),
   ],
   edges: [
     { source: 'a', target: 'b' },
@@ -104,6 +136,8 @@ const reciprocalView: GraphOut = {
   total_nodes: 3,
   returned_nodes: 3,
   truncated: false,
+  truncation_basis: null,
+  unread_corpus_documents: 0,
 }
 
 /** Minimal stand-in for the 2D canvas context react-force-graph hands the painter. */
@@ -414,6 +448,8 @@ describe('GraphExplorer layout', () => {
       total_nodes: 0,
       returned_nodes: 0,
       truncated: false,
+      truncation_basis: null,
+      unread_corpus_documents: 0,
     })
     showGraphExplorer()
 
@@ -437,12 +473,18 @@ describe('GraphExplorer including external references', () => {
   const wholeCorpus: GraphOut = {
     nodes: [
       ...corpusView.nodes,
-      { id: 'public-law-116-92', label: 'Public Law 116-92', is_external: true },
+      external('public-law-116-92', 'Public Law 116-92'),
     ],
     edges: corpusView.edges,
     total_nodes: 436,
     returned_nodes: 300,
     truncated: true,
+    // A truncated response always names its ordering; null is defined as
+    // "nothing was dropped", which is exactly what this fixture is not.
+    truncation_basis:
+      'every document the corpus holds, then external references by how often they are cited',
+    // 23 corpus documents, 4 of which carry text, in the walkthrough above.
+    unread_corpus_documents: 19,
   }
 
   it('fetches corpus documents alone to begin with', async () => {
@@ -617,6 +659,7 @@ describe('GraphExplorer without a mouse', () => {
     // empty corpus the label was pointing at controls that are not there.
     getGraph.mockResolvedValue({
       nodes: [], edges: [], total_nodes: 0, returned_nodes: 0, truncated: false,
+      truncation_basis: null, unread_corpus_documents: 0,
     })
 
     showGraphExplorer()

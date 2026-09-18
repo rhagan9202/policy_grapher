@@ -522,3 +522,383 @@ def test_the_corpus_parameters_still_work_without_focus(client_with_auth):
     )
     assert response.status_code == 200
     assert response.json()["returned_nodes"] == 29
+
+
+def _seed_ladder(driver, database):
+    """One document at each rung of the fidelity ladder, all cited by one hub.
+
+    Seeded directly rather than through ingest and extraction: the ladder is a
+    statement about graph topology — external membership, edition count,
+    obligation count, reviewed-link count — and driving it through a real PDF
+    would fix all four signals at once with no way to move a single rung.
+    """
+    driver.execute_query(
+        """
+        MERGE (hub:Document {slug: 'hub', name: 'Hub'})
+        SET hub.references_section_found = true, hub.references_unattributed = []
+        MERGE (hub)-[:HAS_VERSION]->(:DocumentVersion {version_id: 'hub@1',
+            checksum: 'h', source_uri: 'file:///h.pdf'})
+        MERGE (cited:Document:External {slug: 'cited-only', name: 'Cited Only'})
+        MERGE (manifest:Document {slug: 'manifest-only', name: 'Manifest Only'})
+        MERGE (text:Document {slug: 'has-text', name: 'Has Text'})
+        MERGE (text)-[:HAS_VERSION]->(:DocumentVersion {version_id: 'text@1',
+            checksum: 't', source_uri: 'file:///t.pdf'})
+        MERGE (ob:Document {slug: 'has-obligations', name: 'Has Obligations'})
+        MERGE (ob)-[:HAS_VERSION]->(obv:DocumentVersion {version_id: 'ob@1',
+            checksum: 'o', source_uri: 'file:///o.pdf'})
+        MERGE (obv)-[:MANDATES]->(:Obligation {obligation_id: 'ob-1',
+            statement: 'The Director shall report.', modality: 'MUST', section_path: ['1']})
+        MERGE (rev:Document {slug: 'has-reviewed', name: 'Has Reviewed'})
+        MERGE (rev)-[:HAS_VERSION]->(revv:DocumentVersion {version_id: 'rev@1',
+            checksum: 'r', source_uri: 'file:///r.pdf'})
+        MERGE (revv)-[:MANDATES]->(ro:Obligation {obligation_id: 'rev-1',
+            statement: 'The Secretary shall publish.', modality: 'MUST', section_path: ['1']})
+        MERGE (upstream:Obligation {obligation_id: 'upstream-1',
+            statement: 'The Department shall maintain.', modality: 'MUST', section_path: ['1']})
+        MERGE (ro)-[:IMPLEMENTS]->(upstream)
+        MERGE (hub)-[:REFERENCES]->(cited)
+        MERGE (hub)-[:REFERENCES]->(manifest)
+        MERGE (hub)-[:REFERENCES]->(text)
+        MERGE (hub)-[:REFERENCES]->(ob)
+        MERGE (hub)-[:REFERENCES]->(rev)
+        """,
+        database_=database,
+    )
+
+
+def _tiers(graph) -> dict[str, int]:
+    return {node.id: node.fidelity_tier for node in graph.nodes}
+
+
+def _node(graph, slug):
+    return next(node for node in graph.nodes if node.id == slug)
+
+
+def test_every_rung_of_the_fidelity_ladder_is_distinguishable(clean_graph, database):
+    """R6: five states, told apart by four signals already in the graph.
+
+    Each rung is reported as its own value, so a reader can tell a name the
+    corpus only ever saw cited from a document whose links a person has
+    actually reviewed. One assertion per rung rather than a spot check,
+    because the ladder's whole purpose is that adjacent rungs differ.
+    """
+    _seed_ladder(clean_graph, database)
+    graph = build_graph(clean_graph, database, focus="hub")
+
+    assert _tiers(graph) == {
+        "hub": 3,
+        "cited-only": 1,
+        "manifest-only": 2,
+        "has-text": 3,
+        "has-obligations": 4,
+        "has-reviewed": 5,
+    }
+
+
+def test_the_tier_and_the_assessment_state_are_separate_axes(clean_graph, database):
+    """AE2, and the collapse KTD1 forbids.
+
+    A document at the top of the ladder whose references section was never
+    located is a real state, and it must not render as one that genuinely
+    cites nothing. Reading the resolution outcome as a sixth rung would erase
+    exactly that difference, so the two are asserted on the same node.
+    """
+    _seed_ladder(clean_graph, database)
+    clean_graph.execute_query(
+        "MATCH (d:Document {slug: 'has-reviewed'}) "
+        "SET d.references_section_found = false, d.references_unattributed = []",
+        database_=database,
+    )
+    graph = build_graph(clean_graph, database, focus="hub")
+
+    reviewed = _node(graph, "has-reviewed")
+    assert reviewed.fidelity_tier == 5
+    assert reviewed.assessment_state == "not_assessed"
+    # Null rather than empty. An empty list here would say every name resolved,
+    # about a document nothing has been read from — the exact claim the
+    # null-versus-empty split on this field exists to stop.
+    assert reviewed.unresolved_names is None
+
+
+def test_a_document_that_resolved_every_name_is_not_one_that_cites_nothing(
+    clean_graph, database
+):
+    """R10 on the assessment axis: the two empty-looking states differ."""
+    _seed_ladder(clean_graph, database)
+    clean_graph.execute_query(
+        "MATCH (d:Document {slug: 'has-text'}) "
+        "SET d.references_section_found = true, d.references_unattributed = []",
+        database_=database,
+    )
+    graph = build_graph(clean_graph, database, focus="hub")
+
+    assert _node(graph, "hub").assessment_state == "assessed_all_resolved"
+    assert _node(graph, "has-text").assessment_state == "assessed_cites_nothing"
+
+
+def test_unresolved_names_are_reported_and_retrievable_from_the_node(
+    clean_graph, database
+):
+    """R7: the names, not merely a mark that some exist.
+
+    An unresolved public law is a different thing from an unresolved DoD
+    issuance the corpus should be holding, and only the names carry that.
+    """
+    _seed_ladder(clean_graph, database)
+    clean_graph.execute_query(
+        "MATCH (d:Document {slug: 'has-text'}) "
+        "SET d.references_section_found = true, "
+        "    d.references_unattributed = ['Public Law 99-145', 'Some Memorandum']",
+        database_=database,
+    )
+    graph = build_graph(clean_graph, database, focus="hub")
+
+    node = _node(graph, "has-text")
+    assert node.assessment_state == "assessed_names_unresolved"
+    assert node.unresolved_names == ["Public Law 99-145", "Some Memorandum"]
+
+
+def test_a_located_section_with_only_unresolved_names_never_reads_as_citing_nothing(
+    clean_graph, database
+):
+    """The false all-clear the design's own diagram would permit if read naively.
+
+    A document whose section was located, that drew no edge because not one
+    entry could be attributed, has resolved nothing — but it does not cite
+    nothing. Reporting it as 'cites nothing' would assert a finding about a
+    document the parser demonstrably failed to read, which is the shape
+    ADR-015 exists to stop.
+    """
+    _seed_ladder(clean_graph, database)
+    clean_graph.execute_query(
+        "MATCH (d:Document {slug: 'has-text'}) "
+        "SET d.references_section_found = true, "
+        "    d.references_unattributed = ['An entry nobody could parse']",
+        database_=database,
+    )
+    graph = build_graph(clean_graph, database, focus="hub")
+
+    assert _node(graph, "has-text").assessment_state == "assessed_names_unresolved"
+
+
+def test_the_assessment_axis_is_not_reported_below_the_third_tier(
+    clean_graph, database
+):
+    """The floor the design section sets, asserted on a constructed state.
+
+    Below tier 3 the tier already says the system has never read the document,
+    so a second mark repeating it would be painted on almost every node while
+    distinguishing none. The state below is not reachable through ingest — the
+    PDF path writes an edition and the outcome together — so it is built here
+    directly; the floor is a rule about what is reported, not about what
+    ingest happens to produce.
+    """
+    _seed_ladder(clean_graph, database)
+    clean_graph.execute_query(
+        "MATCH (d:Document {slug: 'manifest-only'}) "
+        "SET d.references_section_found = true, d.references_unattributed = []",
+        database_=database,
+    )
+    graph = build_graph(clean_graph, database, focus="hub")
+
+    node = _node(graph, "manifest-only")
+    assert node.fidelity_tier == 2
+    assert node.assessment_state is None
+    assert node.unresolved_names is None
+
+
+def test_an_external_neighbour_carries_the_lowest_tier_and_no_assessment(
+    clean_graph, database
+):
+    """AE4: nothing about a cited-only neighbour may imply the system read it."""
+    _seed_ladder(clean_graph, database)
+    graph = build_graph(clean_graph, database, focus="hub")
+
+    node = _node(graph, "cited-only")
+    assert node.is_external is True
+    assert node.fidelity_tier == 1
+    assert node.assessment_state is None
+
+
+def test_a_focused_response_counts_the_corpus_it_has_never_read(
+    clean_graph, database
+):
+    """AE9: an empty set of citers is qualified, not presented as a finding.
+
+    Four of the five corpus documents here have never had their references
+    read, so none of them can appear as a citer of anything. Without that
+    count the inbound half of a neighbourhood reads as 'nothing depends on
+    this', which is the false all-clear R10 forbids.
+    """
+    _seed_ladder(clean_graph, database)
+    graph = build_graph(clean_graph, database, focus="hub")
+
+    assert graph.unread_corpus_documents == 4
+
+
+def test_the_unread_count_falls_as_documents_are_read(clean_graph, database):
+    """The count tracks the graph rather than being a constant.
+
+    A parsed document whose section could not be located still cannot cite
+    anything, so it stays counted; only a located section removes one.
+    """
+    _seed_ladder(clean_graph, database)
+    clean_graph.execute_query(
+        "MATCH (d:Document {slug: 'has-text'}) SET d.references_section_found = false",
+        database_=database,
+    )
+    assert build_graph(clean_graph, database, focus="hub").unread_corpus_documents == 4
+
+    clean_graph.execute_query(
+        "MATCH (d:Document {slug: 'has-text'}) SET d.references_section_found = true",
+        database_=database,
+    )
+    assert build_graph(clean_graph, database, focus="hub").unread_corpus_documents == 3
+
+
+def test_adding_the_fidelity_fields_changes_no_node_identity_or_count(
+    clean_graph, database
+):
+    """The widened queries must report more about the same nodes, not more nodes.
+
+    An OPTIONAL MATCH that multiplies rows is the ordinary way to get this
+    wrong: a document with two editions and three obligations would arrive
+    several times over, and a count-based assertion elsewhere would still pass.
+    """
+    _seed_ladder(clean_graph, database)
+    clean_graph.execute_query(
+        "MATCH (d:Document {slug: 'has-reviewed'}) "
+        "MERGE (d)-[:HAS_VERSION]->(v:DocumentVersion {version_id: 'rev@2', "
+        "  checksum: 'r2', source_uri: 'file:///r2.pdf'}) "
+        "MERGE (v)-[:MANDATES]->(:Obligation {obligation_id: 'rev-2', "
+        "  statement: 'Another duty.', modality: 'MUST', section_path: ['2']})",
+        database_=database,
+    )
+    graph = build_graph(clean_graph, database, focus="hub")
+
+    ids = [node.id for node in graph.nodes]
+    assert sorted(ids) == [
+        "cited-only",
+        "has-obligations",
+        "has-reviewed",
+        "has-text",
+        "hub",
+        "manifest-only",
+    ]
+    assert len(ids) == len(set(ids))
+    assert graph.returned_nodes == 6
+    assert graph.total_nodes == 6
+    assert _node(graph, "has-reviewed").fidelity_tier == 5
+
+
+def test_the_corpus_wide_mode_reports_fidelity_too(clean_graph, database):
+    """The older path is not left behind: both modes answer the same question."""
+    _seed_ladder(clean_graph, database)
+    graph = build_graph(clean_graph, database, include_external=True)
+
+    assert _tiers(graph)["has-reviewed"] == 5
+    assert _tiers(graph)["cited-only"] == 1
+    assert graph.unread_corpus_documents == 4
+
+
+
+def test_a_partly_resolved_section_reports_the_names_it_could_not_attribute(
+    clean_graph, database
+):
+    """The precedence `_assessment`'s docstring calls the whole point, guarded.
+
+    Every other fixture here puts unresolved names on a document with no
+    outgoing references, so the two branches that precedence orders never both
+    apply and swapping them changes nothing. A section that attributed some
+    entries and failed on others is the ordinary partial parse, and it is the
+    only state that tells the order apart: under the swap this document reports
+    `assessed_all_resolved` and the gap it is still carrying disappears.
+    """
+    _seed_ladder(clean_graph, database)
+    clean_graph.execute_query(
+        "MATCH (t:Document {slug: 'has-text'}), (c:Document {slug: 'cited-only'}) "
+        "MERGE (t)-[:REFERENCES]->(c) "
+        "SET t.references_section_found = true, "
+        "    t.references_unattributed = ['An entry nobody could parse']",
+        database_=database,
+    )
+    graph = build_graph(clean_graph, database, focus="hub")
+
+    node = _node(graph, "has-text")
+    assert node.assessment_state == "assessed_names_unresolved"
+    assert node.unresolved_names == ["An entry nobody could parse"]
+
+
+def test_the_default_corpus_view_reports_fidelity_and_agrees_on_the_unread_count(
+    clean_graph, database
+):
+    """The mode most requests hit, and the branch that derives the unread count.
+
+    The corpus view computes the unread count from the rows it already holds
+    while the focused view asks the database, so the number now has two
+    derivations. That is only safe while they agree, and nothing else compares
+    them: the rest of the suite exercises the corpus path with
+    `include_external`, which is a different query.
+    """
+    _seed_ladder(clean_graph, database)
+    graph = build_graph(clean_graph, database)
+
+    assert "cited-only" not in {node.id for node in graph.nodes}
+    assert _tiers(graph)["has-reviewed"] == 5
+    assert _tiers(graph)["manifest-only"] == 2
+    assert graph.unread_corpus_documents == 4
+    assert (
+        build_graph(clean_graph, database, focus="hub").unread_corpus_documents
+        == graph.unread_corpus_documents
+    ), "the derived count and the queried count have drifted apart"
+
+
+def test_the_graph_endpoint_puts_fidelity_on_the_wire(client_with_auth):
+    """The fields as a reader actually receives them, not as Python objects.
+
+    Every other fidelity test calls `build_graph` directly, which cannot see a
+    serialisation setting. `assessment_state` and `unresolved_names` are null
+    for most of this corpus, and null has to arrive *present* — an
+    `exclude_none` anywhere in the response path would drop the keys and the
+    frontend type, which requires them, would be describing a shape the API
+    does not send.
+    """
+    client_with_auth.post("/ingest", json={"filename": SAMPLE})
+    body = client_with_auth.get("/graph").json()
+
+    assert "unread_corpus_documents" in body
+    node = next(n for n in body["nodes"] if n["id"] == "dodd-5000-01")
+    assert node["fidelity_tier"] == 2
+    assert "assessment_state" in node and node["assessment_state"] is None
+    assert "unresolved_names" in node and node["unresolved_names"] is None
+
+
+def test_a_document_reaches_the_top_tier_from_an_inbound_reviewed_link(
+    clean_graph, database
+):
+    """The direction real review verdicts actually write.
+
+    `replay_decisions` writes IMPLEMENTS source -> target between two different
+    documents, so for every approved pair one document is the target — and the
+    target only reaches the top tier because the match is undirected. Seeding
+    only the source side, as the ladder fixture does, leaves that half of every
+    real verdict untested: narrowing the match to `-[:IMPLEMENTS]->()` would
+    keep the whole suite green while quietly demoting those documents from
+    links-reviewed back to obligations-built.
+    """
+    _seed_ladder(clean_graph, database)
+    clean_graph.execute_query(
+        "MERGE (d:Document {slug: 'implemented-by-others', name: 'Implemented By Others'}) "
+        "MERGE (d)-[:HAS_VERSION]->(v:DocumentVersion {version_id: 'ibo@1', "
+        "  checksum: 'i', source_uri: 'file:///i.pdf'}) "
+        "MERGE (v)-[:MANDATES]->(target:Obligation {obligation_id: 'ibo-1', "
+        "  statement: 'The Component shall comply.', modality: 'MUST', section_path: ['1']}) "
+        "WITH d, target "
+        "MATCH (source:Obligation {obligation_id: 'rev-1'}) "
+        "MERGE (source)-[:IMPLEMENTS]->(target) "
+        "WITH d MATCH (hub:Document {slug: 'hub'}) MERGE (hub)-[:REFERENCES]->(d)",
+        database_=database,
+    )
+    graph = build_graph(clean_graph, database, focus="hub")
+
+    assert _node(graph, "implemented-by-others").fidelity_tier == 5
