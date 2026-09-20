@@ -393,7 +393,7 @@ Three orderings are load-bearing rather than merely convenient.
   1. Widen the node queries to carry edition count, obligation count and reviewed-link count alongside the existing external flag.
   2. Derive the tier from those counts in one place, so the ladder is defined once.
   3. Carry the stored reference-resolution outcome from U1 through as the assessment state, as a field separate from the tier.
-  4. Carry, alongside the per-node fields, two neighbourhood-level facts the map needs to stay honest: U2's truncation report, and a count of corpus documents whose references have never been read and which therefore cannot appear as citers of anything.
+  4. Carry, alongside the per-node fields, two neighbourhood-level facts the map needs to stay honest: U2's truncation report, and a count of corpus documents whose own references have never been read — documents whose outgoing edges therefore come from a manifest row naming them rather than from reading the document.
   5. Mirror every new field in the frontend type in the same unit, and update the existing graph fixtures that construct node literals — the frontend gate type-checks the whole source tree before a single test runs, so a fixture missing a required field fails the suite wholesale.
 - **Patterns to follow:** the document listing already composes per-document counts through optional matches in a single query.
 - **Test scenarios:**
@@ -445,7 +445,7 @@ Three orderings are load-bearing rather than merely convenient.
   1. Paint a counted glyph per node for the tier, precomputing the geometry per tier rather than deriving it per frame.
   2. Paint the assessment state as a separate mark, not as a dimmer version of the tier, and only from the third tier upward where the axis carries information.
   3. Mark a node whose neighbours were omitted by the budget distinctly from one that has no further references, and state at the neighbourhood level that the view is partial. Without this the truncation R10 forbids renders exactly like completeness.
-  4. State at the neighbourhood level how complete the inbound half is — how many corpus documents have never had their references read, and therefore cannot appear as citers of anything. On this corpus that is nearly all of them, so an empty "what cites this" half means almost nothing until it is said.
+  4. State at the neighbourhood level how complete the inbound half is — how many corpus documents have never had their own references read, so what they cite is known only from their manifest rows. On this corpus that is nearly all of them, so a thin "what cites this" half means far less than it appears to until it is said. Note what this must not say, because a first implementation said it and it is false: these documents are not silent. Every one of them can be drawn citing something, because its manifest row names what it cites. The limit is that their citations are only as complete as a manifest is — not that they have none, and not that they cannot appear as citers.
   5. Keep the clickable area in step with whatever the node now draws, or clicks land on the wrong node.
   6. Name the tier, the assessment state and the partial-neighbourhood condition in words in the keyboard list, which is the only surface a screen reader reaches.
   7. Leave motion and saturated colour unused, per R11.

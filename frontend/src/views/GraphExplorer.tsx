@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D, { type ForceGraphMethods, type NodeObject } from 'react-force-graph-2d'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ApiError, getGraph } from '../api/client'
-import type { GraphNode, GraphOut } from '../api/types'
+import type { AssessmentState, FidelityTier, GraphNode, GraphOut } from '../api/types'
 
 const CORPUS_COLOUR = '#2563eb'
 /** Darkened from #94a3b8, which measured 2.56:1 against the white canvas where
@@ -21,7 +21,7 @@ const LABEL_COLOUR = '#0f172a'
 const LABEL_HALO_COLOUR = '#ffffff'
 const EXTERNAL_LABEL_COLOUR = '#475569'
 
-const NODE_RELATIVE_SIZE = 5
+export const NODE_RELATIVE_SIZE = 5
 const LABEL_FONT_SIZE = 13
 /** Halo width in screen pixels; divided by zoom so it stays constant. */
 const LABEL_HALO_WIDTH = 3
@@ -29,11 +29,176 @@ const LABEL_HALO_WIDTH = 3
 /** d3-force defaults are -30 and 30, which leave a neighbourhood's edges
  *  bunched into an unreadable knot. */
 const CHARGE_STRENGTH = -200
-const LINK_DISTANCE = 60
+export const LINK_DISTANCE = 60
 /** Below this zoom, external labels are suppressed — their names run past 100
  *  characters and a dense neighbourhood collides at every one of them. */
 const EXTERNAL_LABEL_ZOOM = 1.5
 const RECIPROCAL_CURVATURE = 0.25
+
+/* ---------------------------------------------------------------------------
+ * U5. How much is known about a document, drawn on the node.
+ *
+ * Colour and size are already spent on corpus-versus-external, and R11 holds
+ * motion and saturated colour back for a later change encoding. That leaves
+ * shape and position, so the tier is one form repeated and counted (KTD4) and
+ * the assessment state is a separate mark beside it — never a dimmer or
+ * shorter version of the tier, which would fold two independent facts onto one
+ * channel and make both unreadable.
+ * ------------------------------------------------------------------------- */
+
+/** Measured against every surface a mark can land on: 17.85:1 on the white
+ *  canvas, 3.45:1 on the corpus fill (#2563eb) and 5.08:1 on the external fill
+ *  (#7b8a9e). WCAG 1.4.11 asks 3:1 of a graphical object you must see to
+ *  understand the content, and this is the darkest of the slate ramp — the next
+ *  step lighter (#1e293b) measures 2.83:1 on the corpus fill and fails. Same
+ *  value as LABEL_COLOUR, and for the same reason. */
+const MARK_COLOUR = LABEL_COLOUR
+/** Marks cross edges and neighbouring nodes exactly as labels do, so they take
+ *  the label painter's halo rather than a second idea about legibility. */
+const MARK_HALO_COLOUR = LABEL_HALO_COLOUR
+const MARK_HALO_WIDTH = 2.5
+const MARK_LINE_WIDTH = 1.8
+
+/** Tier ticks: a fixed angular pitch from a fixed start, so the arc the ticks
+ *  span grows with the tier. Counting five ticks fails at the size nodes
+ *  actually render; the span stays readable after the count stops being, which
+ *  is what keeps the ordinal legible zoomed out. */
+const TICK_PITCH = (30 * Math.PI) / 180
+const TICK_START = -Math.PI / 2
+/* Mark geometry is a floor in *screen* pixels, not a fixed canvas size and not
+ * a fixed screen size.
+ *
+ * Measured in canvas units alone, a mark shrinks with the drawing, and the zoom
+ * that suppresses external labels also takes the tier marks below the size
+ * anything can be counted at — which is the view the tier is needed in most,
+ * because it is the one with no names left on it. Pinned to a screen size
+ * instead, the marks stop growing with the node and read as an afterthought
+ * stuck to the side of a large circle when someone zooms in to look at one.
+ *
+ * So they scale with the node while that keeps them legible, and stop shrinking
+ * below the zoom where it does not. */
+const TICK_GAP = 2.5
+const TICK_LENGTH = 5
+
+/** Precomputed per tier rather than derived per frame: this runs for every node
+ *  on every tick of the simulation. The unit vectors, not the angles — the
+ *  angles are fixed at module load, so taking their sine and cosine per node
+ *  per frame was doing the same conversions thousands of times a second to
+ *  arrive at the same ten numbers. */
+const TIER_TICK_OFFSETS: Record<FidelityTier, { dx: number; dy: number }[]> = {
+  1: [], 2: [], 3: [], 4: [], 5: [],
+}
+for (const tier of [1, 2, 3, 4, 5] as const) {
+  for (let i = 0; i < tier; i += 1) {
+    const angle = TICK_START + i * TICK_PITCH
+    TIER_TICK_OFFSETS[tier].push({ dx: Math.cos(angle), dy: Math.sin(angle) })
+  }
+}
+
+/* The ticks run from the top clockwise to just past the right, and the label is
+ * drawn directly below. That leaves the left and the upper-left free, which is
+ * where the other two marks go — the assessment badge to the left, the partial
+ * mark above it. Anything placed below the node collides with the document's
+ * own name at every zoom. */
+const ASSESSMENT_ANGLE = Math.PI
+const PARTIAL_ANGLE = (5 * Math.PI) / 4
+const ASSESSMENT_DX = Math.cos(ASSESSMENT_ANGLE)
+const ASSESSMENT_DY = Math.sin(ASSESSMENT_ANGLE)
+const PARTIAL_DX = Math.cos(PARTIAL_ANGLE)
+const PARTIAL_DY = Math.sin(PARTIAL_ANGLE)
+/** Perpendicular to the partial mark's own direction, so its three dots spread
+ *  across the radius rather than along the canvas x-axis. Spreading on x put
+ *  the outer dot further from the node than a radial mark of the same nominal
+ *  reach — on a diagonal anchor those are not the same distance — and it was
+ *  that difference, not the nominal reach, that escaped the hit area. */
+const PARTIAL_TANGENT_DX = -Math.sin(PARTIAL_ANGLE)
+const PARTIAL_TANGENT_DY = Math.cos(PARTIAL_ANGLE)
+/** Dot spacing and size, as multiples of the mark radius. */
+const PARTIAL_DOT_SPREAD = 1.6
+const PARTIAL_DOT_SCALE = 1 / 2.5
+const PARTIAL_DOT_FACTORS = [-1, 0, 1] as const
+const MARK_RADIUS = 2.6
+/** Nearly touching the node: a mark floating clear of the circle reads as a
+ *  second, smaller document rather than as something said about this one. */
+const MARK_GAP = 1
+
+/** The tier ladder in words. The canvas has no accessible surface of its own,
+ *  so anything painted there reaches a screen reader only from this list. */
+const TIER_WORDS: Record<FidelityTier, string> = {
+  1: 'cited by another document only — the graph holds its name, not its text',
+  2: 'in the manifest — listed, but its text has not been ingested',
+  3: 'text ingested',
+  4: 'obligations built',
+  5: 'links reviewed',
+}
+
+/** The other axis in words. `not_assessed` covers both "no references section
+ *  could be located" and "nothing was read", which are the same thing to a
+ *  reader: the system cannot say what this document cites. */
+const ASSESSMENT_WORDS: Record<AssessmentState, string> = {
+  not_assessed: 'its own references were never read',
+  assessed_cites_nothing: 'read, and cites nothing in the corpus',
+  assessed_names_unresolved: 'read, with names the corpus could not resolve',
+  assessed_all_resolved: 'read, and every name resolved',
+}
+
+const PARTIAL_WORDS = 'may cite more than is drawn'
+
+/** Below this zoom the marks stop holding their screen size and shrink with the
+ *  canvas again.
+ *
+ *  Without a floor the conversion is unbounded: at the camera's own minimum
+ *  zoom a mark reaches 55 canvas units and the hit area with it, against the 60
+ *  units the layout puts between two linked nodes — so a click lands on the
+ *  neighbour rather than the node under the pointer. The screen-size guarantee
+ *  is not worth defending down there anyway: by that zoom neighbouring nodes'
+ *  marks already overlap each other, so what the floor was protecting is
+ *  illegible for a different reason. 0.35 keeps the furthest mark inside
+ *  LINK_DISTANCE / 2 at every zoom. */
+export const MIN_MARK_SCALE = 0.35
+
+/** At or above 1:1 the marks are plain canvas units and grow with the node;
+ *  between the floor and 1:1 they hold their screen size instead of shrinking
+ *  away; below the floor they shrink again rather than swallow a neighbour. */
+function markGeometryScale(globalScale: number): number {
+  return Math.max(Math.min(globalScale, 1), MIN_MARK_SCALE)
+}
+
+/** The radius a node's marks reach, which the pointer hit area has to match.
+ *
+ *  Computed from the same geometry the painter draws from, rather than from a
+ *  constant maintained alongside it: a nominal reach and an actual one part
+ *  company the moment a mark is anchored off-axis or spread sideways, and when
+ *  they do it is a click that misses — which nothing about the drawing shows.
+ *  In canvas units, so the screen-constant part is divided back out by the
+ *  zoom, the same conversion the painter makes. */
+function markedRadius(node: GraphNode, globalScale: number): number {
+  const scale = markGeometryScale(globalScale)
+  const radius = nodeRadius(node)
+  const markRadius = MARK_RADIUS / scale
+  const anchor = radius + MARK_GAP / scale + markRadius
+  // All three marks, though at the current constants the ticks reach furthest
+  // at every zoom and on both node sizes, so the other two terms never decide
+  // the answer today. They are here so that changing a dot's spread or the
+  // badge's size cannot quietly move a mark outside the hit area — the failure
+  // this function already had once, and one no drawing reveals.
+  return Math.max(
+    radius + (TICK_GAP + TICK_LENGTH) / scale,
+    // The triangle, not a disc: its lower corners sit further out than a badge
+    // of the same radius, so bounding the round ones bounds three of the four.
+    Math.hypot(anchor + markRadius, markRadius),
+    Math.hypot(anchor, PARTIAL_DOT_SPREAD * markRadius) + markRadius * PARTIAL_DOT_SCALE,
+  )
+}
+
+/** The library's own radius formula, `nodeRelSize * sqrt(nodeVal)`, has exactly
+ *  two answers here — corpus or external — so both are taken once. */
+const CORPUS_RADIUS = NODE_RELATIVE_SIZE * Math.sqrt(CORPUS_NODE_VALUE)
+const EXTERNAL_RADIUS = NODE_RELATIVE_SIZE * Math.sqrt(EXTERNAL_NODE_VALUE)
+
+function nodeRadius(node: GraphNode): number {
+  return node.is_external ? EXTERNAL_RADIUS : CORPUS_RADIUS
+}
 
 /** Camera transition, and the padding left around the fitted neighbourhood. */
 const CAMERA_MS = 400
@@ -58,6 +223,27 @@ function endpointId(endpoint: LinkEndpoint): string {
 
 function edgeKey(source: string, target: string): string {
   return `${source} ${target}`
+}
+
+/** Every node's neighbours, both ways along each edge.
+ *
+ *  Undirected on purpose, and for the same reason at both call sites: "what
+ *  cites this" is as much a document's neighbourhood as "what this cites", and
+ *  the walk that built the response covered both halves. Seeding a new node's
+ *  position and measuring how far it sits from the focus are different
+ *  questions, but they are asked of the same adjacency. */
+function undirectedNeighbours(edges: GraphOut['edges']): Map<string, string[]> {
+  const neighbours = new Map<string, string[]>()
+  const link = (from: string, to: string) => {
+    const existing = neighbours.get(from)
+    if (existing) existing.push(to)
+    else neighbours.set(from, [to])
+  }
+  for (const edge of edges) {
+    link(edge.source, edge.target)
+    link(edge.target, edge.source)
+  }
+  return neighbours
 }
 
 /** A node as the renderer holds it: our fields plus the simulation's own
@@ -168,16 +354,7 @@ export default function GraphExplorer() {
       const arriving = new Set(result.nodes.map((node) => node.id))
       // Built once rather than re-scanning every edge for every arriving node,
       // which is the same answer at O(nodes + edges) instead of O(new x edges).
-      const neighboursById = new Map<string, string[]>()
-      const link = (from: string, to: string) => {
-        const existing = neighboursById.get(from)
-        if (existing) existing.push(to)
-        else neighboursById.set(from, [to])
-      }
-      for (const edge of result.edges) {
-        link(edge.source, edge.target)
-        link(edge.target, edge.source)
-      }
+      const neighboursById = undirectedNeighbours(result.edges)
       const nodes = result.nodes.map((node) => {
         const drawn = nodesById.current.get(node.id)
         if (drawn) {
@@ -255,6 +432,14 @@ export default function GraphExplorer() {
   const graphData = matched?.data ?? NOTHING_DRAWN
   /** A deeper walk of the document already drawn is in flight. */
   const refreshing = Boolean(matched && matched.depth !== depth)
+  /** How far out the drawing on screen was actually walked.
+   *
+   *  Not the depth in the URL: `expand` advances that synchronously, so between
+   *  the click and the response every node one hop out would satisfy
+   *  `hops < depth` against a drawing in which its own references were never
+   *  fetched — dropping the mark below and asserting, for the length of the
+   *  request, a complete neighbourhood nobody had looked for. */
+  const drawnDepth = matched?.depth ?? depth
   // An error belongs to the slug that produced it. Navigating away from a
   // failure falls through to loading rather than inheriting someone else's.
   const error = failure && failure.slug === focus ? failure : null
@@ -424,8 +609,141 @@ export default function GraphExplorer() {
     [reciprocalEdges],
   )
 
-  const paintNodeLabel = useCallback(
+  /* How far each drawn node sits from the focused one, over the edges actually
+   * returned. Read from `graph.edges` rather than `graphData.links`: the
+   * simulation rewrites the copies it is given, replacing endpoint ids with
+   * node objects, while the response's own edges keep their ids. */
+  const hopsFromFocus = useMemo(() => {
+    const hops = new Map<string, number>()
+    if (!focus || !graph) return hops
+
+    const neighbours = undirectedNeighbours(graph.edges)
+
+    hops.set(focus, 0)
+    let frontier = [focus]
+    while (frontier.length) {
+      const next: string[] = []
+      for (const id of frontier) {
+        for (const neighbour of neighbours.get(id) ?? []) {
+          if (hops.has(neighbour)) continue
+          hops.set(neighbour, (hops.get(id) ?? 0) + 1)
+          next.push(neighbour)
+        }
+      }
+      frontier = next
+    }
+    return hops
+  }, [focus, graph])
+
+  /* Whether what is drawn around this node is all of it, as far as the graph
+   * holds. Two separate things make the answer no, and both have to count:
+   * the budget dropped nodes somewhere in the response, or this node sits on
+   * the edge of the walked radius, where the walk stopped rather than the
+   * document running out of references.
+   *
+   * Only the *uncertain* case gets a mark. Marking the complete case instead
+   * would make a missing mark an assertion that nothing more exists, which is
+   * precisely the reading R10 forbids. */
+  const drawnWhole = useCallback(
+    (id: string) => {
+      if (!graph || graph.truncated) return false
+      const hops = hopsFromFocus.get(id)
+      return hops !== undefined && hops < drawnDepth
+    },
+    [graph, hopsFromFocus, drawnDepth],
+  )
+
+  /** One mark's path, haloed then drawn, in the label painter's idiom. */
+  const strokeMark = useCallback(
+    (ctx: CanvasRenderingContext2D, globalScale: number, filled: boolean) => {
+      ctx.strokeStyle = MARK_HALO_COLOUR
+      ctx.lineWidth = MARK_HALO_WIDTH / globalScale
+      ctx.lineJoin = 'round'
+      ctx.stroke()
+      if (filled) {
+        ctx.fillStyle = MARK_COLOUR
+        ctx.fill()
+      } else {
+        ctx.strokeStyle = MARK_COLOUR
+        ctx.lineWidth = MARK_LINE_WIDTH / globalScale
+        ctx.stroke()
+      }
+    },
+    [],
+  )
+
+  const paintNode = useCallback(
     (node: DrawnNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      const cx = node.x ?? 0
+      const cy = node.y ?? 0
+      const radius = nodeRadius(node)
+      // Canvas units, floored so zooming out cannot shrink a mark on screen.
+      const markScale = markGeometryScale(globalScale)
+      const gap = MARK_GAP / markScale
+      const tickGap = TICK_GAP / markScale
+      const tickLength = TICK_LENGTH / markScale
+      const markRadius = MARK_RADIUS / markScale
+
+      // --- the tier, counted ---
+      ctx.beginPath()
+      for (const { dx, dy } of TIER_TICK_OFFSETS[node.fidelity_tier]) {
+        ctx.moveTo(cx + dx * (radius + tickGap), cy + dy * (radius + tickGap))
+        ctx.lineTo(
+          cx + dx * (radius + tickGap + tickLength),
+          cy + dy * (radius + tickGap + tickLength),
+        )
+      }
+      strokeMark(ctx, globalScale, false)
+
+      // --- the assessment state, as its own shape in its own place ---
+      // Four silhouettes rather than four weights of one: hollow for "never
+      // read", a bar for an explicit nothing, a triangle for names that did not
+      // resolve, a solid disc for a section read clean. Absent below the third
+      // tier, where `assessment_state` is null because the tier already says it.
+      if (node.assessment_state) {
+        const anchor = radius + gap + markRadius
+        const ax = cx + ASSESSMENT_DX * anchor
+        const ay = cy + ASSESSMENT_DY * anchor
+        ctx.beginPath()
+        if (node.assessment_state === 'assessed_cites_nothing') {
+          ctx.moveTo(ax - markRadius, ay)
+          ctx.lineTo(ax + markRadius, ay)
+          strokeMark(ctx, globalScale, false)
+        } else if (node.assessment_state === 'assessed_names_unresolved') {
+          ctx.moveTo(ax, ay - markRadius)
+          ctx.lineTo(ax + markRadius, ay + markRadius)
+          ctx.lineTo(ax - markRadius, ay + markRadius)
+          ctx.closePath()
+          strokeMark(ctx, globalScale, true)
+        } else {
+          ctx.arc(ax, ay, markRadius, 0, 2 * Math.PI)
+          strokeMark(ctx, globalScale, node.assessment_state === 'assessed_all_resolved')
+        }
+      }
+
+      // --- what this node may be hiding ---
+      // Three dots above and to the left of the node, clear of its name: the
+      // omission must never draw the same as a document that genuinely has no
+      // further references (AE6).
+      if (!drawnWhole(node.id)) {
+        const anchor = radius + gap + markRadius
+        const px = cx + PARTIAL_DX * anchor
+        const py = cy + PARTIAL_DY * anchor
+        const dot = markRadius * PARTIAL_DOT_SCALE
+        const spread = markRadius * PARTIAL_DOT_SPREAD
+        ctx.beginPath()
+        // Spread across the radius, not along the canvas x-axis: this anchor is
+        // diagonal, so an x-offset carries the outer dot further from the node
+        // than the same offset taken tangentially does.
+        for (const factor of PARTIAL_DOT_FACTORS) {
+          const ox = px + PARTIAL_TANGENT_DX * spread * factor
+          const oy = py + PARTIAL_TANGENT_DY * spread * factor
+          ctx.moveTo(ox + dot, oy)
+          ctx.arc(ox, oy, dot, 0, 2 * Math.PI)
+        }
+        strokeMark(ctx, globalScale, true)
+      }
+
       if (node.is_external && globalScale < EXTERNAL_LABEL_ZOOM) return
 
       const fontSize = LABEL_FONT_SIZE / globalScale
@@ -446,11 +764,27 @@ export default function GraphExplorer() {
       ctx.fillStyle = node.is_external ? EXTERNAL_LABEL_COLOUR : LABEL_COLOUR
       ctx.fillText(node.label, x, y)
     },
+    [drawnWhole, strokeMark],
+  )
+
+  /* The library sizes its own hit area from the node circle, and the marks sit
+   * outside it — so without this a click on a node's own glyph misses it. The
+   * region grows to the marks and no further: `LINK_DISTANCE` is what the
+   * layout puts between two linked nodes, and a region approaching that would
+   * start swallowing the neighbour instead. */
+  const paintPointerArea = useCallback(
+    (node: DrawnNode, colour: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      ctx.fillStyle = colour
+      ctx.beginPath()
+      ctx.arc(node.x ?? 0, node.y ?? 0, markedRadius(node, globalScale), 0, 2 * Math.PI)
+      ctx.fill()
+    },
     [],
   )
 
-  // 'after' leaves the circle and the pointer hit area with the library; we
-  // only add text on top.
+  // 'after' leaves the circle itself with the library and we draw the marks and
+  // the label over it. The pointer hit area is no longer the library's — the
+  // marks sit outside the circle it would size, so `paintPointerArea` owns it.
   const paintMode = useCallback(() => 'after' as const, [])
 
   /** Whether a canvas is on screen — the exact condition its JSX is guarded by.
@@ -536,7 +870,8 @@ export default function GraphExplorer() {
               node.is_external ? EXTERNAL_NODE_VALUE : CORPUS_NODE_VALUE
             }
             nodeCanvasObjectMode={paintMode}
-            nodeCanvasObject={paintNodeLabel}
+            nodeCanvasObject={paintNode}
+            nodePointerAreaPaint={paintPointerArea}
             linkDirectionalArrowLength={4}
             linkDirectionalArrowRelPos={1}
             linkCurvature={linkCurvature}
@@ -608,7 +943,8 @@ export default function GraphExplorer() {
               {graph.truncated ? (
                 <>
                   Showing {graph.returned_nodes} of {graph.total_nodes} documents around{' '}
-                  {focusNode?.label ?? focus} — capped, expand less to see fewer.
+                  {focusNode?.label ?? focus} — part of the neighbourhood, chosen by{' '}
+                  {graph.truncation_basis ?? 'the render cap'}.
                 </>
               ) : (
                 <>
@@ -623,6 +959,30 @@ export default function GraphExplorer() {
                 </>
               ) : null}
             </p>
+
+            {/* AE9. An empty or thin inbound half is partly a fact about what the
+                system has not done yet.
+
+                Note what this does not say, and what an earlier draft got wrong:
+                these documents are not silent. Every one of them can be drawn
+                citing something, because a manifest row names what it cites even
+                when nobody has read the document itself — the backend says so at
+                the query that counts them (`UNREAD_CORPUS_DOCUMENTS`). So the
+                limitation is that their citations are only as complete as a
+                manifest is, not that they have none. Stated only when the count
+                is non-zero: a caveat printed unconditionally stops being read,
+                and here it would also be false. */}
+            {graph.unread_corpus_documents > 0 && (
+              <p className="graph-caveat">
+                {graph.unread_corpus_documents} corpus document
+                {graph.unread_corpus_documents === 1 ? ' has' : 's have'} never had{' '}
+                {graph.unread_corpus_documents === 1 ? 'its' : 'their'} own references
+                read. What {graph.unread_corpus_documents === 1 ? 'it cites' : 'they cite'}{' '}
+                is known only from {graph.unread_corpus_documents === 1 ? 'a manifest row' : 'manifest rows'}, so what
+                cites this document is as complete as those rows are — and may be more
+                than is drawn here.
+              </p>
+            )}
 
             <button type="button" onClick={expand} disabled={depth >= MAX_DEPTH}>
               {depth >= MAX_DEPTH ? 'Expanded as far as it goes' : 'Expand one degree'}
@@ -669,6 +1029,32 @@ export default function GraphExplorer() {
                       {node.id === focus && <span className="node-kind"> focused</span>}
                     </button>
                     {node.is_external && <span className="node-kind"> external</span>}
+                    {/* Every mark painted on the canvas, said here. The canvas
+                        is one image with one text alternative, so a mark that
+                        is not a sentence in this list reaches nobody reading
+                        with a screen reader. */}
+                    <span className="node-facts">
+                      {' — '}
+                      {TIER_WORDS[node.fidelity_tier]}
+                      {node.assessment_state
+                        ? `; ${ASSESSMENT_WORDS[node.assessment_state]}`
+                        : ''}
+                      {drawnWhole(node.id) ? '' : `; ${PARTIAL_WORDS}`}
+                    </span>
+                    {node.unresolved_names && node.unresolved_names.length > 0 && (
+                      // R7 wants the names, not a count: an unresolved public
+                      // law is a different thing from an unresolved DoD
+                      // issuance the corpus ought to be holding.
+                      <ul className="node-unresolved">
+                        {/* Keyed by position, not by the name: the parser appends
+                            what it could not attribute without de-duplicating, so
+                            a references section that repeats an unparseable entry
+                            repeats it here too. */}
+                        {node.unresolved_names.map((name, index) => (
+                          <li key={`${index}-${name}`}>{name}</li>
+                        ))}
+                      </ul>
+                    )}
                   </li>
                 ))}
               </ul>

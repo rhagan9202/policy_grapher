@@ -77,7 +77,11 @@ vi.mock('../api/client', () => ({
   ApiError: ApiErrorStub,
 }))
 
-import GraphExplorer from './GraphExplorer'
+import GraphExplorer, {
+  LINK_DISTANCE,
+  MIN_MARK_SCALE,
+  NODE_RELATIVE_SIZE,
+} from './GraphExplorer'
 
 // EmptyState links to the Ingest screen, so any view that can render it
 // needs router context.
@@ -171,10 +175,40 @@ const reciprocalView: GraphOut = {
 
 /** Minimal stand-in for the 2D canvas context react-force-graph hands the painter. */
 function fakeCanvasContext() {
-  return {
+  // Ordered, because the marks are told apart by the sequence of operations
+  // that draws them — an arc then a fill is a disc, an arc then a stroke is a
+  // ring, and asserting only that `arc` was called cannot tell those apart.
+  const ops: { op: string; args: number[]; style?: string; width?: number }[] = []
+  const context = {} as { strokeStyle: string; fillStyle: string; lineWidth: number }
+  // Styles are captured at the moment the mark is committed, not merely exposed
+  // as inert properties. Without this a mark stroked in a transparent colour, or
+  // at zero width, leaves every recorded operation identical while painting
+  // nothing at all — the suite would stay green over a blank canvas.
+  const record = (op: string) => vi.fn((...args: unknown[]) => {
+    const committed = op === 'stroke' || op === 'fill'
+    ops.push({
+      op,
+      args: args.filter((a) => typeof a === 'number') as number[],
+      ...(committed
+        ? {
+            style: op === 'fill' ? context.fillStyle : context.strokeStyle,
+            width: context.lineWidth,
+          }
+        : {}),
+    })
+  })
+  Object.assign(context, {
+    ops,
     fillText: vi.fn(),
     strokeText: vi.fn(),
     measureText: vi.fn(() => ({ width: 40 })),
+    beginPath: record('beginPath'),
+    moveTo: record('moveTo'),
+    lineTo: record('lineTo'),
+    arc: record('arc'),
+    closePath: record('closePath'),
+    stroke: record('stroke'),
+    fill: record('fill'),
     font: '',
     fillStyle: '',
     strokeStyle: '',
@@ -182,8 +216,39 @@ function fakeCanvasContext() {
     lineJoin: '',
     textAlign: '',
     textBaseline: '',
+  })
+  return context as typeof context & {
+    ops: typeof ops
+    fillText: ReturnType<typeof vi.fn>
+    strokeText: ReturnType<typeof vi.fn>
+    measureText: ReturnType<typeof vi.fn>
+    beginPath: ReturnType<typeof vi.fn>
+    moveTo: ReturnType<typeof vi.fn>
+    lineTo: ReturnType<typeof vi.fn>
+    arc: ReturnType<typeof vi.fn>
+    closePath: ReturnType<typeof vi.fn>
+    stroke: ReturnType<typeof vi.fn>
+    fill: ReturnType<typeof vi.fn>
   }
 }
+
+type FakeContext = ReturnType<typeof fakeCanvasContext>
+
+/** The marks drawn between one `beginPath` and the next, as a compact shape
+ *  string — "moveTo,lineTo,stroke". One painter draws several independent
+ *  marks, so a test that looked at the whole op log could not say which mark
+ *  it was reading. */
+function paths(ctx: FakeContext): string[] {
+  const out: string[] = []
+  for (const { op } of ctx.ops) {
+    if (op === 'beginPath') out.push('')
+    else if (out.length) out[out.length - 1] += (out[out.length - 1] ? ',' : '') + op
+  }
+  return out
+}
+
+/** How many separate line segments a path holds — one `moveTo` starts each. */
+const segments = (path: string) => path.split(',').filter((op) => op === 'moveTo').length
 
 type Painter = (node: unknown, ctx: unknown, globalScale: number) => void
 
@@ -1137,5 +1202,723 @@ describe('GraphExplorer focused on a document', () => {
     expect(Number.isInteger(depth)).toBe(true)
     expect(depth).toBeGreaterThanOrEqual(1)
     expect(depth).toBeLessThanOrEqual(3)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// U5. How much is known about a document, encoded on the node itself.
+//
+// Colour and size are already spent on the corpus/external distinction, and
+// R11 reserves motion and saturated colour for a later change encoding. What
+// is left is shape and position, so the tier is a counted mark and the
+// assessment state is a separate one — never a dimmer version of the tier.
+// ---------------------------------------------------------------------------
+
+/** A neighbourhood holding one document at each of the five tiers. */
+const ladderView: GraphOut = {
+  nodes: [
+    node('tier-5', 'Reviewed Links', { fidelity_tier: 5 }),
+    node('tier-4', 'Obligations Built', { fidelity_tier: 4 }),
+    node('tier-3', 'Text Ingested', { fidelity_tier: 3 }),
+    node('tier-2', 'In Manifest', {
+      fidelity_tier: 2,
+      assessment_state: null,
+      unresolved_names: null,
+    }),
+    external('tier-1', 'Cited Only'),
+  ],
+  edges: [
+    { source: 'tier-5', target: 'tier-4' },
+    { source: 'tier-5', target: 'tier-3' },
+    { source: 'tier-5', target: 'tier-2' },
+    { source: 'tier-5', target: 'tier-1' },
+  ],
+  total_nodes: 5,
+  returned_nodes: 5,
+  truncated: false,
+  truncation_basis: null,
+  unread_corpus_documents: 0,
+}
+
+const showLadder = async () => {
+  getGraph.mockResolvedValue(ladderView)
+  showFocused('/?focus=tier-5')
+  await waitFor(() => screen.getByTestId('force-graph'))
+}
+
+/** Paint one node and return the marks drawn around it.
+ *
+ *  Painted under the focused node's own id, which sits at the centre of a
+ *  neighbourhood drawn whole — so the "may be hiding more" mark stays out of
+ *  the way of tests that are about the other two marks. The tests that want it
+ *  ask for it by making the response truncated. */
+function marksFor(overrides: Partial<GraphNode>, globalScale = 1) {
+  const paint = lastProps().nodeCanvasObject as Painter
+  const ctx = fakeCanvasContext()
+  paint({ ...node('tier-5', 'X', overrides), x: 0, y: 0 }, ctx, globalScale)
+  return { ctx, paths: paths(ctx) }
+}
+
+/** Each mark's size and standoff in *screen* pixels at a given zoom.
+ *
+ *  Four separate conversions, measured separately: the tick's length, its
+ *  standoff from the circle, the badge's radius and the badge's standoff are
+ *  four places the canvas-unit conversion can be forgotten one at a time, and a
+ *  check on any one of them passes while the other three are wrong. */
+function inScreenPixels(globalScale: number) {
+  const { ctx } = marksFor({ fidelity_tier: 5, assessment_state: 'not_assessed' }, globalScale)
+  const ops = firstPathOps(ctx)
+  const from = ops.find((o) => o.op === 'moveTo')!.args
+  const to = ops.find((o) => o.op === 'lineTo')!.args
+  const badge = ctx.ops.find((o) => o.op === 'arc')!
+  return {
+    tick: Math.hypot(to[0] - from[0], to[1] - from[1]) * globalScale,
+    // Standoff from a circle whose own radius is in canvas units and so does
+    // genuinely scale with the drawing.
+    gap: (Math.hypot(from[0], from[1]) - NODE_RELATIVE_SIZE) * globalScale,
+    badge: badge.args[2] * globalScale,
+    badgeOffset:
+      (Math.hypot(badge.args[0], badge.args[1]) - NODE_RELATIVE_SIZE) * globalScale,
+  }
+}
+
+/** How far the furthest painted point sits from the node centre.
+ *
+ *  An `arc` op's recorded args are its *centre*, so its own radius has to be
+ *  added or every circular mark is measured short by its own size — which is
+ *  exactly the error that let a mark escape the hit area. */
+function reachOf(ctx: FakeContext, cx: number, cy: number): number {
+  return Math.max(
+    ...ctx.ops
+      .filter((o) => o.op === 'moveTo' || o.op === 'lineTo' || o.op === 'arc')
+      .map((o) => Math.hypot(o.args[0] - cx, o.args[1] - cy) + (o.op === 'arc' ? o.args[2] : 0)),
+  )
+}
+
+/** The operations of the first mark alone — the tier ticks. */
+function firstPathOps(ctx: FakeContext) {
+  const start = ctx.ops.findIndex((o) => o.op === 'beginPath')
+  const end = ctx.ops.findIndex((o, i) => i > start && o.op === 'beginPath')
+  return ctx.ops.slice(start + 1, end === -1 ? undefined : end)
+}
+
+describe('GraphExplorer — the fidelity tier on the node', () => {
+  it('draws one mark per tier, so the count is the ordinal itself', async () => {
+    // KTD4: shape carries no inherent order, so the ordinal is one repeated
+    // form counted — not five different badges, and not a hue ramp.
+    await showLadder()
+
+    for (const tier of [1, 2, 3, 4, 5] as const) {
+      const { paths: drawn } = marksFor({ fidelity_tier: tier, assessment_state: null })
+      const tierPath = drawn[0]
+      expect(segments(tierPath)).toBe(tier)
+    }
+  })
+
+  it('separates each tier from the one below by extent, not only by count', async () => {
+    // Counting five small ticks fails at the size nodes actually render. The
+    // ticks are laid out on a fixed angular pitch from a fixed start, so the
+    // arc they span grows with the tier and stays readable when the individual
+    // ticks no longer are.
+    await showLadder()
+
+    const spanOf = (tier: 1 | 2 | 3 | 4 | 5) => {
+      const { ctx } = marksFor({ fidelity_tier: tier, assessment_state: null })
+      const ends = firstPathOps(ctx).filter((o) => o.op === 'moveTo').map((o) => o.args)
+      const angles = ends.map(([x, y]) => Math.atan2(y, x))
+      return Math.max(...angles) - Math.min(...angles)
+    }
+
+    const spans = ([1, 2, 3, 4, 5] as const).map(spanOf)
+    for (let i = 1; i < spans.length; i += 1) {
+      expect(spans[i]).toBeGreaterThan(spans[i - 1])
+    }
+  })
+
+  it('distinguishes a cited-only neighbour from an ingested one without colour', async () => {
+    // AE4. The two already differ in fill and radius, and a reader who can
+    // separate neither is exactly the reader this mark is for.
+    await showLadder()
+
+    const citedOnly = marksFor({ fidelity_tier: 1, is_external: true, assessment_state: null })
+    const ingested = marksFor({ fidelity_tier: 3 })
+
+    expect(segments(citedOnly.paths[0])).not.toBe(segments(ingested.paths[0]))
+  })
+})
+
+describe('GraphExplorer — the assessment state on the node', () => {
+  it('distinguishes references never read from a document confirmed to cite nothing', async () => {
+    // AE2, and the reason the axis exists at all. Both documents draw no
+    // outgoing edge; only the mark says whether that is a finding or a gap.
+    await showLadder()
+
+    const unread = marksFor({ fidelity_tier: 3, assessment_state: 'not_assessed' })
+    const citesNothing = marksFor({
+      fidelity_tier: 3,
+      assessment_state: 'assessed_cites_nothing',
+    })
+
+    expect(unread.paths[1]).not.toBe(citesNothing.paths[1])
+  })
+
+  it('draws a different silhouette for every one of the four states', async () => {
+    // Two of the four were reachable only through a panel-text fixture, so the
+    // triangle's point order and the boolean that turns the shared arc into a
+    // filled disc rather than a hollow ring were both unguarded: pinning that
+    // boolean to a constant left the whole suite green. Compared as a set,
+    // because "distinct" is a property of the four together, not of any pair.
+    await showLadder()
+
+    const silhouettes = (
+      ['not_assessed', 'assessed_cites_nothing', 'assessed_names_unresolved', 'assessed_all_resolved'] as const
+    ).map((assessment_state) => marksFor({ fidelity_tier: 5, assessment_state }).paths[1])
+
+    expect(new Set(silhouettes).size).toBe(4)
+  })
+
+  it('fills the disc for a section read clean and leaves the ring open for one never read', async () => {
+    // These two share their geometry and differ only in the last operation, so
+    // the set comparison above is the only thing that separates them and this
+    // names what the difference has to be. A hollow ring reads as "nothing is
+    // known here"; painting it over a document whose references all resolved
+    // reports the one state as the other.
+    await showLadder()
+
+    expect(marksFor({ fidelity_tier: 5, assessment_state: 'assessed_all_resolved' }).paths[1])
+      .toMatch(/arc,.*fill$/)
+    expect(marksFor({ fidelity_tier: 5, assessment_state: 'not_assessed' }).paths[1])
+      .toMatch(/arc,.*stroke$/)
+  })
+
+  it('closes the triangle for names the corpus could not resolve', async () => {
+    // An unclosed path leaves the caution shape reading as a bare chevron.
+    await showLadder()
+
+    const { paths: drawn } = marksFor({
+      fidelity_tier: 5,
+      assessment_state: 'assessed_names_unresolved',
+    })
+    expect(drawn[1]).toContain('closePath')
+    expect(segments(drawn[1])).toBe(1)
+  })
+
+  it('draws the tier and the assessment state as two marks, not one blended one', async () => {
+    // The axes are independent — a document at the top of the ladder whose
+    // references were never located is a real state. Folding the second into
+    // the first (a dimmer tier mark, a shorter arc) would make it unreadable.
+    await showLadder()
+
+    const { ctx, paths: drawn } = marksFor({
+      fidelity_tier: 4,
+      assessment_state: 'not_assessed',
+    })
+
+    expect(drawn.length).toBeGreaterThanOrEqual(2)
+    // Two marks in different places: one mark drawn twice is not two facts.
+    const anchors = ctx.ops
+      .filter((o) => o.op === 'moveTo' || o.op === 'arc')
+      .map((o) => `${Math.round(o.args[0])},${Math.round(o.args[1])}`)
+    expect(new Set(anchors).size).toBeGreaterThan(1)
+  })
+
+  it('draws no assessment mark below the tier where the axis carries information', async () => {
+    // Null below the third tier: there the tier already says nothing has been
+    // read, and a second mark repeating it would sit on almost every node in
+    // the corpus while separating none of them.
+    await showLadder()
+
+    const lowest = marksFor({ fidelity_tier: 1, is_external: true, assessment_state: null })
+    expect(lowest.paths).toHaveLength(1)
+    expect(segments(lowest.paths[0])).toBe(1)
+  })
+})
+
+describe('GraphExplorer — what the map does not know it is missing', () => {
+  it('marks a node whose neighbours were cut distinctly from one with none left', async () => {
+    // AE6. The omission must never render like a document having no further
+    // references — that is the same empty answer with two opposite meanings.
+    getGraph.mockResolvedValue({
+      ...ladderView,
+      total_nodes: 40,
+      returned_nodes: 5,
+      truncated: true,
+      truncation_basis: 'corpus documents before external ones, then by degree',
+    })
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const paint = lastProps().nodeCanvasObject as Painter
+    const cut = fakeCanvasContext()
+    paint({ ...ladderView.nodes[0], x: 0, y: 0 }, cut, 1)
+
+    getGraph.mockResolvedValue(ladderView)
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getAllByTestId('force-graph'))
+    const whole = fakeCanvasContext()
+    ;(lastProps().nodeCanvasObject as Painter)({ ...ladderView.nodes[0], x: 0, y: 0 }, whole, 1)
+
+    expect(paths(cut).length).toBeGreaterThan(paths(whole).length)
+  })
+
+  it('says the neighbourhood is partial and on what basis it chose', async () => {
+    // AE6's other half: a caption that says only "capped" leaves the reader to
+    // guess what was dropped.
+    getGraph.mockResolvedValue({
+      ...ladderView,
+      total_nodes: 40,
+      returned_nodes: 5,
+      truncated: true,
+      truncation_basis: 'corpus documents before external ones, then by degree',
+    })
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    expect(
+      screen.getByText(/corpus documents before external ones, then by degree/i),
+    ).toBeInTheDocument()
+  })
+
+  it('qualifies an empty inbound half rather than reporting it as a finding', async () => {
+    // AE9. On this corpus almost nothing has had its references read, so
+    // "nothing cites this" is mostly a fact about what the system has not done.
+    getGraph.mockResolvedValue({ ...ladderView, unread_corpus_documents: 470 })
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const caveat = screen.getByText(/470 corpus documents/i)
+    expect(caveat).toHaveTextContent(/never had their own references read/i)
+    // What the limitation actually is. These documents are NOT silent: a
+    // manifest row names what each one cites even though nobody read the
+    // document, so they can and do appear here as citers. Saying they cannot
+    // tells the reader to discount inbound edges the graph is drawing.
+    expect(caveat).toHaveTextContent(/known only from manifest rows/i)
+    expect(caveat).not.toHaveTextContent(/cannot appear/i)
+  })
+
+  it('agrees the caveat with its own count', async () => {
+    // One document short of fully read rendered "1 corpus documents ... their",
+    // against the agreement idiom every other count in this panel uses.
+    getGraph.mockResolvedValue({ ...ladderView, unread_corpus_documents: 1 })
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const caveat = screen.getByText(/1 corpus document/i)
+    expect(caveat).toHaveTextContent(/1 corpus document has never had its own references read/i)
+    expect(caveat).toHaveTextContent(/what it cites is known only from a manifest row/i)
+    expect(caveat).not.toHaveTextContent(/documents have/i)
+  })
+
+  it('names the render cap itself when the response gives no ordering', async () => {
+    // `truncation_basis` is nullable, and the caption's fallback had no test:
+    // two fixtures already build truncated:true with a null basis, but both
+    // assert a substring that stops before the fallback words.
+    getGraph.mockResolvedValue({
+      ...ladderView,
+      total_nodes: 40,
+      returned_nodes: 5,
+      truncated: true,
+      truncation_basis: null,
+    })
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    expect(screen.getByText(/part of the neighbourhood, chosen by the render cap/i))
+      .toBeInTheDocument()
+  })
+
+  it('lists no unresolved names when the parse resolved every one', async () => {
+    // An empty list and an absent one are different facts here, and only the
+    // absent one should draw nothing: `[]` means the parse ran and resolved
+    // everything, which is not a list of failures to render.
+    getGraph.mockResolvedValue({
+      ...ladderView,
+      nodes: [node('tier-5', 'Reviewed Links', { fidelity_tier: 5, unresolved_names: [] })],
+      edges: [],
+    })
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    expect(document.querySelector('.node-unresolved')).toBeNull()
+  })
+
+  it('says nothing about an assessment for a document below the axis', async () => {
+    // The mirror of the canvas rule, in words: below the third tier
+    // `assessment_state` is null because the tier already says nothing was
+    // read, and a row that added assessment wording anyway would report a state
+    // the API never sent.
+    await showLadder()
+    const list = screen.getByRole('group', { name: /documents in the graph/i })
+    const row = within(list)
+      .getByRole('button', { name: /In Manifest/i })
+      .closest('li')!
+
+    expect(row).toHaveTextContent(/in the manifest/i)
+    expect(row).not.toHaveTextContent(/read, and every name resolved/i)
+    expect(row).not.toHaveTextContent(/its own references were never read/i)
+    expect(row).not.toHaveTextContent(/cites nothing in the corpus/i)
+  })
+
+  it('says nothing about unread documents when every one has been read', async () => {
+    // The mirror of the above: a caveat printed unconditionally stops being
+    // read, and here it would be false.
+    await showLadder()
+    expect(screen.queryByText(/never had their own references read/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('GraphExplorer — the same facts in words', () => {
+  it('names each of the five tiers in the keyboard list', async () => {
+    // The canvas has no accessible surface of its own, so every mark painted
+    // on it has to be a sentence here or it reaches nobody using a reader.
+    await showLadder()
+    const list = screen.getByRole('group', { name: /documents in the graph/i })
+
+    // Read off the row for the document at that tier, rather than searching the
+    // whole list: the tier words share vocabulary with each other on purpose
+    // ("text ingested" against "its text has not been ingested"), and a loose
+    // search would pass while the words sat on the wrong document.
+    const rowFor = (label: string) =>
+      within(list)
+        .getByRole('button', { name: new RegExp(label, 'i') })
+        .closest('li')!
+
+    for (const [label, words] of [
+      ['Cited Only', /cited by another document only/i],
+      ['In Manifest', /in the manifest/i],
+      ['Text Ingested', /— text ingested/i],
+      ['Obligations Built', /obligations built/i],
+      ['Reviewed Links', /links reviewed/i],
+    ] as const) {
+      expect(rowFor(label)).toHaveTextContent(words)
+    }
+  })
+
+  it('names the assessment state in words too, not only as a mark', async () => {
+    getGraph.mockResolvedValue({
+      ...ladderView,
+      nodes: [
+        node('tier-5', 'Reviewed Links', { fidelity_tier: 5, assessment_state: 'not_assessed', unresolved_names: null }),
+        node('cites-nothing', 'Cites Nothing', { fidelity_tier: 3, assessment_state: 'assessed_cites_nothing' }),
+      ],
+      edges: [{ source: 'tier-5', target: 'cites-nothing' }],
+    })
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getByTestId('force-graph'))
+    const list = within(screen.getByRole('group', { name: /documents in the graph/i }))
+
+    expect(list.getByText(/its own references were never read/i)).toBeInTheDocument()
+    expect(list.getByText(/cites nothing in the corpus/i)).toBeInTheDocument()
+  })
+
+  it('exposes the reference names the corpus could not resolve', async () => {
+    // R7. The names, not a count: an unresolved public law is a different
+    // thing from an unresolved DoD issuance the corpus should be holding.
+    getGraph.mockResolvedValue({
+      ...ladderView,
+      nodes: [
+        node('tier-5', 'Reviewed Links', {
+          fidelity_tier: 5,
+          assessment_state: 'assessed_names_unresolved',
+          unresolved_names: ['Public Law 116-92', 'An entry nobody could parse'],
+        }),
+      ],
+      edges: [],
+    })
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    expect(screen.getByText(/An entry nobody could parse/)).toBeInTheDocument()
+    expect(screen.getByText(/Public Law 116-92/)).toBeInTheDocument()
+  })
+
+  it('treats the edge of the walk as unknown, not as a document with nothing left', async () => {
+    // The boundary the whole mark turns on, and the only input that can see it:
+    // nothing was truncated, so the *only* reason a node's neighbourhood is
+    // incomplete is that the walk stopped at it. At depth 1 the focused
+    // document's own references were all fetched, while its neighbours' were
+    // never asked for — so an unmarked neighbour would be claiming a complete
+    // reference list the request never went looking for.
+    await showLadder()
+    const list = screen.getByRole('group', { name: /documents in the graph/i })
+    const rowFor = (label: string) =>
+      within(list).getByRole('button', { name: new RegExp(label, 'i') }).closest('li')!
+
+    expect(rowFor('Reviewed Links')).not.toHaveTextContent(/may cite more than is drawn/i)
+    expect(rowFor('Text Ingested')).toHaveTextContent(/may cite more than is drawn/i)
+  })
+
+  it('holds the partial mark while a deeper walk is still in flight', async () => {
+    // The window the whole predicate turns on. `expand` advances the depth in
+    // the URL synchronously, but the drawing underneath is still the shallower
+    // response — in which these documents' own references were never fetched.
+    // Clearing the mark on the requested depth rather than the drawn one makes
+    // the view assert, for the length of the request, a complete neighbourhood
+    // nobody had looked for: a missing mark standing for a known-empty, which
+    // is the one reading R10 forbids.
+    await showLadder()
+    const list = () => screen.getByRole('group', { name: /documents in the graph/i })
+    const rowFor = (label: string) =>
+      within(list()).getByRole('button', { name: new RegExp(label, 'i') }).closest('li')!
+
+    expect(rowFor('Text Ingested')).toHaveTextContent(/may cite more than is drawn/i)
+
+    let release: (value: GraphOut) => void = () => {}
+    getGraph.mockImplementationOnce(
+      () => new Promise<GraphOut>((resolve) => { release = resolve }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: /expand/i }))
+
+    // Depth has moved; the drawing has not. The mark stays.
+    expect(rowFor('Text Ingested')).toHaveTextContent(/may cite more than is drawn/i)
+
+    release({
+      ...ladderView,
+      edges: [...ladderView.edges, { source: 'tier-3', target: 'tier-2' }],
+    })
+    await waitFor(() =>
+      expect(rowFor('Text Ingested')).not.toHaveTextContent(/may cite more than is drawn/i),
+    )
+  })
+
+  it('stops calling a node partial once the walk has gone past it', async () => {
+    // The other side of the same boundary. Expanding to depth 2 walks the
+    // neighbours' own references, so what was unknown a moment ago is now
+    // drawn — and the mark has to clear, or it degrades into decoration that
+    // says "partial" about everything forever.
+    await showLadder()
+    await userEvent.click(screen.getByRole('button', { name: /expand/i }))
+    await waitFor(() => expect(getGraph).toHaveBeenCalledTimes(2))
+
+    const list = screen.getByRole('group', { name: /documents in the graph/i })
+    const row = within(list)
+      .getByRole('button', { name: /Text Ingested/i })
+      .closest('li')!
+    expect(row).not.toHaveTextContent(/may cite more than is drawn/i)
+  })
+
+  it('marks the focused document too when the budget cut something', async () => {
+    // The focus is not exempt. When the render cap dropped nodes, the ones it
+    // dropped could be the focus's own neighbours — so the document the map is
+    // drawn around is exactly as unable to claim a complete reference list as
+    // any other. Asserted on the focus's own row: the sibling test counts
+    // matches across the whole list and passes whether or not this one is
+    // among them.
+    getGraph.mockResolvedValue({
+      ...ladderView,
+      total_nodes: 40,
+      returned_nodes: 5,
+      truncated: true,
+      truncation_basis: 'corpus documents before external ones, then by degree',
+    })
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const row = within(screen.getByRole('group', { name: /documents in the graph/i }))
+      .getByRole('button', { name: /Reviewed Links/i })
+      .closest('li')!
+    expect(row).toHaveTextContent(/focused/i)
+    expect(row).toHaveTextContent(/may cite more than is drawn/i)
+  })
+
+  it('says in words when a node may cite more than is drawn', async () => {
+    getGraph.mockResolvedValue({
+      ...ladderView,
+      total_nodes: 40,
+      returned_nodes: 5,
+      truncated: true,
+      truncation_basis: 'corpus documents before external ones, then by degree',
+    })
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getByTestId('force-graph'))
+    const list = within(screen.getByRole('group', { name: /documents in the graph/i }))
+
+    expect(list.getAllByText(/may cite more than is drawn/i).length).toBeGreaterThan(0)
+  })
+})
+
+describe('GraphExplorer — the marks do not break the canvas', () => {
+  it('keeps a click on a node with marks on that node, not a neighbour', async () => {
+    // The marks sit outside the circle the library sizes its hit area from, so
+    // the hit area has to grow with them — but only to cover this node's own
+    // marks. A region that spread further would swallow the neighbour.
+    await showLadder()
+
+    const area = lastProps().nodePointerAreaPaint as (
+      node: unknown, colour: string, ctx: unknown, scale: number,
+    ) => void
+    const ctx = fakeCanvasContext()
+    area({ ...ladderView.nodes[0], assessment_state: 'assessed_names_unresolved', x: 40, y: 70 },
+      '#ff0000', ctx, 1)
+
+    const circle = ctx.ops.find((o) => o.op === 'arc')!
+    expect(circle.args[0]).toBe(40)
+    expect(circle.args[1]).toBe(70)
+
+    // Measured against what the painter actually draws, not against a bound
+    // both a right and a wrong radius would satisfy: paint the same node and
+    // find the furthest point any mark reaches.
+    // Painted with the triangle badge, the widest of the four silhouettes: a
+    // measurement taken against a round badge cannot see a corner reaching past
+    // it. (The ticks still reach furthest today, so this is what keeps the
+    // measurement honest if that ever stops being true.)
+    const marked = { ...ladderView.nodes[0], assessment_state: 'assessed_names_unresolved' as const }
+    const drawn = fakeCanvasContext()
+    ;(lastProps().nodeCanvasObject as Painter)({ ...marked, x: 40, y: 70 }, drawn, 1)
+    const furthest = reachOf(drawn, 40, 70)
+    // Epsilon only for the trig rounding that puts the tick tip 5e-15 past the
+    // radius it was computed from; the mutation this guards misses by 1.3.
+    expect(circle.args[2]).toBeGreaterThanOrEqual(furthest - 1e-9)
+    expect(circle.args[2]).toBeGreaterThan(NODE_RELATIVE_SIZE)
+    // And far short of what the layout puts between two linked nodes, or the
+    // region would start swallowing the neighbour.
+    expect(circle.args[2]).toBeLessThan(LINK_DISTANCE / 2)
+  })
+
+  it('never lets a mark shrink below the size it has at 1:1, however far out', async () => {
+    // The zoom that suppresses external labels is the view the tier is needed
+    // in most — it is the one with no names left on it — and marks in plain
+    // canvas units vanish there. Zoomed in they still grow with the node, which
+    // is the other half of the same property and the next test.
+    await showLadder()
+
+    const reference = inScreenPixels(1)
+    for (const globalScale of [0.5, MIN_MARK_SCALE]) {
+      const measured = inScreenPixels(globalScale)
+      expect(measured.tick).toBeCloseTo(reference.tick, 6)
+      expect(measured.gap).toBeCloseTo(reference.gap, 6)
+      expect(measured.badge).toBeCloseTo(reference.badge, 6)
+      expect(measured.badgeOffset).toBeCloseTo(reference.badgeOffset, 6)
+    }
+  })
+
+  it('stops holding that size below the floor rather than swallowing a neighbour', async () => {
+    // The floor is where the screen-size guarantee stops being worth its cost.
+    // Unbounded, the conversion takes a mark — and the hit area sized from it —
+    // past the distance the layout puts between two linked nodes, so a click
+    // resolves to the wrong document. Below the floor the marks shrink with the
+    // canvas again, where neighbouring marks already overlapped anyway.
+    await showLadder()
+
+    const reference = inScreenPixels(1)
+    expect(inScreenPixels(0.2).tick).toBeLessThan(reference.tick)
+  })
+
+  it('keeps the clickable region clear of the neighbour at every zoom', async () => {
+    // The bound the region's own comment claims, asserted where it can actually
+    // fail. At zoom 1 it passes whatever the conversion does; it was the zooms
+    // below that put a linked neighbour's centre inside this node's region.
+    await showLadder()
+
+    const area = lastProps().nodePointerAreaPaint as (
+      n: unknown, c: string, x: unknown, s: number,
+    ) => void
+    for (const globalScale of [1, MIN_MARK_SCALE, 0.15, 0.1, 0.01]) {
+      const ctx = fakeCanvasContext()
+      area({ ...ladderView.nodes[0], x: 0, y: 0 }, '#ff0000', ctx, globalScale)
+      const radius = ctx.ops.find((o) => o.op === 'arc')!.args[2]
+      expect(radius).toBeLessThan(LINK_DISTANCE / 2)
+    }
+  })
+
+  it('lets the marks grow with the node when the reader zooms in on one', async () => {
+    // The floor is a floor, not a pin. Held to a fixed screen size the marks
+    // stop growing with the circle and read as something stuck to the side of
+    // it, which is the opposite failure and just as easy to ship.
+    await showLadder()
+
+    const reference = inScreenPixels(1)
+    const zoomed = inScreenPixels(4)
+    expect(zoomed.tick).toBeCloseTo(reference.tick * 4, 6)
+    expect(zoomed.badge).toBeCloseTo(reference.badge * 4, 6)
+  })
+
+  it('covers the marks of a node that is hiding something, not just the focused one', async () => {
+    // Under truncation every node paints the partial mark, the focus included —
+    // the budget dropped something, and the focus's own neighbours could be
+    // among it. The sibling check above paints the focus at a depth where it is
+    // drawn whole, so it never saw this mark at all: the one that sits furthest
+    // out, on a diagonal where a careless offset reaches further still.
+    getGraph.mockResolvedValue({
+      ...ladderView,
+      total_nodes: 40,
+      returned_nodes: 5,
+      truncated: true,
+      truncation_basis: 'corpus documents before external ones, then by degree',
+    })
+    showFocused('/?focus=tier-5')
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    for (const globalScale of [1, 0.1]) {
+      const drawn = fakeCanvasContext()
+      ;(lastProps().nodeCanvasObject as Painter)(
+        { ...ladderView.nodes[2], assessment_state: 'assessed_names_unresolved', x: 40, y: 70 },
+        drawn, globalScale,
+      )
+      // The partial mark is on this node, or the test is measuring nothing.
+      expect(paths(drawn).length).toBeGreaterThanOrEqual(3)
+
+      const area = fakeCanvasContext()
+      ;(lastProps().nodePointerAreaPaint as (
+        n: unknown, c: string, x: unknown, s: number,
+      ) => void)(
+        { ...ladderView.nodes[2], assessment_state: 'assessed_names_unresolved', x: 40, y: 70 },
+        '#ff0000', area, globalScale,
+      )
+
+      const radius = area.ops.find((o) => o.op === 'arc')!.args[2]
+      expect(radius).toBeGreaterThanOrEqual(reachOf(drawn, 40, 70) - 1e-9)
+    }
+  })
+
+  it('tucks the marks in against the smaller radius of an external node', async () => {
+    // External nodes are drawn smaller — that size is the second, non-colour
+    // channel for the corpus/external distinction. The marks hang off the
+    // circle's edge, so a radius that ignored the distinction would leave them
+    // floating clear of the small nodes and biting into the large ones.
+    await showLadder()
+
+    const reachOfTicks = (is_external: boolean) => {
+      const { ctx } = marksFor({ fidelity_tier: 5, assessment_state: null, is_external })
+      const from = firstPathOps(ctx).find((o) => o.op === 'moveTo')!.args
+      return Math.hypot(from[0], from[1])
+    }
+
+    expect(reachOfTicks(true)).toBeLessThan(reachOfTicks(false))
+  })
+
+  it('commits every mark in a visible colour at a visible width', async () => {
+    // A gate has to exercise the thing it gates. Every other check here reads
+    // the shape of the drawing — where the paths go, how many there are — and
+    // all of them hold just as well over a canvas painted in transparent ink.
+    // MARK_COLOUR carries measured contrast ratios in its own comment; nothing
+    // noticed whether it was the colour that actually reached the context.
+    await showLadder()
+
+    const { ctx } = marksFor({ fidelity_tier: 5, assessment_state: 'not_assessed' })
+    const committed = ctx.ops.filter((o) => o.op === 'stroke' || o.op === 'fill')
+    expect(committed.length).toBeGreaterThan(0)
+
+    for (const op of committed) {
+      expect(op.style).toMatch(/^#[0-9a-f]{6}$/i)
+      // The halo is white on purpose; every other committed mark is the dark
+      // measured colour. Neither may be transparent.
+      expect(op.style).not.toMatch(/transparent|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)/i)
+      if (op.op === 'stroke') expect(op.width).toBeGreaterThan(0)
+    }
+    // And at least one of them is the colour whose contrast was measured.
+    expect(committed.some((o) => o.style?.toLowerCase() === '#0f172a')).toBe(true)
+  })
+
+  it('introduces no motion in any node state', async () => {
+    // R11 reserves motion for a later change encoding. Painting the same node
+    // twice must produce the same drawing — a mark that pulsed, rotated or
+    // decayed would differ between two identical calls.
+    await showLadder()
+
+    const first = marksFor({ fidelity_tier: 4, assessment_state: 'not_assessed' })
+    const second = marksFor({ fidelity_tier: 4, assessment_state: 'not_assessed' })
+
+    expect(second.ctx.ops).toEqual(first.ctx.ops)
   })
 })
