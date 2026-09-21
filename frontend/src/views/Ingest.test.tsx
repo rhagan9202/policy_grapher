@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -423,6 +424,32 @@ describe('Ingest, landing on the map', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       /no recognisable issuance header/i,
     )
+  })
+
+  it('still lands on the map under StrictMode', async () => {
+    // The app mounts under StrictMode (frontend/src/main.tsx:20), which in
+    // development mounts, unmounts and remounts every effect. A liveness ref
+    // whose effect only registers a cleanup is left false by that first cycle
+    // and never set back — so the navigation below would be refused on every
+    // ingest, in the mode the analyst and every demo actually run.
+    //
+    // Found by dogfooding, not by this suite: every other test here renders
+    // without StrictMode, so the whole file was blind to it.
+    ingest.mockResolvedValue(WRITTEN)
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={['/ingest']}>
+          <Routes>
+            <Route path="/ingest" element={<Ingest />} />
+            <Route path="/" element={<MapStub />} />
+          </Routes>
+        </MemoryRouter>
+      </StrictMode>,
+    )
+    await chooseAndIngest()
+
+    expect(await screen.findByTestId('map')).toBeInTheDocument()
+    expect(screen.getByTestId('map-query')).toHaveTextContent('focus=dodd-5000-01')
   })
 
   it('does not haul back a reader who left while the ingest was running', async () => {

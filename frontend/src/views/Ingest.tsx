@@ -49,8 +49,19 @@ export default function Ingest() {
   // can leave for another screen mid-request. `useNavigate` is bound to the
   // router, not to this component, so the continuation below would still fire
   // and haul them back to a document they had already moved on from.
+  //
+  // Set true in the effect body, not only false in the cleanup. StrictMode
+  // mounts, unmounts and remounts every effect in development, so a cleanup
+  // that is never undone leaves this false for the life of the screen — and
+  // the navigation below is refused on every ingest, in exactly the mode the
+  // analyst and every demo run.
   const onThisScreen = useRef(true)
-  useEffect(() => () => { onThisScreen.current = false }, [])
+  useEffect(() => {
+    onThisScreen.current = true
+    return () => {
+      onThisScreen.current = false
+    }
+  }, [])
   const [filename, setFilename] = useState('')
   const [result, setResult] = useState<IngestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
