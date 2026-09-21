@@ -39,11 +39,11 @@ nothing about that property.
 
 The graph endpoint gained a focused mode: given one document slug, return that document and its
 dependency neighbourhood — what it cites and what cites it — and nothing else
-(`backend/src/policy_grapher/graph.py:89-165`). Every mode is bounded by a render cap,
+(`backend/src/policy_grapher/graph.py` — the queries at `:51-165`, the two builders at `:279` and `:351`). Every mode is bounded by a render cap,
 `graph_render_cap: int = 300` (`backend/src/policy_grapher/config.py:26`).
 
 The corpus-wide mode spends that cap corpus-first: all 23 in-corpus documents survive, externals
-take what is left (`graph.py:232-237`). Carrying that allocation into the focused mode is the
+take what is left (`graph.py:408-409`). Carrying that allocation into the focused mode is the
 defect. A budget that admits the neighbourhood first and then lets the rest of the corpus fill the
 remainder reads as a sensible priority order and is not one: 23 documents against a cap of 300
 means the second tier always fits whole. Every focused request would have returned the entire
@@ -120,7 +120,7 @@ both hold, and only there does the branch order have anything to say.
 A procedure you can run on paper in under a minute:
 
 1. Write down the wrong implementation **W** that violates the property **P** you claim to guard.
-   Here, W is swapping the two tiers at `graph.py:144`.
+   Here, W is swapping the two tiers at `graph.py:326`.
 2. Evaluate every assertion in the test under W, with the test's real fixture and real parameters.
 3. If the assertions come out the same under W as under the correct code, the test does not guard
    P. Do not argue that it "covers" P. Change the fixture so the values diverge, or change the
@@ -130,9 +130,9 @@ For this code the failure is derivable, not a judgement call. Look at what the t
 quantities are functions of:
 
 ```python
-total_nodes = len(ordered)                                                       # graph.py:146
-kept = ordered[: max(1, limit)] if limit is not None and limit > 0 else ordered  # graph.py:149
-truncated = len(kept) < total_nodes                                              # graph.py:156
+total_nodes = len(ordered)                                                       # graph.py:328
+kept = ordered[: max(1, limit)] if limit is not None and limit > 0 else ordered  # graph.py:331
+truncated = len(kept) < total_nodes                                              # graph.py:338
 ```
 
 `len(kept)` is `min(limit, len(ordered))`. `total_nodes` is `len(ordered)`. `truncated` compares
@@ -303,7 +303,7 @@ question is what surfaces a fixture with nothing in it to falsify.
 The failure mode is silent, which is why nothing downstream would have caught it. A focused request
 under the defect returns HTTP 200, a well-formed `GraphOut`, a node count comfortably under the cap,
 and `truncated: false` with a null basis — the field whose null value is defined as "nothing was
-dropped" (`graph.py:164`). Nothing in the response says "you asked for one document's neighbourhood
+dropped" (`graph.py:346`). Nothing in the response says "you asked for one document's neighbourhood
 and I gave you the corpus". The renderer draws 29 nodes where 9 were asked for, and the mode's whole
 justification — that a focused view is dense and legible where a corpus view is mostly empty space —
 evaporates without a single error.
@@ -396,10 +396,10 @@ def test_truncation_keeps_corpus_neighbours_over_external_ones(loaded):
     assert graph.truncated is True
 ```
 
-Now run the invariance check. W = swap the two tiers at `graph.py:144`:
+Now run the invariance check. W = swap the two tiers at `graph.py:326`:
 
 ```python
-# correct  (graph.py:144)
+# correct  (graph.py:326)
 ordered = [focused, *corpus_neighbours, *(entry[2] for entry in external_neighbours)]
 # W
 ordered = [focused, *(entry[2] for entry in external_neighbours), *corpus_neighbours]
@@ -440,12 +440,12 @@ corpus_neighbours.sort(key=lambda node: node.id)
 external_neighbours.sort(key=lambda entry: (entry[0], entry[1]))
 ordered = [focused, *corpus_neighbours, *(entry[2] for entry in external_neighbours)]
 ```
-— `backend/src/policy_grapher/graph.py:142-144`
+— `backend/src/policy_grapher/graph.py:326`
 
 Nothing from outside the neighbourhood is ever a candidate: `ordered` is built only from `focused`
 and the nodes the `NEIGHBOURS` traversal returned. The wider corpus is not ranked lower, it is not
-present. The slice at `graph.py:149` uses `max(1, limit)` so the focused document survives any
-budget, and the docstring at `graph.py:99-106` carries the reasoning forward for the next reader.
+present. The slice at `graph.py:331` uses `max(1, limit)` so the focused document survives any
+budget, and the docstring at `graph.py:287-296` carries the reasoning forward for the next reader.
 
 ### A second guard: precedence, not truncation
 
@@ -482,6 +482,15 @@ already there.
 
 ## Related
 
+- `docs/solutions/ui-bugs/a-cleanup-only-effect-is-inverted-by-strictmode.md` — the sibling failure
+  mode this document's rules cannot reach. There the assertion was right and the mutation was caught;
+  the harness simply could not reproduce the runtime, because no view test rendered under
+  StrictMode. Rule 1's invariance check does not find a defect that lives in the gap between the
+  test environment and production.
+- `docs/solutions/workflow-issues/the-test-count-is-not-the-verdict.md` — the third member of the
+  set, and the one that makes the other two legible as a family: an assertion that cannot fail
+  (here), a harness that cannot fail (above), and a verdict that was never read. All three shipped
+  through the same review of the same feature.
 - `AGENTS.md:47` — standing rule 4, "A gate must exercise the thing it gates". The governing
   principle this document specialises to unit-test assertions.
 - `AGENTS.md:84` — standing rule 7, "A spec is adversarially checked before it becomes a plan". It
