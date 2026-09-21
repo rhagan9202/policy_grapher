@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { getTriage, listDocuments, listVersions } from '../api/client'
 import type {
   DocumentOut,
@@ -39,14 +39,50 @@ function Citation({
   )
 }
 
+/** One document's triage state, held with the slug it belongs to. */
+type HeldTriage = {
+  slug: string
+  versions: DocumentVersionOut[] | null
+  versionId: string
+  result: TriageOut | null
+  error: string | null
+}
+
 export default function Triage() {
+  // U8. The map links here with the document it was drawn around, so the reader
+  // arrives on the right row rather than finding it again in a picker of every
+  // document that has an edition. The edition is deliberately not carried:
+  // choosing one runs the diff, and that route writes (see `chooseEdition`), so
+  // following a link must never be enough to start it.
+  // The chosen document lives in the address, not beside it. An earlier draft
+  // seeded state from the parameter once at mount, which left the two able to
+  // disagree: clicking Triage in the navigation while already on
+  // `/triage?document=x` is a same-route navigation, so the component does not
+  // remount — the address dropped the document while the picker went on showing
+  // it, and the link was no longer the view the reader was looking at. One
+  // source of truth removes the question, and makes this screen addressable the
+  // way the map is (KTD5).
+  const [searchParams, setSearchParams] = useSearchParams()
+  const slug = searchParams.get('document') ?? ''
   const [documents, setDocuments] = useState<DocumentOut[]>([])
+  // Every slug the corpus holds, editions or not — the picker above is filtered
+  // to those with editions, so it cannot answer "does this name exist".
+  const [allSlugs, setAllSlugs] = useState<Set<string>>(new Set())
   const [corpusEmpty, setCorpusEmpty] = useState<boolean | null>(null)
-  const [slug, setSlug] = useState('')
-  const [versions, setVersions] = useState<DocumentVersionOut[]>([])
-  const [versionId, setVersionId] = useState('')
-  const [result, setResult] = useState<TriageOut | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Everything below is about one document, so it is held with the slug it was
+  // loaded for. The address can change under this screen without a remount, and
+  // a held answer that outlives the document it describes is the defect the map
+  // side of this feature guards against with the same idiom.
+  const [held, setHeld] = useState<HeldTriage | null>(null)
+  const current = held && held.slug === slug ? held : null
+  // `null` until the editions for `slug` have answered. An empty array is a
+  // real answer — this document has no ingested edition — and the two need
+  // different sentences, so they cannot share a value.
+  const versions = current?.versions ?? null
+  const versionId = current?.versionId ?? ''
+  const result = current?.result ?? null
+  const error = current?.error ?? null
+  const [documentsError, setDocumentsError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -56,11 +92,14 @@ export default function Triage() {
         // other 439 leads to an empty edition list and no explanation.
         if (cancelled) return
         setDocuments(result.filter((d) => d.version_count > 0))
+        setAllSlugs(new Set(result.map((d) => d.slug)))
         setCorpusEmpty(result.length === 0)
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : 'Failed to load documents.')
+          setDocumentsError(
+            cause instanceof Error ? cause.message : 'Failed to load documents.',
+          )
         }
       })
     return () => {
@@ -72,12 +111,20 @@ export default function Triage() {
     if (!slug) return
     let cancelled = false
     listVersions(slug)
-      .then((result) => {
-        if (!cancelled) setVersions(result)
+      .then((editions) => {
+        if (!cancelled) {
+          setHeld({ slug, versions: editions, versionId: '', result: null, error: null })
+        }
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : 'Failed to load editions.')
+          setHeld({
+            slug,
+            versions: null,
+            versionId: '',
+            result: null,
+            error: cause instanceof Error ? cause.message : 'Failed to load editions.',
+          })
         }
       })
     return () => {
@@ -88,14 +135,29 @@ export default function Triage() {
   useEffect(() => {
     if (!versionId) return
     let cancelled = false
+    // Updated through the previous hold rather than rebuilt from the values in
+    // scope. `slug` and `versions` in the closure would have to join the
+    // dependency list, and this effect calls a route that WRITES — re-running
+    // it because the editions list changed would run a second diff nobody
+    // asked for. `versionId` names its own document, so a hold that still
+    // carries it is the hold this answer belongs to.
     getTriage(versionId)
-      .then((result) => {
-        if (!cancelled) setResult(result)
+      .then((answer) => {
+        if (cancelled) return
+        setHeld((prev) =>
+          prev && prev.versionId === versionId
+            ? { ...prev, result: answer, error: null }
+            : prev,
+        )
       })
       .catch((cause: unknown) => {
         if (cancelled) return
-        setResult(null)
-        setError(cause instanceof Error ? cause.message : 'Failed to load triage.')
+        const message = cause instanceof Error ? cause.message : 'Failed to load triage.'
+        setHeld((prev) =>
+          prev && prev.versionId === versionId
+            ? { ...prev, result: null, error: message }
+            : prev,
+        )
       })
     return () => {
       cancelled = true
@@ -108,21 +170,36 @@ export default function Triage() {
   // The oldest edition supersedes nothing, so GET /triage answers 400 for it
   // every time (ADR-015). Offering a choice we can predict will fail is worse
   // than not offering it. Editions arrive oldest-first from the API.
-  const comparableEditions = versions.slice(1)
+  const comparableEditions = (versions ?? []).slice(1)
   const noEditions = corpusEmpty === false && documents.length === 0
+  // `GET /documents/{slug}/versions` does not check that the slug names
+  // anything (`list_versions` in routers/documents.py runs its query and
+  // returns what it finds), so an address naming no document answers 200 with
+  // an empty list — the same shape a real document with no ingested edition
+  // gives. Verified live against this backend. Without the corpus listing to
+  // tell them apart, a mistyped drill-down would be diagnosed as a document
+  // that exists and has no text, which is a confident answer about something
+  // that is not there.
+  //
+  // `documents` is filtered to documents that have editions, so it cannot
+  // settle this on its own: absence from it is the ordinary case here. The
+  // question is only whether the corpus knows the name at all, and that is
+  // what `corpusKnowsSlug` answers — `null` while the listing is outstanding,
+  // so neither sentence is said before there is ground for it.
+  const corpusKnowsSlug =
+    slug === '' || corpusEmpty === null
+      ? null
+      : allSlugs.has(slug)
 
   function chooseDocument(next: string) {
-    setSlug(next)
-    setVersions([])
-    setVersionId('')
-    setResult(null)
-    setError(null)
+    // The address is the state. Nothing is cleared here: everything held is
+    // keyed to the slug it was loaded for, so changing the slug retires it —
+    // by this route, by the back button, or by a link from the map alike.
+    setSearchParams(next ? { document: next } : {})
   }
 
   function chooseEdition(next: string) {
-    setVersionId(next)
-    setResult(null)
-    setError(null)
+    setHeld({ slug, versions, versionId: next, result: null, error: null })
   }
 
   // A triage answer is about *changes* only when both editions have obligations
@@ -139,6 +216,13 @@ export default function Triage() {
   return (
     <div className="view">
       <h1>Triage</h1>
+
+      {/* A failed document listing is not a failed triage. Folded into the same
+          slot they read as one, and the reader cannot tell that the picker
+          below is empty because the list never arrived. */}
+      {documentsError && (
+        <div role="alert">Could not load the documents to triage: {documentsError}</div>
+      )}
 
       {corpusEmpty ? (
         <EmptyState lead="There is nothing to triage." />
@@ -185,10 +269,34 @@ export default function Triage() {
         </select>
       </label>
 
-      {versions.length === 1 && (
+      {versions?.length === 1 && (
         <p>
           This document has only one edition, so there is nothing to compare it
           against.
+        </p>
+      )}
+
+      {/* The picker only offers documents with an edition, so this is reachable
+          only by an address someone wrote by hand — which the map's drill-down
+          now makes an ordinary thing to do. An edition picker rendered empty
+          with no reason given is the defect the empty-corpus branch above
+          exists to prevent, one level further down. */}
+      {slug !== '' && versions?.length === 0 && corpusKnowsSlug === false && (
+        <p>
+          <strong>
+            Nothing in the corpus answers to <code>{slug}</code>.
+          </strong>{' '}
+          The address may be mistyped, or the document may have been removed.
+        </p>
+      )}
+
+      {slug !== '' && versions?.length === 0 && corpusKnowsSlug === true && (
+        <p>
+          <strong>
+            No edition of <code>{slug}</code> has been ingested.
+          </strong>{' '}
+          Triage compares two editions of the same instrument, and this one has
+          no text in the graph to compare.
         </p>
       )}
 

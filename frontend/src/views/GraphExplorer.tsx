@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D, { type ForceGraphMethods, type NodeObject } from 'react-force-graph-2d'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { ApiError, getGraph } from '../api/client'
-import type { AssessmentState, FidelityTier, GraphNode, GraphOut } from '../api/types'
+import { ApiError, getGraph, listObligations, listVersions } from '../api/client'
+import type {
+  AssessmentState,
+  DocumentVersionOut,
+  FidelityTier,
+  GraphNode,
+  GraphOut,
+  ObligationsOut,
+} from '../api/types'
 
 const CORPUS_COLOUR = '#2563eb'
 /** Darkened from #94a3b8, which measured 2.56:1 against the white canvas where
@@ -274,6 +281,68 @@ type HeldResult = {
 
 const NOTHING_DRAWN = { nodes: [] as DrawnNode[], links: [] as GraphOut['edges'] }
 
+/** What the map has read about one document, held with the slug it was read
+ *  for. Two selections in flight land in whatever order the network chooses,
+ *  and the panel is one surface: without the slug, a slow answer about the
+ *  document you just left renders under the name of the one you are reading.
+ *  Same idiom as `held` above, for the same reason.
+ *
+ *  `editions` is the whole answer, oldest-first, so which one is newest is read
+ *  off it rather than stored beside it — a second copy of a fact is a second
+ *  thing that can disagree with it. Empty means the document has no ingested
+ *  edition, the common case on a focused map, where most nodes are documents
+ *  the corpus holds by name because something cites them. */
+type HeldNodeDetail = {
+  slug: string
+  /** `null` when the editions read itself failed, which is not the same fact as
+   *  a document that has none — and must never render as one. Same null-versus-
+   *  empty discipline the rest of this codebase uses wherever "nobody looked"
+   *  and "nothing is there" share a shape. */
+  editions: DocumentVersionOut[] | null
+  editionsError: string | null
+  obligations: ObligationsOut | null
+  /** Scoped to the obligations read alone. A failure here leaves the editions
+   *  standing: which editions exist is already known, and the drill-down and
+   *  the one-edition message are built from that and nothing else. */
+  obligationsError: string | null
+}
+
+/** Why an edition holds no obligations. A zero has several meanings and they
+ *  call for opposite actions, which is the whole reason `build_state` is
+ *  recorded on an edition (STORY-082): "extraction ran and found nothing" is a
+ *  finding about the document, while "no build has run" is a fact about us.
+ *  Rendering them the same way is the false all-clear ADR-015 exists to
+ *  prevent, and R10 forbids on this screen in particular. */
+function emptyObligationsReason(edition: DocumentVersionOut | undefined): string {
+  if (!edition || edition.build_state == null) {
+    return 'No build has run for it, so nothing has been extracted yet.'
+  }
+  if (edition.build_state === 'started') {
+    return 'A build of it is running.'
+  }
+  if (edition.build_state === 'failed') {
+    return 'Its last build failed, so they are missing rather than absent.'
+  }
+  // ADR-028: the `null` extractor writes chunks and no obligations by design,
+  // so a finished run under it is not evidence about the document either.
+  if (edition.build_extractor_adapter === 'null') {
+    return 'It was built with the null extractor, which records none by design.'
+  }
+  return ''
+}
+
+/** How many obligations the panel prints before it stops. The document's own
+ *  page is a link away and renders the edition in full; this is a look at what
+ *  the node holds, not a second copy of that page.
+ *
+ *  Three rather than five, chosen against the live corpus: DoDD 5000.01's
+ *  obligations run four lines each, and five of them pushed the Triage
+ *  drill-down below the fold on a 900px viewport — so the panel's own bound was
+ *  hiding the other half of what this unit exists to offer. The count above the
+ *  list always states the edition's real total, so a smaller window costs the
+ *  reader nothing they are not told about. */
+const OBLIGATIONS_SHOWN = 3
+
 /** Reference names a parse could not attribute to a document.
  *
  *  Keyed by position rather than by the name: the parser appends what it could
@@ -517,6 +586,90 @@ export default function GraphExplorer() {
     // read a neighbour without also leaving the document you were reading.
     setSelected(node)
   }, [])
+
+  // R8. What the selected document holds, read when it is selected — the
+  // gesture that opens the detail, and the only one that does. Nothing here
+  // touches `GET /triage`: that route runs its diff inside a write transaction,
+  // so a render-time or hover-time call would write derived nodes on every
+  // interaction (KTD7). The drill-down below is a link for that reason.
+  const [nodeDetail, setNodeDetail] = useState<HeldNodeDetail | null>(null)
+  const selectedSlug = selected?.id
+  useEffect(() => {
+    if (!selectedSlug) return
+    let cancelled = false
+    const read = async () => {
+      let editions: DocumentVersionOut[]
+      try {
+        // Two reads, not one: the obligations route takes an explicit edition
+        // (STORY-081), so which edition is the newest has to be answered first.
+        editions = await listVersions(selectedSlug)
+      } catch (cause: unknown) {
+        if (cancelled) return
+        // Nothing is known, and `editions: null` says so. Reporting `[]` here
+        // would turn a failed read into the claim that this document has no
+        // edition — an unknown rendered as a known-empty (R10).
+        setNodeDetail({
+          slug: selectedSlug,
+          editions: null,
+          editionsError: cause instanceof Error ? cause.message : 'Failed to read its editions.',
+          obligations: null,
+          obligationsError: null,
+        })
+        return
+      }
+      if (cancelled) return
+      const newest = editions.at(-1)
+      if (!newest) {
+        // Nothing was ever ingested, so there is no edition to ask about and
+        // no request to make. Asking anyway would answer for an edition that
+        // does not exist.
+        setNodeDetail({
+          slug: selectedSlug,
+          editions,
+          editionsError: null,
+          obligations: null,
+          obligationsError: null,
+        })
+        return
+      }
+      try {
+        const obligations = await listObligations(selectedSlug, newest.version_id)
+        if (cancelled) return
+        setNodeDetail({
+          slug: selectedSlug, editions, editionsError: null, obligations, obligationsError: null,
+        })
+      } catch (cause: unknown) {
+        if (cancelled) return
+        // The editions survive. Which editions exist was already answered, and
+        // the drill-down rests on that alone — losing it here would hide a
+        // working control because an unrelated read failed.
+        setNodeDetail({
+          slug: selectedSlug,
+          editions,
+          editionsError: null,
+          obligations: null,
+          obligationsError:
+            cause instanceof Error ? cause.message : 'Failed to read its obligations.',
+        })
+      }
+    }
+    void read()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedSlug])
+
+  // Keyed to the slug it was read for, like `held` above. The cleanup already
+  // stops a superseded request from landing; this stops a result that did land
+  // from being printed under the wrong document's name.
+  const shownDetail = nodeDetail && nodeDetail.slug === selectedSlug ? nodeDetail : null
+  // What the panel will actually print, against what the edition holds. Derived
+  // once: the comparison and the printed number have to be the same figure, and
+  // computing it twice is two places for them to stop being.
+  const shownObligationCount = Math.min(
+    shownDetail?.obligations?.obligations.length ?? 0,
+    OBLIGATIONS_SHOWN,
+  )
 
   const moveFocus = useCallback(
     (slug: string) => {
@@ -1167,6 +1320,140 @@ export default function GraphExplorer() {
                 Draw the map around {activeSelection.label}
               </button>
             )}
+
+            {/* R8, F2. Structure down to specific obligations without leaving
+                the map.
+
+                The interim shape U8 ships with, stated in the plan rather than
+                assumed: obligation detail where extraction has recorded any,
+                and a plain statement where it has not. Building them on demand
+                waits on the managed extraction adapter, which does not exist
+                yet — so this never offers an action it cannot perform. */}
+            {shownDetail === null ? (
+              <p>Reading what it holds…</p>
+            ) : shownDetail.editions === null ? (
+              /* The read failed, so nothing is known. Disjoint from the empty
+                 case below by construction — `null` and `[]` are different
+                 values, so no branch ordering decides which of these two
+                 renders, and a reordering cannot turn a failure into the claim
+                 that this document has no edition. */
+              <p role="alert">
+                Could not read its editions: {shownDetail.editionsError}
+              </p>
+            ) : shownDetail.editions.length === 0 ? (
+              /* R10. The common node on a focused map, and the one a check
+                 written only for the single-edition case leaves bare. The
+                 corpus holds this document because something cites it, so an
+                 absence here is a fact about what was never read — not a
+                 finding that the document imposes nothing. */
+              <p>
+                <strong>
+                  No edition of {activeSelection.label} has been ingested.
+                </strong>{' '}
+                The corpus holds its name because another document cites it, not
+                its text — so there are no obligations to open, and nothing to
+                compare.
+              </p>
+            ) : (
+              <>
+                {/* "Obligations", not "clauses": the word the rest of this
+                    screen already uses, in the tier ladder beside every node
+                    and on the document's own page. */}
+                <h3>Obligations</h3>
+                {shownDetail.obligationsError ? (
+                  /* Said on its own line, above a drill-down that still works.
+                     Which editions exist came from the other read. */
+                  <p role="alert">
+                    Could not read its obligations: {shownDetail.obligationsError}
+                  </p>
+                ) : shownDetail.obligations === null ||
+                  shownDetail.obligations.total === 0 ? (
+                  /* A zero has several meanings and they call for opposite
+                     actions. "Extraction ran and found none" is a finding
+                     about the document; "no build has run" is a fact about us,
+                     and saying the second when the first is true — or the
+                     reverse — is the false all-clear ADR-015 forbids. */
+                  (() => {
+                    const newest = shownDetail.editions.at(-1)
+                    const reason = emptyObligationsReason(newest)
+                    return reason === '' ? (
+                      <p>
+                        <strong>
+                          Extraction found no obligations in edition{' '}
+                          <code>{newest?.version_id}</code>.
+                        </strong>
+                      </p>
+                    ) : (
+                      <p>
+                        <strong>
+                          No obligations recorded for edition{' '}
+                          <code>{newest?.version_id}</code>.
+                        </strong>{' '}
+                        {reason}
+                      </p>
+                    )
+                  })()
+                ) : (
+                  <>
+                    <p>
+                      {shownDetail.obligations.total} obligation
+                      {shownDetail.obligations.total === 1 ? '' : 's'} in edition{' '}
+                      <code>{shownDetail.editions.at(-1)?.version_id}</code>.
+                      {/* Two bounds can cut this list — the route's own, and
+                          this panel's — so the sentence counts what is on
+                          screen against what the edition holds, rather than
+                          repeating either bound's idea of "returned". */}
+                      {shownObligationCount < shownDetail.obligations.total && (
+                        <> Showing the first {shownObligationCount}.</>
+                      )}
+                    </p>
+                    <ol>
+                      {shownDetail.obligations.obligations
+                        .slice(0, OBLIGATIONS_SHOWN)
+                        .map((obligation) => (
+                          <li key={obligation.obligation_id}>
+                            <p>{obligation.statement}</p>
+                            <p>
+                              <small>
+                                {obligation.modality} ·{' '}
+                                {obligation.section_path.join(' / ')} · p.{' '}
+                                {obligation.page}
+                              </small>
+                            </p>
+                          </li>
+                        ))}
+                    </ol>
+                  </>
+                )}
+
+                {/* R9, KTD7. Triage is re-parented as the drill-down from a
+                    document, not rebuilt inside the map: its unlinked-changes
+                    guarantee is the thing ADR-015 exists to protect, and a
+                    second implementation of it is a second place to lose it.
+
+                    A link, never a fetch. The route diffs inside a write
+                    transaction, so entering it is a gesture the reader makes.
+                    The document is pre-filled and the edition deliberately is
+                    not — pre-filling an edition would run the diff on
+                    arrival, which is the same write by another route. */}
+                {shownDetail.editions.length > 1 ? (
+                  <p>
+                    <Link to={`/triage?document=${activeSelection.id}`}>
+                      Compare its editions in Triage
+                    </Link>
+                  </p>
+                ) : (
+                  /* AE7. Said where the control would have been, and distinct
+                     from Triage running and reporting no changes: one is a
+                     comparison that cannot be made, the other is its result. */
+                  <p>
+                    This document has only one edition, so there is nothing to
+                    compare it against.
+                  </p>
+                )}
+              </>
+            )}
+
           </div>
         )}
       </aside>

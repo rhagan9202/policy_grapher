@@ -2,7 +2,12 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { GraphNode, GraphOut } from '../api/types'
+import type {
+  DocumentVersionOut,
+  GraphNode,
+  GraphOut,
+  Obligation,
+} from '../api/types'
 import {
   OBSERVED_SIZE,
   observedElements,
@@ -57,6 +62,9 @@ vi.mock('react-force-graph-2d', () => ({
 const canvas = () => within(screen.getByTestId('force-graph'))
 
 const getGraph = vi.fn()
+const listVersions = vi.fn()
+const listObligations = vi.fn()
+const getTriage = vi.fn()
 
 /** The real `ApiError` carries the HTTP status, which is how the view tells a
  *  focused slug that no longer exists from a request that simply failed.
@@ -74,6 +82,13 @@ const { ApiErrorStub } = vi.hoisted(() => ({
 
 vi.mock('../api/client', () => ({
   getGraph: (...args: unknown[]) => getGraph(...args),
+  listVersions: (slug: string) => listVersions(slug),
+  listObligations: (slug: string, versionId: string) => listObligations(slug, versionId),
+  // U8's drill-down is a link, never a call. Mocked so that a render-time or
+  // selection-time triage request would be observable rather than merely absent
+  // from the network — KTD7 exists because GET /triage diffs inside a write
+  // transaction, so a stray call writes derived nodes.
+  getTriage: (...args: unknown[]) => getTriage(...args),
   ApiError: ApiErrorStub,
 }))
 
@@ -261,6 +276,9 @@ function lastProps() {
 afterEach(() => {
   graphProps.length = 0
   getGraph.mockReset()
+  listVersions.mockReset()
+  listObligations.mockReset()
+  getTriage.mockReset()
   chargeForce.strength.mockClear()
   forceGraph.centerAt.mockClear()
   forceGraph.zoomToFit.mockClear()
@@ -2107,5 +2125,432 @@ describe('GraphExplorer — arriving from an ingest', () => {
     await waitFor(() => screen.getByTestId('force-graph'))
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// U8. From structure down to clauses, without leaving the map.
+//
+// Selecting a node inspects it; moving focus is a separate control inside that
+// opened detail (KTD6). What the detail says about clauses is drawn from the
+// document's own editions, and the Triage drill-down is a link rather than a
+// call — GET /triage diffs inside a write transaction, so a render-time or
+// hover-time fetch would write derived nodes on every interaction (KTD7).
+// ---------------------------------------------------------------------------
+
+/** `build_state` is what separates "extraction ran and found nothing" from "no
+ *  build has run" — two readings of an obligation count of zero that call for
+ *  opposite actions (STORY-082). A fixture that leaves it out can only ever
+ *  exercise the never-built reading, so it is a parameter here. */
+const edition = (
+  versionId: string,
+  date: string,
+  build: Partial<DocumentVersionOut> = {},
+): DocumentVersionOut => ({
+  version_id: versionId,
+  effective_date: date,
+  checksum: `sum-${versionId}`,
+  source_uri: `/data/samples/${versionId}.pdf`,
+  supersedes: null,
+  ...build,
+})
+
+/** An edition whose build finished under a real extractor: a zero from this one
+ *  is a finding about the document, not a gap in what we have done. */
+const built = (versionId: string, date: string) =>
+  edition(versionId, date, { build_state: 'finished', build_extractor_adapter: 'local' })
+
+const obligation = (id: string, statement: string): Obligation => ({
+  obligation_id: id,
+  statement,
+  modality: 'shall',
+  section_path: ['4', '4.2'],
+  page: 7,
+})
+
+/** Opens the map, then selects a node from the keyboard list — the same handler
+ *  a canvas click reaches, and the only one a test can drive, since the canvas
+ *  has no accessible surface of its own. */
+async function selectFromList(label: string) {
+  const list = await screen.findByRole('group', { name: /documents in the graph/i })
+  await userEvent.click(
+    within(list).getByRole('button', { name: new RegExp(`^${label}`, 'i') }),
+  )
+  return screen.getByTestId('node-detail')
+}
+
+describe('GraphExplorer — clause detail on the selected node', () => {
+  it('opens a node detail without moving the focus off the document being read', async () => {
+    // KTD6. The click handler used to do both at once. Selecting is an
+    // inspection; the map underneath must not be redrawn around what was
+    // inspected, or reading a neighbour costs you the neighbourhood.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([])
+    showFocused('/?focus=dodi-3115-14')
+    const before = getGraph.mock.calls.length
+
+    const detail = await selectFromList('DoDD 5143.01')
+
+    expect(within(detail).getByRole('heading', { name: /DoDD 5143\.01/ })).toBeInTheDocument()
+    // Still the same neighbourhood, and no second fetch of a different one.
+    expect(getGraph.mock.calls.length).toBe(before)
+    expect(screen.getByText(/Showing 3 documents around DoDI 3115\.14/)).toBeInTheDocument()
+  })
+
+  it('moves the focus and redraws only when the control inside the detail is used', async () => {
+    getGraph.mockResolvedValueOnce(focusedView).mockResolvedValueOnce(otherFocusedView)
+    listVersions.mockResolvedValue([])
+    showFocused('/?focus=dodi-3115-14')
+
+    const detail = await selectFromList('DoDD 5143.01')
+    await userEvent.click(
+      within(detail).getByRole('button', { name: /draw the map around DoDD 5143\.01/i }),
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText(/around DoDD 5143\.01/)).toBeInTheDocument(),
+    )
+  })
+
+  it('lists the clauses of the newest edition of the selected document', async () => {
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([
+      edition('dodi-3115-14@2018-01-01', '2018-01-01'),
+      edition('dodi-3115-14@2020-09-09', '2020-09-09'),
+    ])
+    listObligations.mockResolvedValue({
+      obligations: [
+        obligation('ob-1', 'The Component heads shall report annually.'),
+        obligation('ob-2', 'The Under Secretary shall maintain the register.'),
+      ],
+      total: 2,
+      returned: 2,
+      truncated: false,
+    })
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    // Newest edition, not the oldest: editions arrive oldest-first.
+    await waitFor(() =>
+      expect(listObligations).toHaveBeenCalledWith('dodi-3115-14', 'dodi-3115-14@2020-09-09'),
+    )
+    expect(
+      await within(detail).findByText(/The Component heads shall report annually/),
+    ).toBeInTheDocument()
+    expect(
+      within(detail).getByText(/The Under Secretary shall maintain the register/),
+    ).toBeInTheDocument()
+  })
+
+  it('says an edition holds no obligations rather than drawing an empty list', async () => {
+    // The interim behaviour U8 ships with: clause detail where obligations
+    // already exist, and a plain statement where they do not. An empty list
+    // under a "Clauses" heading reads as a finding that this edition imposes
+    // no duties, which is not what a zero here means.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([edition('dodi-3115-14@2020-09-09', '2020-09-09')])
+    listObligations.mockResolvedValue({
+      obligations: [], total: 0, returned: 0, truncated: false,
+    })
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    expect(
+      await within(detail).findByText(/no obligations recorded for edition/i),
+    ).toBeInTheDocument()
+    expect(within(detail).queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  it('says a document with no ingested edition has no clauses to open, and why', async () => {
+    // R10. The common node on a focused map: the corpus holds its name because
+    // something cites it, not its text. "No clauses" here is a fact about what
+    // was never read, and must not read as a document that imposes none.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([])
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('Public Law 116-92')
+
+    const said = await within(detail).findByText(/no edition .* has been ingested/i)
+    expect(said).toBeInTheDocument()
+    expect(within(detail).getByText(/nothing to compare/i)).toBeInTheDocument()
+    // It never had a chance to hold obligations, so nothing asks about them.
+    expect(listObligations).not.toHaveBeenCalled()
+  })
+
+  it('separates an extraction that found nothing from one that never ran', async () => {
+    // STORY-082's whole reason for recording build_state on an edition, and
+    // ADR-015's false all-clear one level down. "No obligations have been
+    // built yet" over a finished run says the work is outstanding when it is
+    // done — sending a reader to rebuild what already ran, and hiding the one
+    // reading that is a finding about the document itself.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([built('dodi-3115-14@2020-09-09', '2020-09-09')])
+    listObligations.mockResolvedValue({
+      obligations: [], total: 0, returned: 0, truncated: false,
+    })
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    expect(
+      await within(detail).findByText(/extraction found no obligations/i),
+    ).toBeInTheDocument()
+    expect(within(detail).queryByText(/no build has run/i)).not.toBeInTheDocument()
+  })
+
+  it('says a zero is ours, not the document\'s, when no build has run', async () => {
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([edition('dodi-3115-14@2020-09-09', '2020-09-09')])
+    listObligations.mockResolvedValue({
+      obligations: [], total: 0, returned: 0, truncated: false,
+    })
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    expect(await within(detail).findByText(/no build has run/i)).toBeInTheDocument()
+    expect(
+      within(detail).queryByText(/extraction found no obligations/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not call the null extractor\'s silence a finding about the document', async () => {
+    // ADR-028: the `null` extractor writes chunks and no obligations by
+    // design. A finished run under it is not evidence that this document
+    // imposes nothing — it is evidence that nobody asked.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([
+      edition('dodi-3115-14@2020-09-09', '2020-09-09', {
+        build_state: 'finished', build_extractor_adapter: 'null',
+      }),
+    ])
+    listObligations.mockResolvedValue({
+      obligations: [], total: 0, returned: 0, truncated: false,
+    })
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    expect(await within(detail).findByText(/null extractor/i)).toBeInTheDocument()
+    expect(
+      within(detail).queryByText(/extraction found no obligations/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not call a failed build an absence of duties', async () => {
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([
+      edition('dodi-3115-14@2020-09-09', '2020-09-09', {
+        build_state: 'failed', build_extractor_adapter: 'local',
+      }),
+    ])
+    listObligations.mockResolvedValue({
+      obligations: [], total: 0, returned: 0, truncated: false,
+    })
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    expect(await within(detail).findByText(/last build failed/i)).toBeInTheDocument()
+    expect(
+      within(detail).queryByText(/extraction found no obligations/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('prints its own bound, not the route\'s, when the route returned more', async () => {
+    // Two bounds can cut this list. The truncation test below exercises the
+    // route's; this one exercises the panel's, on an answer the route did not
+    // truncate at all — the case where dropping OBLIGATIONS_SHOWN from the
+    // arithmetic changes what is shown and nothing else notices.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([built('dodi-3115-14@2020-09-09', '2020-09-09')])
+    listObligations.mockResolvedValue({
+      obligations: [
+        obligation('ob-1', 'The first duty.'),
+        obligation('ob-2', 'The second duty.'),
+        obligation('ob-3', 'The third duty.'),
+        obligation('ob-4', 'The fourth duty.'),
+        obligation('ob-5', 'The fifth duty.'),
+      ],
+      total: 5, returned: 5, truncated: false,
+    })
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    expect(await within(detail).findByText(/5 obligations/i)).toBeInTheDocument()
+    expect(within(detail).getByText(/showing the first 3/i)).toBeInTheDocument()
+    expect(within(detail).getAllByRole('listitem')).toHaveLength(3)
+    // The first three, not any three.
+    expect(within(detail).getByText(/The third duty/)).toBeInTheDocument()
+    expect(within(detail).queryByText(/The fourth duty/)).not.toBeInTheDocument()
+  })
+
+  it('says it could not read the editions rather than claiming there are none', async () => {
+    // A failed read and a document with no edition are different facts with
+    // opposite actions, and `null` versus `[]` is what holds them apart. Were
+    // they ever to share a value, the branch order alone would decide which
+    // sentence a reader got — and the wrong one asserts, about a document
+    // nobody could read, that nothing was ever ingested for it (R10).
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockRejectedValue(new Error('Neo4j is unreachable'))
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    expect(await within(detail).findByRole('alert')).toHaveTextContent(
+      /could not read its editions: Neo4j is unreachable/i,
+    )
+    expect(within(detail).queryByText(/has been ingested/i)).not.toBeInTheDocument()
+    expect(within(detail).queryByRole('link', { name: /triage/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps the drill-down when only the obligations read fails', async () => {
+    // Which editions exist was already answered. Losing the comparison because
+    // an unrelated read failed hides a control that works, and makes a failure
+    // of the second read indistinguishable from a failure of the first.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([
+      built('dodi-3115-14@2018-01-01', '2018-01-01'),
+      built('dodi-3115-14@2020-09-09', '2020-09-09'),
+    ])
+    listObligations.mockRejectedValue(new Error('the extractor is down'))
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    expect(await within(detail).findByRole('alert')).toHaveTextContent(
+      /could not read its obligations: the extractor is down/i,
+    )
+    const link = within(detail).getByRole('link', { name: /triage/i })
+    expect(link).toHaveAttribute('href', '/triage?document=dodi-3115-14')
+  })
+
+  it('offers no runnable drill-down on a single edition, and says why', async () => {
+    // AE7, on the map side. Distinct from Triage running and finding nothing:
+    // one says the comparison cannot be made, the other reports its result.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([edition('dodi-3115-14@2020-09-09', '2020-09-09')])
+    listObligations.mockResolvedValue({
+      obligations: [], total: 0, returned: 0, truncated: false,
+    })
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    expect(
+      await within(detail).findByText(/only one edition, so there is nothing to compare/i),
+    ).toBeInTheDocument()
+    expect(within(detail).queryByRole('link', { name: /triage/i })).not.toBeInTheDocument()
+    expect(within(detail).queryByText(/no changes/i)).not.toBeInTheDocument()
+  })
+
+  it('offers the drill-down pre-filled with the document when editions can be compared', async () => {
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([
+      edition('dodi-3115-14@2018-01-01', '2018-01-01'),
+      edition('dodi-3115-14@2020-09-09', '2020-09-09'),
+    ])
+    listObligations.mockResolvedValue({
+      obligations: [obligation('ob-1', 'A duty.')], total: 1, returned: 1, truncated: false,
+    })
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    const link = await within(detail).findByRole('link', { name: /triage/i })
+    expect(link).toHaveAttribute('href', '/triage?document=dodi-3115-14')
+  })
+
+  it('issues no triage request by rendering, selecting, or opening the drill-down', async () => {
+    // KTD7. GET /triage runs its diff inside a write transaction, so a
+    // render-time or selection-time call would write derived nodes on every
+    // interaction. The drill-down is a link for exactly that reason.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([
+      edition('dodi-3115-14@2018-01-01', '2018-01-01'),
+      edition('dodi-3115-14@2020-09-09', '2020-09-09'),
+    ])
+    listObligations.mockResolvedValue({
+      obligations: [], total: 0, returned: 0, truncated: false,
+    })
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    await within(detail).findByRole('link', { name: /triage/i })
+    await userEvent.hover(within(detail).getByRole('link', { name: /triage/i }))
+
+    expect(getTriage).not.toHaveBeenCalled()
+  })
+
+  it('reports the total when an edition holds more clauses than it shows', async () => {
+    // Same bound the detail page states. A list that silently stops is a
+    // partial answer rendered as a whole one.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([edition('dodi-3115-14@2020-09-09', '2020-09-09')])
+    listObligations.mockResolvedValue({
+      obligations: [obligation('ob-1', 'A duty.')],
+      total: 83, returned: 1, truncated: true,
+    })
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    expect(await within(detail).findByText(/83 obligations/i)).toBeInTheDocument()
+    expect(within(detail).getByText(/showing the first 1/i)).toBeInTheDocument()
+  })
+
+  it('does not show the last document\'s obligations under this one\'s name', async () => {
+    // A distinct failure from the late-response one below, and the one the
+    // slug-keyed hold exists for: here the first answer has already landed, so
+    // there is a real result sitting in state when the second document is
+    // selected. Until its own answer arrives, that panel is about a document
+    // nobody asked about, under a heading naming one they did.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([edition('dodi-3115-14@2020-09-09', '2020-09-09')])
+    listObligations
+      .mockResolvedValueOnce({
+        obligations: [obligation('ob-1', 'The first document duty.')],
+        total: 1, returned: 1, truncated: false,
+      })
+      // The second document's answer never arrives, holding the window open.
+      .mockImplementation(() => new Promise(() => {}))
+    showFocused('/?focus=dodi-3115-14')
+
+    const first = await selectFromList('DoDI 3115.14')
+    expect(await within(first).findByText(/The first document duty/)).toBeInTheDocument()
+
+    const second = await selectFromList('DoDD 5143.01')
+    expect(
+      within(second).getByRole('heading', { name: /DoDD 5143\.01/ }),
+    ).toBeInTheDocument()
+    expect(within(second).queryByText(/The first document duty/)).not.toBeInTheDocument()
+    expect(within(second).getByText(/reading what it holds/i)).toBeInTheDocument()
+  })
+
+  it('does not report one document\'s clauses under another document\'s name', async () => {
+    // The effect's own cleanup, not the render-time slug key the test above
+    // covers: here the first answer has not landed when the second selection
+    // is made, so there is nothing held to mismatch — what must not happen is
+    // the late answer overwriting the one that arrived after it.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue([edition('dodi-3115-14@2020-09-09', '2020-09-09')])
+    let settleFirst: ((value: unknown) => void) | undefined
+    listObligations
+      .mockImplementationOnce(() => new Promise((resolve) => { settleFirst = resolve }))
+      .mockResolvedValue({
+        obligations: [obligation('ob-2', 'The second document duty.')],
+        total: 1, returned: 1, truncated: false,
+      })
+    showFocused('/?focus=dodi-3115-14')
+
+    await selectFromList('DoDI 3115.14')
+    const detail = await selectFromList('DoDD 5143.01')
+    expect(
+      await within(detail).findByText(/The second document duty/),
+    ).toBeInTheDocument()
+
+    // The first request lands late, naming clauses of a document nobody is
+    // looking at any more.
+    await act(async () => {
+      settleFirst?.({
+        obligations: [obligation('ob-1', 'The first document duty.')],
+        total: 1, returned: 1, truncated: false,
+      })
+    })
+
+    expect(screen.queryByText(/The first document duty/)).not.toBeInTheDocument()
+    expect(screen.getByText(/The second document duty/)).toBeInTheDocument()
   })
 })
