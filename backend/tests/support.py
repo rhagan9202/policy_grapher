@@ -25,6 +25,12 @@ class FakeEmbedder:
 
 LOCAL_MODEL = "Snowflake/snowflake-arctic-embed-s"
 
+# `write_chunks` stamps the edition with the pipeline that produced its chunks
+# (ADR-042). Suites that are not about the stamp state a fixed one rather than
+# deriving the installed pipeline's, and share it from here so a future check
+# on its shape has one place to change.
+STAMP = "test-pipeline-stamp"
+
 
 def local_or_skip():
     """A real local embedder, or a skip that says plainly what did not run."""

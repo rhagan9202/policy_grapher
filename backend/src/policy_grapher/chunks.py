@@ -13,6 +13,8 @@ from policy_grapher.chunking import Chunk
 
 WRITE_CHUNKS = """
 MATCH (v:DocumentVersion {version_id: $version_id})
+SET v.pipeline_stamp = $pipeline_stamp
+WITH v
 UNWIND $chunks AS chunk
 MERGE (c:Chunk {chunk_id: chunk.chunk_id})
 SET c.text         = chunk.text,
@@ -21,6 +23,11 @@ SET c.text         = chunk.text,
     c.ordinal      = chunk.ordinal
 MERGE (v)-[:HAS_CHUNK]->(c)
 RETURN count(DISTINCT c) AS written
+"""
+
+CLEAR_PIPELINE_STAMP = """
+MATCH (v:DocumentVersion {version_id: $version_id})
+REMOVE v.pipeline_stamp
 """
 
 DROP_CHUNKS = """
@@ -43,7 +50,13 @@ class UnknownVersionError(Exception):
     """
 
 
-def write_chunks(tx: ManagedTransaction, *, version_id: str, chunks: list[Chunk]) -> int:
+def write_chunks(
+    tx: ManagedTransaction,
+    *,
+    version_id: str,
+    chunks: list[Chunk],
+    pipeline_stamp: str,
+) -> int:
     """Attach chunks to a version. Returns how many distinct chunk nodes are
     now attached — taken from the query result, not from `len(chunks)`, so a
     duplicate chunk_id within one call or an unmatched version is reflected
@@ -59,14 +72,29 @@ def write_chunks(tx: ManagedTransaction, *, version_id: str, chunks: list[Chunk]
     first; `ingest._write_document` still drops, to remove chunks the new run no
     longer produces at all, which no amount of overwriting can do.
 
+    The edition is stamped with the pipeline that produced these chunks, in the
+    same statement that writes them. Every path that re-chunks an edition comes
+    through here — ingest and rebuild both — and a stamp written at only one of
+    them would read as stale on exactly the editions carrying the most expensive
+    derived work (ADR-042). Passed in rather than derived here: the module that
+    derives it reads this one's source as part of the stamp, so importing it
+    would be a cycle.
+
     Raises UnknownVersionError if version_id names no :DocumentVersion.
     """
     if not chunks:
+        # Nothing stored means nothing to stamp, and a stamp left over from the
+        # last write would describe chunks that are no longer there — an edition
+        # a re-ingest would then read as current and decline to rebuild, leaving
+        # it permanently without text. An absent stamp is a mismatch, which is
+        # the safe direction (ADR-042).
+        tx.run(CLEAR_PIPELINE_STAMP, {"version_id": version_id}).consume()
         return 0
     record = tx.run(
         WRITE_CHUNKS,
         {
             "version_id": version_id,
+            "pipeline_stamp": pipeline_stamp,
             "chunks": [
                 {
                     "chunk_id": c.chunk_id,

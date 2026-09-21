@@ -1,6 +1,7 @@
 """Propagating a change to the policies that implement it."""
 
 import pytest
+from support import STAMP
 
 from policy_grapher.changes.diff import diff_versions
 from policy_grapher.changes.propagate import KIND_WEIGHT, MODALITY_WEIGHT, triage
@@ -32,7 +33,7 @@ def _seed_version(driver, database, *, version_id, doc_slug, doc_name, entries):
             chunk = chunk_pages(
                 [f"{section}. TITLE.\nBody text.\n"], version_id=version_id
             )[-1]
-            session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+            session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
             session.execute_write(
                 write_obligations,
                 version_id=version_id,
@@ -377,7 +378,7 @@ def test_an_obligation_anchored_to_two_chunks_produces_one_row(clean_graph, data
     with clean_graph.session(database=database) as session:
         # split[1], not split[0]: a chunk id is keyed on its position within the
         # section, so the first chunk of section 2.4 is the one already seeded.
-        session.execute_write(write_chunks, version_id="ours-v1", chunks=split[1:2])
+        session.execute_write(write_chunks, version_id="ours-v1", chunks=split[1:2], pipeline_stamp=STAMP)
     clean_graph.execute_query(
         "MATCH (o:Obligation {obligation_id: $id}) "
         "MATCH (c:Chunk {chunk_id: $chunk}) MERGE (o)-[:ANCHORED_IN]->(c)",

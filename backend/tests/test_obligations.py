@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from support import STAMP
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
@@ -200,7 +201,7 @@ def _seed_chunk(driver, database):
         ["3.2. DUTIES.\nThe Director shall notify the Comptroller.\n"], version_id="v"
     )
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v", chunks=chunks)
+        session.execute_write(write_chunks, version_id="v", chunks=chunks, pipeline_stamp=STAMP)
     return chunks[-1]
 
 

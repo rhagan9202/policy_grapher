@@ -59,6 +59,12 @@ export interface ManifestIngestResult {
 
 export interface DocumentIngestResult {
   source: 'document'
+  /** What the ingest did to the edition's text. `unchanged` means the source
+   *  bytes and the pipeline that chunks them both matched what the edition
+   *  already carried, so its chunks, obligations, reviewed links and build
+   *  record were left standing (ADR-042). It is not a write that happened to
+   *  produce nothing. */
+  outcome: 'written' | 'unchanged'
   format: string
   document: { slug: string; name: string }
   nodes_created: number
@@ -70,7 +76,9 @@ export interface DocumentIngestResult {
    *  created" is both true and unreadable. The edition and its chunk count are
    *  what the reader needs in order to do the next thing. */
   version_id: string
-  chunks_written: number
+  /** `null` when nothing was written, never 0 — a zero would claim a write that
+   *  produced nothing, which is a different event from one that did not run. */
+  chunks_written: number | null
 }
 
 export type IngestResult = ManifestIngestResult | DocumentIngestResult

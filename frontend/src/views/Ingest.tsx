@@ -166,18 +166,50 @@ export default function Ingest() {
           {result.source === 'document' ? (
             <>
               <h2>
-                Ingested {result.document.name} ({result.format} format)
+                {result.outcome === 'unchanged'
+                  ? `${result.document.name} was already present`
+                  : `Ingested ${result.document.name} (${result.format} format)`}
               </h2>
-              <ul>
-                <li>
-                  edition <code>{result.version_id}</code>, {result.chunks_written} chunks
-                  of text
-                </li>
-                <li>{result.nodes_created} nodes created</li>
-                <li>{result.relationships_created} relationships created</li>
-                <li>{result.references_attributed} references attributed</li>
-                <li>{result.self_references_skipped} self-references skipped</li>
-              </ul>
+              {/* An unchanged re-add has no write to report. Printing the same
+                  list with a chunk count of nothing would read as a write that
+                  produced nothing, which is the reading ADR-042 forbids — and
+                  what was actually preserved is the interesting part: this
+                  edition's text, its obligations, and every verdict resting on
+                  them are exactly as they were. */}
+              {result.outcome === 'unchanged' ? (
+                <>
+                  <p>
+                    No text was rewritten. Edition <code>{result.version_id}</code>{' '}
+                    already holds this file, chunked by this same pipeline, so its text
+                    and everything built on it were left standing.
+                  </p>
+                  {/* The skip covers the text and the layer derived from it, and
+                      nothing else: the document record and its reference edges
+                      refresh on every ingest, so a parse that newly read a
+                      references section does create things here. Those counts
+                      are zero on an ordinary re-add and are hidden then, but
+                      saying "nothing was written" over a write that happened is
+                      the same false claim in the other direction. */}
+                  {(result.nodes_created > 0 || result.relationships_created > 0) && (
+                    <ul>
+                      <li>{result.nodes_created} nodes created</li>
+                      <li>{result.relationships_created} relationships created</li>
+                      <li>{result.references_attributed} references attributed</li>
+                    </ul>
+                  )}
+                </>
+              ) : (
+                <ul>
+                  <li>
+                    edition <code>{result.version_id}</code>, {result.chunks_written}{' '}
+                    chunks of text
+                  </li>
+                  <li>{result.nodes_created} nodes created</li>
+                  <li>{result.relationships_created} relationships created</li>
+                  <li>{result.references_attributed} references attributed</li>
+                  <li>{result.self_references_skipped} self-references skipped</li>
+                </ul>
+              )}
 
               {result.references_unattributed.length > 0 && (
                 <>

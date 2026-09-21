@@ -89,6 +89,7 @@ describe('Ingest', () => {
     // fields would show a PDF ingest as a row of blanks.
     ingest.mockResolvedValue({
       source: 'document',
+      outcome: 'written',
       format: 'modern',
       document: { slug: 'dodd-5000-01', name: 'DoDD 5000.01' },
       nodes_created: 1,
@@ -109,11 +110,81 @@ describe('Ingest', () => {
     expect(result).toHaveTextContent(/16/)
   })
 
+  it('reports an unchanged re-add as its own outcome, not as an empty write', async () => {
+    // ADR-042. Re-adding a file the corpus already holds discards nothing, so
+    // there is no write to report — and reporting one with a chunk count of
+    // nothing would read as a write that produced nothing. What the reader
+    // needs to know is the opposite: everything built on this edition survived.
+    ingest.mockResolvedValue({
+      source: 'document',
+      outcome: 'unchanged',
+      format: 'modern',
+      document: { slug: 'dodd-5000-01', name: 'DoDD 5000.01' },
+      nodes_created: 0,
+      relationships_created: 0,
+      references_attributed: 16,
+      references_unattributed: [],
+      self_references_skipped: 0,
+      version_id: 'dodd-5000-01@2020-09-09',
+      chunks_written: null,
+    })
+    showIngest()
+
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/file to ingest/i), '500001p_2020.pdf',
+    )
+    await userEvent.click(screen.getByRole('button', { name: /ingest/i }))
+
+    const result = await screen.findByRole('status')
+    expect(result).toHaveTextContent(/already present/i)
+    expect(result).toHaveTextContent(/no text was rewritten/i)
+    // Not "null chunks", and not a chunk count of any kind: there was no write.
+    expect(result).not.toHaveTextContent(/null/i)
+    expect(result).not.toHaveTextContent(/chunks of text/i)
+    // Nothing was created either, so nothing to report.
+    expect(result).not.toHaveTextContent(/nodes created/i)
+  })
+
+  it('still reports what a skipped re-add did create, rather than denying it', async () => {
+    // The skip covers the text and the layer derived from it. The document
+    // record and its reference edges refresh on every ingest, so a parse that
+    // newly reads a references section creates the documents it names even on
+    // this path — and a flat "nothing was written" over that is false in the
+    // other direction.
+    ingest.mockResolvedValue({
+      source: 'document',
+      outcome: 'unchanged',
+      format: 'modern',
+      document: { slug: 'dodd-5000-01', name: 'DoDD 5000.01' },
+      nodes_created: 1,
+      relationships_created: 1,
+      references_attributed: 17,
+      references_unattributed: [],
+      self_references_skipped: 0,
+      version_id: 'dodd-5000-01@2020-09-09',
+      chunks_written: null,
+    })
+    showIngest()
+
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/file to ingest/i), '500001p_2020.pdf',
+    )
+    await userEvent.click(screen.getByRole('button', { name: /ingest/i }))
+
+    const result = await screen.findByRole('status')
+    expect(result).toHaveTextContent(/no text was rewritten/i)
+    expect(result).toHaveTextContent(/1 nodes created/i)
+    expect(result).toHaveTextContent(/1 relationships created/i)
+    // And still no chunk count: that is the part that genuinely did not happen.
+    expect(result).not.toHaveTextContent(/chunks of text/i)
+  })
+
   it('names the references it could not attribute, rather than only counting them', async () => {
     // An unattributed reference is a citation the graph does not hold. A count alone
     // tells the reader something is missing and not what.
     ingest.mockResolvedValue({
       source: 'document',
+      outcome: 'written',
       format: 'modern',
       document: { slug: 'dodd-5000-01', name: 'DoDD 5000.01' },
       nodes_created: 1,
@@ -135,6 +206,7 @@ describe('Ingest', () => {
   it('names the edition it recorded and how much text it read', async () => {
     const documentResult = {
       source: 'document',
+      outcome: 'written',
       format: 'modern',
       document: { slug: 'dodd-5000-01', name: 'DoDD 5000.01' },
       nodes_created: 1,
@@ -238,7 +310,8 @@ describe('Ingest — choosing a source', () => {
   it('ingests the file that was chosen', async () => {
     listSources.mockResolvedValue(SOURCES)
     ingest.mockResolvedValue({
-      source: 'document', format: 'modern', document: { slug: 'd', name: 'DoDD 5000.01' },
+      source: 'document', outcome: 'written', format: 'modern',
+      document: { slug: 'd', name: 'DoDD 5000.01' },
       nodes_created: 1, relationships_created: 2, references_attributed: 16,
       references_unattributed: [], self_references_skipped: 0,
       version_id: 'dodd-5000-01@2020-09-09', chunks_written: 34,

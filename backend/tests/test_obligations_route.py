@@ -9,6 +9,7 @@ which is not a tool the audience ADR-008 describes has.
 """
 
 import pytest
+from support import STAMP
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
@@ -32,7 +33,7 @@ def _seed(driver, database, *, slug="dodi-5000-88", version_id="v@2020-01-01"):
     )
     chunks = chunk_pages(PAGES, version_id=version_id)
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id=version_id, chunks=chunks)
+        session.execute_write(write_chunks, version_id=version_id, chunks=chunks, pipeline_stamp=STAMP)
         # The later chunk is written first, so a route that returned insertion
         # order would put it first and the ordering assertion would catch it.
         for chunk, statements in (
@@ -231,10 +232,10 @@ def test_it_caps_what_it_returns_and_still_reports_the_true_total(
 # and ranking 133 changes over clauses no screen could ever display.
 @pytest.mark.integration
 def test_reingesting_a_pdf_does_not_orphan_the_obligations_of_its_edition(
-    client_with_auth, driver, database
+    client_with_auth, driver, database, monkeypatch
 ):
-    """A re-ingest replaces an edition's chunks. It must not leave that edition's
-    obligations anchored to chunks that no longer exist.
+    """A re-ingest that rewrites replaces an edition's chunks. It must not leave
+    that edition's obligations anchored to chunks that no longer exist.
 
     Re-ingesting is routine and additive by design (ADR-007) — the same file
     scanned again, a chunker improvement, a second edition arriving — so this is
@@ -275,6 +276,16 @@ def test_reingesting_a_pdf_does_not_orphan_the_obligations_of_its_edition(
     assert before["total"] == 1
     assert before["returned"] == 1, "precondition: the obligation is readable"
 
+    # A re-ingest that actually rewrites. Re-posting the identical file is now
+    # the skip case (ADR-042), which discards nothing and would satisfy every
+    # assertion below without running a line of the code this test guards — the
+    # same hazard the two sibling tests in this file and in test_chunks.py were
+    # rescoped for.
+    from policy_grapher import ingest as ingest_module
+
+    monkeypatch.setattr(
+        ingest_module, "pipeline_stamp", lambda: "a-different-pipeline"
+    )
     client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
 
     after = client_with_auth.get(
@@ -292,8 +303,8 @@ def test_reingesting_a_pdf_does_not_orphan_the_obligations_of_its_edition(
 
 
 @pytest.mark.integration
-def test_reingesting_a_pdf_returns_its_edition_to_never_built(
-    client_with_auth, driver, database
+def test_a_reingest_that_rewrites_returns_its_edition_to_never_built(
+    client_with_auth, driver, database, monkeypatch
 ):
     """Dropping the derived layer without clearing the build record swaps one
     contradiction for another.
@@ -306,8 +317,15 @@ def test_reingesting_a_pdf_returns_its_edition_to_never_built(
     described in the past tense as though it did.
 
     `build_state IS NULL` is already the encoding for never-built, and after a
-    re-ingest that is what the edition is: freshly chunked text with nothing
-    extracted from it.
+    re-ingest that discards the derived layer that is what the edition is:
+    freshly chunked text with nothing extracted from it.
+
+    Scoped to a re-ingest that actually rewrites. Since ADR-042 an unchanged
+    one discards nothing and the build record must *stand* — the opposite
+    assertion, covered by
+    `test_an_unchanged_re_ingest_keeps_the_derived_layer_and_its_verdicts` in
+    test_ingest.py. The two are the same rule read from either side: the record
+    describes the derived layer, so it survives exactly when that layer does.
     """
     first = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
     slug = first.json()["document"]["slug"]
@@ -326,6 +344,12 @@ def test_reingesting_a_pdf_returns_its_edition_to_never_built(
         "precondition: the edition claims a finished build"
     )
 
+    # A different pipeline, so this re-ingest is one that rewrites: the edition
+    # is no longer current, the derived layer goes, and the record describing it
+    # must go with it.
+    from policy_grapher import ingest as ingest_module
+
+    monkeypatch.setattr(ingest_module, "pipeline_stamp", lambda: "a-different-pipeline")
     client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
 
     after = client_with_auth.get(f"/documents/{slug}/versions").json()

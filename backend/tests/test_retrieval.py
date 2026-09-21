@@ -1,7 +1,7 @@
 """Retrieval fuses three signals. Each test here is about one of them earning its place."""
 
 import pytest
-from support import FakeEmbedder, local_or_skip
+from support import STAMP, FakeEmbedder, local_or_skip
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
@@ -24,7 +24,7 @@ def _seed(driver, database, *, version_id, doc_name, text, statement=None):
     )
     chunk = chunk_pages([f"1.1. A.\n{text}\n"], version_id=version_id)[-1]
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
         if statement is not None:
             session.execute_write(
                 write_obligations,

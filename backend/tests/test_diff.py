@@ -1,6 +1,7 @@
 """Diffing two editions of one instrument into changes a reviewer can read."""
 
 import pytest
+from support import STAMP
 
 from policy_grapher.changes.diff import (
     ADDED,
@@ -70,7 +71,7 @@ def _seed(driver, database, *, version_id, entries):
                 [f"{section}. TITLE.\nBody text.\n"], version_id=version_id
             )[-1]
             assert chunk.section_path == [section], chunk.section_path
-            session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+            session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
             session.execute_write(
                 write_obligations,
                 version_id=version_id,

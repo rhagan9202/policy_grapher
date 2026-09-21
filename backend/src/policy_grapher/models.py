@@ -38,10 +38,23 @@ class DocumentRef(BaseModel):
 
 class DocumentIngestResult(BaseModel):
     source: Literal["document"] = "document"
+    # What the ingest did to the edition's text, as its own fact rather than as
+    # something a reader infers from a count. An ingest that found the edition
+    # already current leaves its chunks, obligations, reviewed links and build
+    # record exactly as they were; ADR-042 requires that be said, and says it
+    # must not be reported as a successful write whose counts happen to be zero.
+    # Required, with no default, for the reason `CitationOut.grounded` below
+    # gives: the only default it could carry is the confident one, and a
+    # construction path that forgot to set it would report a skipped rewrite as
+    # a successful write — the false all-clear ADR-042 exists to prevent.
+    outcome: Literal["written", "unchanged"]
     format: str
     document: DocumentRef
     nodes_created: int
     relationships_created: int
+    # Read on every ingest, the unchanged one included: the document write, its
+    # reference edges and this record sit outside the skip, so a document whose
+    # references could not be read once is not frozen in that state.
     references_attributed: int
     references_unattributed: list[str] = Field(default_factory=list)
     self_references_skipped: int
@@ -49,7 +62,9 @@ class DocumentIngestResult(BaseModel):
     # created" is both true and unreadable. The edition and its chunk count are
     # what the reader needs in order to do the next thing.
     version_id: str
-    chunks_written: int
+    # None when nothing was written, never 0: a zero would claim a write that
+    # produced nothing, which is a different event from one that did not run.
+    chunks_written: int | None
 
 
 class ResetResult(BaseModel):
