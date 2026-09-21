@@ -13,7 +13,7 @@ severity: high
 applies_when:
   - A test guards an ordering, priority, tier-selection, or branch-precedence invariant
   - Code orders a collection and then truncates it to a budget or cap
-  - A test fixture sits on the boundary between two priority tiers, or omits the input the defect would read
+  - A fixture sits on a tier boundary, omits the input the defect would read, or is keyed on call order
   - Validating a new test by mutation before trusting it
   - A plan states an explicit prohibition the implementation must obey
 tags:
@@ -298,6 +298,74 @@ Both of these were found by review, not by the author, and by reviewers asked to
 thing: for each claim a test makes, name the mutation that falsifies exactly that claim. That
 question is what surfaces a fixture with nothing in it to falsify.
 
+### 7. A stub keyed by call order binds to whichever call arrives first, which is not the one under test
+
+Rule 6 is about a fixture that omits the input the defect would read. This one is about a fixture
+that supplies the right input and hands it to the wrong caller — and it fails differently. A vacuous
+test cannot fail. An ordinal-keyed stub still can; it simply stops testing what its name says,
+without any signal that the subject changed.
+
+Every test-runner mock offers an ordinal API, and it is the obvious thing to reach for:
+
+```ts
+getGraph.mockResolvedValueOnce(focusedView).mockResolvedValueOnce(otherFocusedView)
+
+let calls = 0
+listDocuments.mockImplementation(() => {
+  calls += 1
+  if (calls === 1) return Promise.reject(new Error('corpus down'))   // "A's first visit fails"
+  return Promise.resolve([a, b])
+})
+```
+
+Both read as "the first one does X". Neither says *first what*. They mean the first **invocation**,
+and the number of invocations per user-visible action is a property of the render mode, not of the
+code. React's StrictMode double-invokes effects in development, so one visit makes two calls: the
+held promise, the failing listing, the rejected run are all spent on a probe, and the behaviour
+under test silently gets the default branch instead.
+
+This is what made it expensive rather than merely wrong. Wrapping one view's tests in `StrictMode`
+broke **five** fixtures at once (`frontend/src/views/DocumentDetail.test.tsx`), and every one of the
+five had this same shape. They had all been passing. They had been passing while testing the
+fallback branch.
+
+**Key by something the code cannot change out from under you.** The request usually carries it:
+
+```ts
+// The route answers by slug, so the stub does too.
+getGraph.mockImplementation(({ focus }: { focus: string }) =>
+  Promise.resolve(focus === 'dodi-3115-14' ? focusedView : otherFocusedView))
+
+// `run-gone` rejects because it is the run that no longer exists,
+// not because it happens to be asked for first.
+getRebuild.mockImplementation((runId: string) =>
+  runId === 'run-gone' ? Promise.reject(new Error('no such job')) : Promise.resolve(run))
+```
+
+Where the argument cannot distinguish them, key on the **state the test is walking through** and
+flip it at the point the narrative turns, which also makes the intent legible:
+
+```ts
+let onDocumentA = true                                    // DocumentDetail.test.tsx:1110
+listDocuments.mockImplementation(() =>
+  onDocumentA ? held : Promise.resolve([a, b]))
+// ...
+onDocumentA = false                                       // :1124 — the reader has moved to B
+await userEvent.click(screen.getByRole('link', { name: 'Document B' }))
+```
+
+A held promise must be the *same* promise for every call that visit makes, not a fresh one per
+call — otherwise the second invocation creates a second pending promise and the release only
+settles the first.
+
+**The checkable rule:** *a stub keyed by call order encodes an assumption about how many times the
+code runs. Name the thing the call is about — its argument, or the state the test has reached — and
+key on that.* An ordinal is only safe where the call is triggered by an explicit user action after
+mount has settled, because nothing doubles it; the mount path is where it breaks.
+
+The same instinct as rule 3 and the count-versus-identity rule under "When to Apply", arriving on
+the input side. A count is a fact about the harness. So is an ordinal.
+
 ## Why This Matters
 
 The failure mode is silent, which is why nothing downstream would have caught it. A focused request
@@ -364,6 +432,9 @@ Run the invariance check whenever the code under test does any of these:
   payload field, or a flag that is simply absent proves nothing about code that would have read it.
 - **Applies two independent limits that produce the same observable.** A fixture where one limit
   binds cannot see the other; each needs an input on which only its own limit bites.
+- **Is fed by a stub keyed on call order** — `mockResolvedValueOnce`, or a hand-rolled `calls === 1`
+  — on a path reached during mount. The invocation count is a property of the render mode; key on
+  the call's own argument, or on the state the test has walked to.
 
 A quicker trigger for the same set: *if you can compute the assertion's expected value from the
 fixture size and the parameters, without knowing how the code ranks anything, the assertion is blind
@@ -510,6 +581,11 @@ already there.
 - `frontend/src/views/Triage.test.tsx:468-484` — the negative assertion of rule 6, and the address
   carrying four spellings of an edition so that a mutation reading any of them fails it. The
   consumer reads one (`frontend/src/views/Triage.tsx:66`).
+- `frontend/src/views/DocumentDetail.test.tsx:1110`, `:1264`, `:1339`, `:1400` and `:2148` — the
+  five ordinal-keyed stubs rule 7 describes, as rewritten: four keyed on the visit the reader has
+  reached, one on the run id the request names. `frontend/src/views/GraphExplorer.test.tsx:1740`
+  and `:2240` are the same repair on the map's tests — a barrier that waited on a call count, and a
+  `...Once` chain consumed by the double-invoke before the second focus was requested.
 - `frontend/src/views/GraphExplorer.test.tsx:2367` and `:2504` — the two-bounds pair: one fixture
   where only the panel's limit bites, one where only the route's does. Neither can see the other's.
   The bound itself is `frontend/src/views/GraphExplorer.tsx:344`, applied at `:674-677` and `:1417`.
