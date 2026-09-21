@@ -1,6 +1,7 @@
 ---
 title: A cleanup-only effect is inverted by StrictMode, and the suite cannot see it
 date: 2026-09-21
+last_updated: 2026-09-21
 category: ui-bugs
 module: the ingest screen (frontend/src/views/Ingest.tsx)
 problem_type: ui_bug
@@ -159,6 +160,12 @@ code under test can reach it — only running the code in the environment it shi
   the wrong property or against an insufficient fixture; this one is about a test asserting the
   right property, correctly, in an environment that cannot fail. Its rule 1 invariance check would
   not have found this defect.
+- `docs/solutions/workflow-issues/the-test-count-is-not-the-verdict.md` — the third member of the
+  set, and the one that would have caught this defect's cousin rather than this defect. There the
+  suite genuinely failed and said so in its exit code, while the summary line it was being read
+  through still said passed. Here the suite did not fail at all. Together the three cover the ways
+  a green result can mean nothing: an assertion that cannot fail, a harness that cannot fail, and a
+  verdict that was never read.
 - `docs/dogfood-reports/2026-09-21-docs-dependency-map-home-plan-dogfood.md` — the run that found it,
   with the matrix and the census evidence for the two guarantees checked alongside it.
 - `frontend/src/main.tsx:20` — where StrictMode is mounted, and therefore why development and
