@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
@@ -105,11 +106,25 @@ import GraphExplorer, {
 // `showFocused` below with their own slug.
 /** `MemoryRouter` takes a path or a full location descriptor, so one wrapper
  *  covers both arriving at an address and arriving carrying something. */
+/** Every render in this file goes under `StrictMode`, because the app does
+ *  (`frontend/src/main.tsx:20`) and a suite that renders without it is testing
+ *  a lifecycle the product does not have. That gap shipped a real defect once:
+ *  a liveness ref written only in an effect's cleanup is left inverted by the
+ *  mount/unmount/remount cycle, and every test in the file it lived in passed.
+ *  See `docs/solutions/ui-bugs/a-cleanup-only-effect-is-inverted-by-strictmode.md`.
+ *
+ *  Two consequences for fixtures here. Mount-time effects run twice, so a
+ *  `mockResolvedValueOnce` chain feeding one is consumed before the behaviour
+ *  under test happens — stub by argument instead. And a call count on a
+ *  mount-time fetch measures the render mode, not the code: wait on what was
+ *  requested. */
 const showFocused = (entry: string | { pathname: string; search: string; state: unknown }) =>
   render(
-    <MemoryRouter initialEntries={[entry]}>
-      <GraphExplorer />
-    </MemoryRouter>,
+    <StrictMode>
+      <MemoryRouter initialEntries={[entry]}>
+        <GraphExplorer />
+      </MemoryRouter>
+    </StrictMode>,
   )
 
 const FOCUS = 'dodd-5000-01'
@@ -741,10 +756,12 @@ function BackButton() {
 
 const showFocusedWithHistory = (entry: string) =>
   render(
-    <MemoryRouter initialEntries={[entry]}>
-      <GraphExplorer />
-      <BackButton />
-    </MemoryRouter>,
+    <StrictMode>
+      <MemoryRouter initialEntries={[entry]}>
+        <GraphExplorer />
+        <BackButton />
+      </MemoryRouter>
+    </StrictMode>,
   )
 
 describe('GraphExplorer focused on a document', () => {
@@ -1139,10 +1156,12 @@ describe('GraphExplorer focused on a document', () => {
           }),
     )
     render(
-      <MemoryRouter initialEntries={['/?focus=ghost']}>
-        <GraphExplorer />
-        <GoTo to="/?focus=dodi-3115-14" />
-      </MemoryRouter>,
+      <StrictMode>
+        <MemoryRouter initialEntries={['/?focus=ghost']}>
+          <GraphExplorer />
+          <GoTo to="/?focus=dodi-3115-14" />
+        </MemoryRouter>
+      </StrictMode>,
     )
     await screen.findByText(/that document was not found/i)
 
@@ -1718,13 +1737,20 @@ describe('GraphExplorer — the same facts in words', () => {
     // says "partial" about everything forever.
     await showLadder()
     await userEvent.click(screen.getByRole('button', { name: /expand/i }))
-    await waitFor(() => expect(getGraph).toHaveBeenCalledTimes(2))
+    // Waited on by what was asked for, not by how many times: StrictMode
+    // double-invokes the fetch effect, so a call count is a fact about the
+    // render mode rather than about the expansion.
+    await waitFor(() =>
+      expect(getGraph).toHaveBeenCalledWith(expect.objectContaining({ depth: 2 })),
+    )
 
-    const list = screen.getByRole('group', { name: /documents in the graph/i })
-    const row = within(list)
-      .getByRole('button', { name: /Text Ingested/i })
-      .closest('li')!
-    expect(row).not.toHaveTextContent(/may cite more than is drawn/i)
+    await waitFor(() => {
+      const list = screen.getByRole('group', { name: /documents in the graph/i })
+      const row = within(list)
+        .getByRole('button', { name: /Text Ingested/i })
+        .closest('li')!
+      expect(row).not.toHaveTextContent(/may cite more than is drawn/i)
+    })
   })
 
   it('marks the focused document too when the budget cut something', async () => {
@@ -2095,26 +2121,28 @@ describe('GraphExplorer — arriving from an ingest', () => {
       <span data-testid="entry-state">{JSON.stringify(useLocation().state)}</span>
     )
     render(
-      <MemoryRouter
-        initialEntries={[
-          {
-            pathname: '/',
-            search: '?focus=dodi-3115-14',
-            state: {
-              ingest: {
-                outcome: 'written',
-                slug: 'dodi-3115-14',
-                name: 'DoDI 3115.14',
-                versionId: 'dodi-3115-14@2020-09-09',
-                unresolved: [],
+      <StrictMode>
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: '/',
+              search: '?focus=dodi-3115-14',
+              state: {
+                ingest: {
+                  outcome: 'written',
+                  slug: 'dodi-3115-14',
+                  name: 'DoDI 3115.14',
+                  versionId: 'dodi-3115-14@2020-09-09',
+                  unresolved: [],
+                },
               },
             },
-          },
-        ]}
-      >
-        <GraphExplorer />
-        <Probe />
-      </MemoryRouter>,
+          ]}
+        >
+          <GraphExplorer />
+          <Probe />
+        </MemoryRouter>
+      </StrictMode>,
     )
     await waitFor(() => screen.getByTestId('force-graph'))
 
@@ -2209,7 +2237,12 @@ describe('GraphExplorer — clause detail on the selected node', () => {
   })
 
   it('moves the focus and redraws only when the control inside the detail is used', async () => {
-    getGraph.mockResolvedValueOnce(focusedView).mockResolvedValueOnce(otherFocusedView)
+    // Answered by slug rather than by call order: the route returns the
+    // neighbourhood it was asked for, and a `...Once` chain is consumed by
+    // StrictMode's double-invoke before the second focus is ever requested.
+    getGraph.mockImplementation(({ focus }: { focus: string }) =>
+      Promise.resolve(focus === 'dodi-3115-14' ? focusedView : otherFocusedView),
+    )
     listVersions.mockResolvedValue([])
     showFocused('/?focus=dodi-3115-14')
 
