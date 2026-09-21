@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -142,11 +143,13 @@ const chunks = [
 
 function renderAt(slug = 'dodd-5000-01') {
   return render(
-    <MemoryRouter initialEntries={[`/documents/${slug}`]}>
-      <Routes>
-        <Route path="/documents/:slug" element={<DocumentDetail />} />
-      </Routes>
-    </MemoryRouter>,
+    <StrictMode>
+      <MemoryRouter initialEntries={[`/documents/${slug}`]}>
+        <Routes>
+          <Route path="/documents/:slug" element={<DocumentDetail />} />
+        </Routes>
+      </MemoryRouter>
+    </StrictMode>,
   )
 }
 
@@ -1101,19 +1104,24 @@ describe('DocumentDetail, the build fieldset pool — closing what review found'
     // reader has already navigated to B; the one B's own page makes answers
     // straight away.
     let releaseFirst: (docs: unknown[]) => void = () => {}
-    let calls = 0
+    // Keyed to the visit, not to the call ordinal: the app renders under
+    // StrictMode, so one visit makes two calls and an ordinal would hand the
+    // held promise to a probe rather than to the listing under test.
+    let onDocumentA = true
+    let heldForA: Promise<unknown[]> | null = null
     listDocuments.mockImplementation(() => {
-      calls += 1
-      if (calls === 1) {
-        return new Promise((resolve) => {
-          releaseFirst = resolve
+      if (onDocumentA) {
+        heldForA ??= new Promise((resolve) => {
+          releaseFirst = resolve as (docs: unknown[]) => void
         })
+        return heldForA
       }
       return Promise.resolve([a, b])
     })
 
     renderAt('doc-a')
     await screen.findByRole('heading', { level: 1, name: /Document A/ })
+    onDocumentA = false
     // The corpus listing is still held, so the reference has not resolved to
     // a name yet — the slug fallback is the link this click can use.
     await userEvent.click(screen.getByRole('link', { name: 'doc-b' }))
@@ -1249,11 +1257,14 @@ describe('DocumentDetail, the build fieldset pool — closing what review found'
     // A as a candidate. That second call is the one held open, so B's own
     // pool fetch is still unsettled at the point this test checks it.
     let releaseBsOwnPool: (eds: unknown[]) => void = () => {}
-    let docACalls = 0
+    // While the reader is on A, A's own editions answer promptly; once they
+    // have moved to B, the same request — now B's pool asking about A — is the
+    // one held in flight. Keyed to the visit rather than to a call ordinal,
+    // which StrictMode's double-invoke would spend on A's own mount.
+    let onDocumentA = true
     listVersions.mockImplementation((slug: string) => {
       if (slug === 'doc-a') {
-        docACalls += 1
-        if (docACalls === 1) return Promise.resolve(edA)
+        if (onDocumentA) return Promise.resolve(edA)
         return new Promise((resolve) => {
           releaseBsOwnPool = resolve
         })
@@ -1268,6 +1279,9 @@ describe('DocumentDetail, the build fieldset pool — closing what review found'
     // A's pool is fully resolved before navigating away: it offers B.
     await screen.findByRole('checkbox', { name: /doc-b@2020-01-01/ })
 
+    // From here the reader is on B, so B's pool asking about A is the request
+    // held in flight.
+    onDocumentA = false
     await userEvent.click(screen.getByRole('link', { name: 'Document B' }))
     await screen.findByRole('heading', { level: 1, name: /Document B/ })
 
@@ -1320,17 +1334,19 @@ describe('DocumentDetail, the build fieldset pool — closing what review found'
     )
     listChunks.mockResolvedValue(chunks)
 
-    let calls = 0
-    listDocuments.mockImplementation(() => {
-      calls += 1
-      // A's first visit fails; B's visit and A's retry both succeed.
-      if (calls === 1) return Promise.reject(new Error('corpus down'))
-      return Promise.resolve([a, b])
-    })
+    // A state, not a call count: A's first visit fails however many times the
+    // render mode asks, and B's visit and A's retry both succeed.
+    let corpusDown = true
+    listDocuments.mockImplementation(() =>
+      corpusDown
+        ? Promise.reject(new Error('corpus down'))
+        : Promise.resolve([a, b]),
+    )
 
     renderAt('doc-a')
     await screen.findByRole('heading', { level: 1, name: /Document A/ })
     expect(await screen.findByRole('alert')).toHaveTextContent(/corpus down/)
+    corpusDown = false
 
     // The corpus listing failed, so the reference has not resolved to a name
     // — the slug fallback is the link this click can use.
@@ -1378,21 +1394,24 @@ describe('DocumentDetail, the build fieldset pool — closing what review found'
     listChunks.mockResolvedValue(chunks)
 
     let rejectFirst: (error: Error) => void = () => {}
-    let calls = 0
+    // A's first visit: held open, rejected only once the reader has been to B
+    // and back and the retry has already succeeded. Keyed to the visit, so
+    // every call that visit makes gets the same held promise.
+    let onDocumentA = true
+    let heldForA: Promise<unknown[]> | null = null
     listDocuments.mockImplementation(() => {
-      calls += 1
-      // A's first visit: held open, rejected only once the reader has been
-      // to B and back, and the retry below has already succeeded.
-      if (calls === 1) {
-        return new Promise((_, reject) => {
+      if (onDocumentA) {
+        heldForA ??= new Promise((_, reject) => {
           rejectFirst = reject
         })
+        return heldForA
       }
       return Promise.resolve([a, b])
     })
 
     renderAt('doc-a')
     await screen.findByRole('heading', { level: 1, name: /Document A/ })
+    onDocumentA = false
     await userEvent.click(screen.getByRole('link', { name: 'doc-b' }))
     await screen.findByRole('heading', { level: 1, name: /Document B/ })
     await userEvent.click(screen.getByRole('link', { name: 'Document A' }))
@@ -2107,16 +2126,30 @@ describe('DocumentDetail after a build finishes', () => {
   // then succeeded was still described as the run that did not finish.
   it('stops reporting a lost run once a later build succeeds', async () => {
     getDocument.mockResolvedValue(document)
-    listVersions
-      .mockResolvedValueOnce([
-        versions[0],
-        built({ build_state: 'started', build_run_id: 'run-gone', build_counts: {} }),
-      ])
-      .mockResolvedValue([versions[0], rebuilt])
+    // The edition carries a lost run until a rebuild actually starts, however
+    // many times the render mode asks; and each run answers for itself rather
+    // than by call order — `run-gone` is the one that no longer exists.
+    let rebuildStarted = false
+    listVersions.mockImplementation(() =>
+      Promise.resolve(
+        rebuildStarted
+          ? [versions[0], rebuilt]
+          : [
+              versions[0],
+              built({ build_state: 'started', build_run_id: 'run-gone', build_counts: {} }),
+            ],
+      ),
+    )
     listChunks.mockResolvedValue(chunks)
-    getRebuild.mockRejectedValueOnce(new Error('no such job'))
-    startRebuild.mockResolvedValue({ run_id: 'r' })
-    getRebuild.mockResolvedValue(run)
+    startRebuild.mockImplementation(() => {
+      rebuildStarted = true
+      return Promise.resolve({ run_id: 'r' })
+    })
+    getRebuild.mockImplementation((runId: string) =>
+      runId === 'run-gone'
+        ? Promise.reject(new Error('no such job'))
+        : Promise.resolve(run),
+    )
 
     renderAt()
     expect(await screen.findByText(/did not finish/i)).toBeInTheDocument()
