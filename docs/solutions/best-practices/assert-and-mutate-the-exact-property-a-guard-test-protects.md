@@ -1,9 +1,9 @@
 ---
 title: Assert and mutate the exact property a guard test protects
 date: 2026-09-17
-last_updated: 2026-09-18
+last_updated: 2026-09-21
 category: best-practices
-module: policy_grapher.graph (focused-view render budget and reference-assessment precedence, backend/src/policy_grapher/graph.py)
+module: policy_grapher.graph (focused-view render budget and reference-assessment precedence, backend/src/policy_grapher/graph.py); the map and Triage screens (frontend/src/views/GraphExplorer.tsx, frontend/src/views/Triage.tsx)
 problem_type: best_practice
 component: testing_framework
 related_components:
@@ -13,7 +13,7 @@ severity: high
 applies_when:
   - A test guards an ordering, priority, tier-selection, or branch-precedence invariant
   - Code orders a collection and then truncates it to a budget or cap
-  - A test fixture sits on the boundary between two priority tiers
+  - A test fixture sits on the boundary between two priority tiers, or omits the input the defect would read
   - Validating a new test by mutation before trusting it
   - A plan states an explicit prohibition the implementation must obey
 tags:
@@ -21,8 +21,8 @@ tags:
   - mutation-testing
   - test-assertions
   - vacuous-tests
+  - fixture-sufficiency
   - ordering-invariants
-  - boundary-conditions
   - truncation
   - branch-precedence
 ---
@@ -248,6 +248,56 @@ both hold; write that fixture before trusting any mutation of the branches that 
 says a mutation certifies only the property it perturbs. This is the sharper corollary: perturbing a
 sibling property of the same branch is still not perturbing the order.
 
+### 6. The fixture has to contain the input the defect would read
+
+Rules 1 and 3 are about the mutation. This one is about what the mutation is run against, and it is
+the half that failed twice in one session — written by someone who had rule 5 in front of them.
+
+Rule 5 is the narrow case: a precedence is observable only on the input where both conditions hold.
+The general form is that **a test discriminates between correct and defective code only on an input
+where the two disagree**, and a fixture can omit that input in ways that have nothing to do with
+branch order. Two shapes turned up in the same unit, neither named anywhere above.
+
+**A negative assertion needs the stimulus present.** "Following this link issues no triage request"
+was asserted against `showTriage('/triage?document=dodi-5000-88')`. `GET /triage` diffs inside a
+write transaction, so the guard mattered: the defect it exists to catch is a future hand deciding to
+honour an edition named in the address. But that address carried no edition. There was nothing for
+the defective code to read, so it passes under the defect exactly as it passes under the correct
+code. The fix was to put the stimulus in the fixture, in every spelling a future hand might plausibly
+reach for (`frontend/src/views/Triage.test.tsx:479-483`):
+
+```
+'/triage?document=dodi-5000-88&version=dodi-5000-88@2020-11-18'
+  + '&versionId=dodi-5000-88@2020-11-18&edition=dodi-5000-88@2020-11-18'
+  + '&to_version_id=dodi-5000-88@2020-11-18'
+```
+
+The consumer reads one parameter and one only (`frontend/src/views/Triage.tsx:66`). The other four
+are there so that a mutation which starts reading any of them fails this test. A negative assertion
+is a claim about what the code does **when tempted**; a fixture with no temptation in it tests
+nothing.
+
+**Two bounds, where one dominates.** The obligation panel cuts its list twice: the API returns a
+bounded page, and the panel prints at most `OBLIGATIONS_SHOWN`, three
+(`frontend/src/views/GraphExplorer.tsx:344`, `:674-677`, `:1417`). Both bounds produce the same
+observable — a count, and a "showing the first N" sentence. The guard for the panel's bound supplied
+**one** obligation against a stated total of 83. The API's bound produced the whole observable;
+deleting `OBLIGATIONS_SHOWN` from the arithmetic changed nothing the assertion could see. The
+discriminating input is an answer the API did **not** truncate, with more items than the panel's own
+limit: five returned against a total of five, expecting three rendered and "showing the first 3"
+(`frontend/src/views/GraphExplorer.test.tsx:2367`). Its sibling, which exercises the API's bound,
+keeps the old fixture deliberately (`:2504`) — two bounds, two fixtures, because neither fixture can
+see the other's bound.
+
+**The checkable rule:** *name the defect, then ask what input makes the defective code and the
+correct code produce different output. If the fixture does not contain that input, the test is
+vacuous however precisely the assertion is worded.* Run it on the fixture before running rule 1 on
+the code — a perfectly aimed mutation against an inputless fixture still comes back green.
+
+Both of these were found by review, not by the author, and by reviewers asked to do one specific
+thing: for each claim a test makes, name the mutation that falsifies exactly that claim. That
+question is what surfaces a fixture with nothing in it to falsify.
+
 ## Why This Matters
 
 The failure mode is silent, which is why nothing downstream would have caught it. A focused request
@@ -310,6 +360,10 @@ Run the invariance check whenever the code under test does any of these:
 - **Sorts for presentation** where the test looks at how many rows came back.
 - **Tries two branches in a fixed order because one is meant to win when both conditions hold.** A
   fixture satisfying only one condition cannot tell the order from either branch alone.
+- **Is asserted not to do something.** The fixture must carry whatever would provoke it. A URL, a
+  payload field, or a flag that is simply absent proves nothing about code that would have read it.
+- **Applies two independent limits that produce the same observable.** A fixture where one limit
+  binds cannot see the other; each needs an input on which only its own limit bites.
 
 A quicker trigger for the same set: *if you can compute the assertion's expected value from the
 fixture size and the parameters, without knowing how the code ranks anything, the assertion is blind
@@ -444,6 +498,15 @@ already there.
   reasons about caps, truncation, and what a reader can still reach.
 - `backend/tests/test_graph.py:805` — the fixture that puts both `_assessment` conditions on one
   node, which is the guard rule 5 exists to describe.
+- `frontend/src/views/Triage.test.tsx:468-484` — the negative assertion of rule 6, and the address
+  carrying four spellings of an edition so that a mutation reading any of them fails it. The
+  consumer reads one (`frontend/src/views/Triage.tsx:66`).
+- `frontend/src/views/GraphExplorer.test.tsx:2367` and `:2504` — the two-bounds pair: one fixture
+  where only the panel's limit bites, one where only the route's does. Neither can see the other's.
+  The bound itself is `frontend/src/views/GraphExplorer.tsx:344`, applied at `:674-677` and `:1417`.
+- PR #2 (`Merge: one document's dependency map, from ingest to its obligations`) — the range both
+  rule-6 incidents were found and fixed in, merged to `main`. Both guards in their vacuous form and
+  their repaired form are in that range's history.
 - `docs/specs/adr/ADR-015-changes-are-detected-and-ranked.md:104` — the "false all-clear" standing
   decision `_assessment`'s docstring cites for why a located-but-unattributed section must not
   report as citing nothing. Verified: that line is where the principle is stated.
