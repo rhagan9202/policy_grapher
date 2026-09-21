@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, useNavigate } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GraphNode, GraphOut } from '../api/types'
@@ -88,7 +88,9 @@ import GraphExplorer, {
 // The map only ever draws a focused neighbourhood now, so the shared setup
 // mounts one. Tests that are about a focused document specifically use
 // `showFocused` below with their own slug.
-const showFocused = (entry: string) =>
+/** `MemoryRouter` takes a path or a full location descriptor, so one wrapper
+ *  covers both arriving at an address and arriving carrying something. */
+const showFocused = (entry: string | { pathname: string; search: string; state: unknown }) =>
   render(
     <MemoryRouter initialEntries={[entry]}>
       <GraphExplorer />
@@ -1920,5 +1922,190 @@ describe('GraphExplorer — the marks do not break the canvas', () => {
     const second = marksFor({ fidelity_tier: 4, assessment_state: 'not_assessed' })
 
     expect(second.ctx.ops).toEqual(first.ctx.ops)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// U6. What an ingest that just ran says, where the reader landed.
+//
+// These assertions used to live on the Ingest screen. A document ingest no
+// longer reports there — it sends the reader here — so the account of the write
+// travels with them and is made at this end.
+// ---------------------------------------------------------------------------
+
+const arriveFrom = (ingest: Record<string, unknown>) =>
+  showFocused({ pathname: '/', search: '?focus=dodi-3115-14', state: { ingest } })
+
+describe('GraphExplorer — arriving from an ingest', () => {
+  it('names the document and the edition the ingest recorded', async () => {
+    getGraph.mockResolvedValue(focusedView)
+    arriveFrom({
+      outcome: 'written',
+      slug: 'dodi-3115-14',
+      name: 'DoDI 3115.14',
+      versionId: 'dodi-3115-14@2020-09-09',
+      unresolved: [],
+    })
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const notice = screen.getByRole('status')
+    expect(notice).toHaveTextContent(/ingested DoDI 3115\.14/i)
+    expect(notice).toHaveTextContent(/dodi-3115-14@2020-09-09/)
+  })
+
+  it('reports an unchanged re-add as its own outcome, not as an empty write', async () => {
+    // ADR-042's third state, said to the reader who caused it. The written
+    // arm's sentence over a run that rewrote nothing is the false report the
+    // whole decision exists to prevent; so is a list of counts that are all
+    // zero.
+    getGraph.mockResolvedValue(focusedView)
+    arriveFrom({
+      outcome: 'unchanged',
+      slug: 'dodi-3115-14',
+      name: 'DoDI 3115.14',
+      versionId: 'dodi-3115-14@2020-09-09',
+      unresolved: [],
+    })
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const notice = screen.getByRole('status')
+    expect(notice).toHaveTextContent(/already present/i)
+    expect(notice).toHaveTextContent(/no text was rewritten/i)
+    expect(notice).not.toHaveTextContent(/^ingested /i)
+    expect(notice).not.toHaveTextContent(/nodes created/i)
+  })
+
+  it('claims only that no text was rewritten, never that nothing happened', async () => {
+    // The skip covers the text and the layer derived from it, and nothing else:
+    // the document record and its reference edges refresh on every ingest, so a
+    // parse that newly read a references section does create things on this
+    // path. A flat "nothing was written" would be false in that case.
+    getGraph.mockResolvedValue(focusedView)
+    arriveFrom({
+      outcome: 'unchanged',
+      slug: 'dodi-3115-14',
+      name: 'DoDI 3115.14',
+      versionId: 'dodi-3115-14@2020-09-09',
+      unresolved: [],
+    })
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    expect(screen.getByRole('status')).not.toHaveTextContent(/nothing was written/i)
+  })
+
+  it('names the references the parse could not attribute, rather than counting them', async () => {
+    // An unattributed reference is a citation the graph does not hold. A count
+    // alone tells the reader something is missing and not what.
+    getGraph.mockResolvedValue(focusedView)
+    arriveFrom({
+      outcome: 'written',
+      slug: 'dodi-3115-14',
+      name: 'DoDI 3115.14',
+      versionId: 'dodi-3115-14@2020-09-09',
+      unresolved: ['Public Law 116-92', 'An entry nobody could parse'],
+    })
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    const notice = screen.getByRole('status')
+    expect(notice).toHaveTextContent(/2 references in it could not be attributed/i)
+    expect(notice).toHaveTextContent(/Public Law 116-92/)
+    expect(notice).toHaveTextContent(/An entry nobody could parse/)
+  })
+
+  it('says nothing about an ingest that was about a different document', async () => {
+    // The notice is tied to the history entry the ingest produced. Were it ever
+    // to outlive the address it was about — a state that survived a focus
+    // change — it would be reporting a write against somebody else's
+    // neighbourhood, which is the one thing it must not do.
+    getGraph.mockResolvedValue(focusedView)
+    arriveFrom({
+      outcome: 'written',
+      slug: 'some-other-document',
+      name: 'Some Other Document',
+      versionId: 'some-other-document@2020-01-01',
+      unresolved: [],
+    })
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('still reports the write when the neighbourhood itself fails to load', async () => {
+    // The ingest screen no longer reports a document result at all, so this
+    // notice is the whole account of the write. Nested under the branch that
+    // draws the map it was conditional on a second, unrelated request
+    // succeeding — and the failure on screen is about the fetch, so an
+    // "already present" skip and every unattributed name went missing with no
+    // sign that anything had been said.
+    getGraph.mockRejectedValue(new Error('Neo4j is unreachable'))
+    arriveFrom({
+      outcome: 'unchanged',
+      slug: 'dodi-3115-14',
+      name: 'DoDI 3115.14',
+      versionId: 'dodi-3115-14@2020-09-09',
+      unresolved: ['Public Law 116-92'],
+    })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not load/i)
+    const notice = screen.getByRole('status')
+    expect(notice).toHaveTextContent(/already present/i)
+    expect(notice).toHaveTextContent(/dodi-3115-14@2020-09-09/)
+    expect(notice).toHaveTextContent(/Public Law 116-92/)
+  })
+
+  it('takes the account off the history entry once it has been read', async () => {
+    // `createBrowserHistory` restores router state from `window.history.state`,
+    // which the browser keeps with the session-history entry across a reload.
+    // Left in place, the sentence would come back days later about an ingest
+    // from another sitting. The address is unchanged by the scrub — only the
+    // payload goes.
+    getGraph.mockResolvedValue(focusedView)
+    // Renders what the history entry still carries, rather than assigning to
+    // an outer variable during render.
+    const Probe = () => (
+      <span data-testid="entry-state">{JSON.stringify(useLocation().state)}</span>
+    )
+    render(
+      <MemoryRouter
+        initialEntries={[
+          {
+            pathname: '/',
+            search: '?focus=dodi-3115-14',
+            state: {
+              ingest: {
+                outcome: 'written',
+                slug: 'dodi-3115-14',
+                name: 'DoDI 3115.14',
+                versionId: 'dodi-3115-14@2020-09-09',
+                unresolved: [],
+              },
+            },
+          },
+        ]}
+      >
+        <GraphExplorer />
+        <Probe />
+      </MemoryRouter>,
+    )
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    // Still said to the reader it was carried for...
+    expect(screen.getByRole('status')).toHaveTextContent(/ingested DoDI 3115\.14/i)
+    // ...and no longer on the entry a reload would read it back from.
+    await waitFor(() =>
+      expect(screen.getByTestId('entry-state')).toHaveTextContent(/^null$/),
+    )
+  })
+
+  it('says nothing about an ingest when the reader did not arrive from one', async () => {
+    // Every other way of reaching this address — a link, a bookmark, a reload
+    // of the one the ingest produced — has no write to report, and a notice
+    // about one would be describing an event that did not just happen.
+    getGraph.mockResolvedValue(focusedView)
+    showFocused('/?focus=dodi-3115-14')
+    await waitFor(() => screen.getByTestId('force-graph'))
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 })

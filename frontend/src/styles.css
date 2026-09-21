@@ -733,12 +733,23 @@ cite > * + *::before {
    rather than appended to it: the count describes what was drawn, and this
    describes a limit on what could have been, which a reader deciding whether an
    empty inbound half means anything has to be able to find. */
+/* Two asides on the same panel, set off the same way. The first is about an
+   action just taken rather than about the drawing, so it carries the accent;
+   the second is a standing caveat and keeps the quieter rule. */
+.graph-arrival,
 .graph-caveat {
-  color: var(--muted);
-  font-size: 0.9em;
   border-left: 2px solid var(--line);
   padding-left: var(--s2);
   margin: var(--s2) 0;
+}
+
+.graph-arrival {
+  border-left-color: var(--accent);
+}
+
+.graph-caveat {
+  color: var(--muted);
+  font-size: 0.9em;
 }
 
 

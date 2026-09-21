@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D, { type ForceGraphMethods, type NodeObject } from 'react-force-graph-2d'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError, getGraph } from '../api/client'
 import type { AssessmentState, FidelityTier, GraphNode, GraphOut } from '../api/types'
 
@@ -251,6 +251,20 @@ function undirectedNeighbours(edges: GraphOut['edges']): Map<string, string[]> {
  *  already names that shape, so this is an alias rather than a second copy. */
 type DrawnNode = NodeObject<GraphNode>
 
+/** What an ingest that has just run says about itself, handed over by the
+ *  screen that ran it. Said once, to the reader the navigation carried here —
+ *  which is why it is a courtesy rather than the record: the node's own tier,
+ *  assessment state and unattributed names are drawn below and outlive it. */
+export type ArrivedFromIngest = {
+  outcome: 'written' | 'unchanged'
+  /** The document the ingest wrote, so a notice cannot outlive the address it
+   *  was about. */
+  slug: string
+  name: string
+  versionId: string
+  unresolved: string[]
+}
+
 type HeldResult = {
   slug: string
   depth: number
@@ -260,12 +274,43 @@ type HeldResult = {
 
 const NOTHING_DRAWN = { nodes: [] as DrawnNode[], links: [] as GraphOut['edges'] }
 
+/** Reference names a parse could not attribute to a document.
+ *
+ *  Keyed by position rather than by the name: the parser appends what it could
+ *  not attribute without de-duplicating, so a references section that repeats an
+ *  unparseable entry repeats it here too. Rendered in two places — beside the
+ *  document just ingested, and under whichever node a reader is reading — which
+ *  are the same names reaching the screen by two routes, one transient and one
+ *  stored.
+ */
+function UnresolvedNames({ names }: { names: string[] }) {
+  return (
+    <ul className="node-unresolved">
+      {names.map((name, index) => (
+        <li key={`${index}-${name}`}>{name}</li>
+      ))}
+    </ul>
+  )
+}
+
 export default function GraphExplorer() {
   // Focus lives in the URL, so the view is addressable, shareable, and
   // reversible by browser history (KTD5). It also supplies the back behaviour
   // the map otherwise lacks: the control that used to provide it collapsed to
   // the corpus, which is the corpus-wide affordance R12 removes.
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  // Taken once, on the mount the navigation produced, and held for this mount
+  // only. An earlier draft read it straight off `useLocation()` every render
+  // and said in a comment that a reload would clear it. It would not:
+  // `createBrowserHistory` restores router state from `window.history.state.usr`
+  // (react-router 7.18.2), which the browser keeps with the session-history
+  // entry across a reload — so the sentence "Added X" would have come back
+  // days later, about an ingest from another sitting. Captured here and
+  // scrubbed below, the notice belongs to the arrival that caused it.
+  const [arrived] = useState(
+    () => (location.state as { ingest?: ArrivedFromIngest } | null)?.ingest,
+  )
   const focus = searchParams.get('focus')
   const depthParam = Number(searchParams.get('depth'))
   // Integer, not merely finite. The API types depth as an int and refuses
@@ -276,6 +321,20 @@ export default function GraphExplorer() {
     Number.isInteger(depthParam) && depthParam >= MIN_DEPTH
       ? Math.min(depthParam, MAX_DEPTH)
       : MIN_DEPTH
+
+  // Take the account off the history entry once it has been read into this
+  // mount. Same address, same search, so nothing refetches and the reader's
+  // back button is unchanged — only the payload goes, which is what stops a
+  // reload of this entry replaying a write that is no longer news.
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (!arrived) return
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+    // Once, on the mount that captured it. `arrived` never changes after that,
+    // and re-running on a later search change would replace an entry the
+    // reader navigated to deliberately.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const forceGraphRef = useRef<ForceGraphMethods<GraphNode> | undefined>(undefined)
   // Held with the request that produced it. Without the slug, every label on
@@ -906,6 +965,46 @@ export default function GraphExplorer() {
           </div>
         )}
 
+        {/* What the ingest that sent the reader here did, said once, where
+            they landed. The map below is the durable account — this only adds
+            the two things the drawing cannot say: whether this particular run
+            rewrote any text, and which edition it was.
+
+            Deliberately outside the branch that draws the neighbourhood, and
+            above it. The ingest screen no longer reports a document result at
+            all, so this notice is the whole account of the write; nested under
+            `graph &&` it was conditional on a second, unrelated request
+            succeeding, and a neighbourhood that failed to load took an
+            "already present" skip and every unattributed name down with it —
+            silently, since the failure on screen is about the fetch. */}
+        {/* Matched on the slug against the address, not on the label against
+            the drawn node: a label is missing while the node is still
+            arriving, which would have made the check pass exactly when it
+            could not be made. */}
+        {arrived && arrived.slug === focus && (
+          <div className="graph-arrival" role="status">
+            <p>
+              {arrived.outcome === 'unchanged'
+                ? `${arrived.name} was already present. No text was rewritten, so its obligations, reviewed links and build record were left standing.`
+                : `Ingested ${arrived.name}.`}{' '}
+              Edition <code>{arrived.versionId}</code>.
+            </p>
+            {arrived.unresolved.length > 0 && (
+              <>
+                {/* Named, not counted. An unattributed reference is a citation
+                    the graph does not hold, and a number alone says something
+                    is missing without saying what. */}
+                <p>
+                  {arrived.unresolved.length} reference
+                  {arrived.unresolved.length === 1 ? '' : 's'} in it could not be
+                  attributed to a document:
+                </p>
+                <UnresolvedNames names={arrived.unresolved} />
+              </>
+            )}
+          </div>
+        )}
+
         {focus && error && (
           <div role="alert">
             {error.missing ? (
@@ -1045,15 +1144,7 @@ export default function GraphExplorer() {
                       // R7 wants the names, not a count: an unresolved public
                       // law is a different thing from an unresolved DoD
                       // issuance the corpus ought to be holding.
-                      <ul className="node-unresolved">
-                        {/* Keyed by position, not by the name: the parser appends
-                            what it could not attribute without de-duplicating, so
-                            a references section that repeats an unparseable entry
-                            repeats it here too. */}
-                        {node.unresolved_names.map((name, index) => (
-                          <li key={`${index}-${name}`}>{name}</li>
-                        ))}
-                      </ul>
+                      <UnresolvedNames names={node.unresolved_names} />
                     )}
                   </li>
                 ))}

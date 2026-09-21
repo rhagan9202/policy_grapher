@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { ingest, listSources } from '../api/client'
 import type { IngestResult, SourceFile } from '../api/types'
+import type { ArrivedFromIngest } from './GraphExplorer'
 
 /** What ingest will make of a file, in the words the screen's own prose uses.
  *
@@ -42,6 +43,14 @@ function describe(source: SourceFile): string {
 // this screen can paper over. Saying so is better than a file picker that appears to
 // upload and does not.
 export default function Ingest() {
+  const navigate = useNavigate()
+  // Whether the reader is still here. An ingest resolves in the foreground but
+  // not instantly, and the navigation stays available while it runs — so they
+  // can leave for another screen mid-request. `useNavigate` is bound to the
+  // router, not to this component, so the continuation below would still fire
+  // and haul them back to a document they had already moved on from.
+  const onThisScreen = useRef(true)
+  useEffect(() => () => { onThisScreen.current = false }, [])
   const [filename, setFilename] = useState('')
   const [result, setResult] = useState<IngestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -83,7 +92,43 @@ export default function Ingest() {
     setError(null)
     setResult(null)
     try {
-      setResult(await ingest(name))
+      const written = await ingest(name)
+      if (written.source === 'document') {
+        // F1, closed. The write and the reader seeing it were two screens and a
+        // search apart, and the response already names the document, so nothing
+        // has to be looked up to put them on its map.
+        //
+        // What happened to the write travels with them. The durable account is
+        // the node itself — its tier, what its parse made of its references,
+        // and the names that went unattributed are all drawn there and survive
+        // a reload — but a reader who has just pressed Ingest is owed the
+        // immediate one too, and the navigation that serves them would
+        // otherwise discard it. The counts do not travel: a skipped write has
+        // none, and for a real one the drawing is the better account of what
+        // landed.
+        //
+        // Not if they have left: a navigation nobody asked for, landing on a
+        // document they chose to walk away from, is worse than never hearing
+        // the outcome of a write they abandoned.
+        if (!onThisScreen.current) return
+        navigate(`/?focus=${written.document.slug}`, {
+          state: {
+            // Typed against the reader's own declaration rather than built as a
+            // bare literal: producer and consumer are in different files, and a
+            // renamed field would otherwise compile on both sides and go missing
+            // at runtime.
+            ingest: {
+              outcome: written.outcome,
+              slug: written.document.slug,
+              name: written.document.name,
+              versionId: written.version_id,
+              unresolved: written.references_unattributed,
+            } satisfies ArrivedFromIngest,
+          },
+        })
+        return
+      }
+      setResult(written)
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : 'Ingest failed.')
     } finally {
@@ -163,72 +208,12 @@ export default function Ingest() {
         // `status` rather than `alert`: this is the outcome of something the reader
         // just asked for, not an interruption.
         <div role="status">
-          {result.source === 'document' ? (
-            <>
-              <h2>
-                {result.outcome === 'unchanged'
-                  ? `${result.document.name} was already present`
-                  : `Ingested ${result.document.name} (${result.format} format)`}
-              </h2>
-              {/* An unchanged re-add has no write to report. Printing the same
-                  list with a chunk count of nothing would read as a write that
-                  produced nothing, which is the reading ADR-042 forbids — and
-                  what was actually preserved is the interesting part: this
-                  edition's text, its obligations, and every verdict resting on
-                  them are exactly as they were. */}
-              {result.outcome === 'unchanged' ? (
-                <>
-                  <p>
-                    No text was rewritten. Edition <code>{result.version_id}</code>{' '}
-                    already holds this file, chunked by this same pipeline, so its text
-                    and everything built on it were left standing.
-                  </p>
-                  {/* The skip covers the text and the layer derived from it, and
-                      nothing else: the document record and its reference edges
-                      refresh on every ingest, so a parse that newly read a
-                      references section does create things here. Those counts
-                      are zero on an ordinary re-add and are hidden then, but
-                      saying "nothing was written" over a write that happened is
-                      the same false claim in the other direction. */}
-                  {(result.nodes_created > 0 || result.relationships_created > 0) && (
-                    <ul>
-                      <li>{result.nodes_created} nodes created</li>
-                      <li>{result.relationships_created} relationships created</li>
-                      <li>{result.references_attributed} references attributed</li>
-                    </ul>
-                  )}
-                </>
-              ) : (
-                <ul>
-                  <li>
-                    edition <code>{result.version_id}</code>, {result.chunks_written}{' '}
-                    chunks of text
-                  </li>
-                  <li>{result.nodes_created} nodes created</li>
-                  <li>{result.relationships_created} relationships created</li>
-                  <li>{result.references_attributed} references attributed</li>
-                  <li>{result.self_references_skipped} self-references skipped</li>
-                </ul>
-              )}
-
-              {result.references_unattributed.length > 0 && (
-                <>
-                  {/* Named, not counted. An unattributed reference is a citation the
-                      graph does not hold, and a number alone says something is
-                      missing without saying what. */}
-                  <h3>
-                    {result.references_unattributed.length} references could not be
-                    attributed to a document
-                  </h3>
-                  <ul>
-                    {result.references_unattributed.map((reference) => (
-                      <li key={reference}>{reference}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </>
-          ) : (
+          {/* Manifests only. A document ingest does not report here at all:
+              it sends the reader to that document's map, where the account of
+              the write travels with them and the drawing itself is the better
+              statement of what landed. A manifest is many documents at once,
+              with no one slug to focus, so it has nowhere else to go. */}
+          {result.source === 'manifest' && (
             <>
               <h2>Ingested a manifest</h2>
               <ul>
