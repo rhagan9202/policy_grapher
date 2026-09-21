@@ -12,6 +12,7 @@ import logging
 
 import pytest
 from fastapi.testclient import TestClient
+from support import STAMP
 
 from policy_grapher import main
 from policy_grapher.chunking import chunk_pages
@@ -93,7 +94,7 @@ def _seed_edition(
     )
     chunk = chunk_pages(["1.1. DUTIES.\nBody.\n"], version_id=version_id)[-1]
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
         session.execute_write(
             write_obligations,
             version_id=version_id,

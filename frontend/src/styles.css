@@ -339,9 +339,37 @@ legend {
   font-style: italic;
 }
 
-.node-kind {
+/* Both sit in the same list item and read as the same kind of aside, so the
+   two share their type treatment rather than restating it. */
+.node-kind,
+.node-facts {
   color: var(--muted);
   font-size: 0.85em;
+}
+
+/* Everything the canvas paints on a node, said in words. The canvas is one
+   image with one text alternative, so these sentences are the only route a
+   screen reader has to the marks — they are the content, not a caption, and
+   `display: block` keeps each document's facts on their own line rather than
+   running into the next document's name. */
+.node-facts {
+  display: block;
+  line-height: 1.35;
+}
+
+/* The reference entries the parser could not attribute. Indented under the
+   document they belong to, and monospaced because they are transcribed source
+   text — a reader comparing one against the document needs the characters as
+   they were written. */
+.node-unresolved {
+  list-style: none;
+  margin: 2px 0 var(--s2) var(--s3);
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 0.8em;
+  color: var(--muted);
+  border-left: 2px solid var(--line);
+  padding-left: var(--s2);
 }
 
 /* A quality floor, not a flourish: keyboard users need to see where they are,
@@ -683,13 +711,47 @@ cite > * + *::before {
   overflow-y: auto;
 }
 
+/* The two states with no drawing beside the panel — no document focused, and a
+   failed load — are this view's landing surface rather than edge cases. As a
+   20rem sidebar with a left border the panel reads as a card stranded in empty
+   space, so when it is the page, it becomes the page. */
+.graph-solo {
+  height: auto;
+}
+
+.graph-solo .graph-panel {
+  width: 100%;
+  max-width: 44rem;
+  border-left: 0;
+}
+
 .graph-count {
   color: var(--muted);
 }
 
-.graph-toggle {
-  margin-bottom: var(--s3);
+/* What the neighbourhood cannot tell you. Set apart from the count above it
+   rather than appended to it: the count describes what was drawn, and this
+   describes a limit on what could have been, which a reader deciding whether an
+   empty inbound half means anything has to be able to find. */
+/* Two asides on the same panel, set off the same way. The first is about an
+   action just taken rather than about the drawing, so it carries the accent;
+   the second is a standing caveat and keeps the quieter rule. */
+.graph-arrival,
+.graph-caveat {
+  border-left: 2px solid var(--line);
+  padding-left: var(--s2);
+  margin: var(--s2) 0;
 }
+
+.graph-arrival {
+  border-left-color: var(--accent);
+}
+
+.graph-caveat {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
 
 .legend {
   list-style: none;

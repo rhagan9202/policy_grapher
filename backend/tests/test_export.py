@@ -9,6 +9,7 @@ confirm dialog already says a rebuild replays them and cannot bring them back.
 """
 
 import pytest
+from support import STAMP
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
@@ -73,7 +74,7 @@ def test_the_export_carries_what_reset_destroys(client_with_auth):
         version_id=version_id,
     )
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id=version_id, chunks=chunks)
+        session.execute_write(write_chunks, version_id=version_id, chunks=chunks, pipeline_stamp=STAMP)
         session.execute_write(
             write_obligations,
             version_id=version_id,
@@ -178,7 +179,7 @@ def test_the_export_carries_a_retired_decision_and_the_reason_it_was_retired(
     ]
     chunk = chunk_pages(["1.1. DUTIES.\nBody.\n"], version_id=version_id)[-1]
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
         session.execute_write(
             write_obligations,
             version_id=version_id,

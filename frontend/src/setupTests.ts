@@ -15,25 +15,40 @@ export const OBSERVED_SIZE = { width: 800, height: 600 }
 
 class TestResizeObserver implements ResizeObserver {
   static observed: Element[] = []
+  /** Every live observer, so a test can report a *second* size to one. */
+  static live: { observer: TestResizeObserver; element: Element }[] = []
 
   constructor(private readonly callback: ResizeObserverCallback) {}
 
-  observe(element: Element): void {
-    TestResizeObserver.observed.push(element)
+  report(element: Element, size: { width: number; height: number }): void {
     this.callback(
       [
         {
           target: element,
-          contentRect: { ...OBSERVED_SIZE } as DOMRectReadOnly,
+          contentRect: { ...size } as DOMRectReadOnly,
         } as ResizeObserverEntry,
       ],
       this,
     )
   }
 
-  unobserve(): void {}
+  observe(element: Element): void {
+    TestResizeObserver.observed.push(element)
+    TestResizeObserver.live.push({ observer: this, element })
+    this.report(element, OBSERVED_SIZE)
+  }
 
-  disconnect(): void {}
+  unobserve(element: Element): void {
+    TestResizeObserver.live = TestResizeObserver.live.filter(
+      (entry) => entry.element !== element,
+    )
+  }
+
+  disconnect(): void {
+    TestResizeObserver.live = TestResizeObserver.live.filter(
+      (entry) => entry.observer !== this,
+    )
+  }
 }
 
 globalThis.ResizeObserver = TestResizeObserver
@@ -44,4 +59,18 @@ export function observedElements(): Element[] {
 
 export function resetObservedElements(): void {
   TestResizeObserver.observed = []
+}
+
+/**
+ * Report a new size to everything currently observed.
+ *
+ * The stub above reports once, on `observe`, which is enough to prove the
+ * canvas was measured but cannot exercise anything that happens when a
+ * measurement *changes* — a window drag, or crossing the breakpoint where a
+ * panel restacks. Those are the cases where a one-shot framing goes stale.
+ */
+export function reportResize(size: { width: number; height: number }): void {
+  for (const { observer, element } of [...TestResizeObserver.live]) {
+    observer.report(element, size)
+  }
 }

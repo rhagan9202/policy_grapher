@@ -1,6 +1,6 @@
 # ADR-039: A re-ingest discards the derived layer it invalidates
 
-**Status:** Accepted · **Date:** 2026-09-09 · **Deciders:** Project owner
+**Status:** Accepted, amended by [ADR-042](ADR-042-an-ingest-that-would-rewrite-nothing-rewrites-nothing.md) · **Date:** 2026-09-09 · **Deciders:** Project owner
 
 *Dated record — written once, not edited afterward. Supersede rather than revise.*
 

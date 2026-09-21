@@ -364,6 +364,21 @@ describe('DocumentTable and the duplicates panel', () => {
     ).toBeTruthy()
   })
 
+  it('links each row to the map drawn around that row\u2019s document', async () => {
+    listDocuments.mockResolvedValue(documents)
+    renderTable()
+
+    // Named for its document, like Delete beside it. "Map" repeated down a
+    // column is the same accessible name on every row, which tells a reader
+    // moving by link nothing about where any of them goes.
+    const link = await screen.findByRole('link', { name: /draw the map around DoDD 5000\.01/i })
+    expect(link).toHaveAttribute('href', '/?focus=dodd-5000-01')
+
+    expect(
+      screen.getByRole('link', { name: /draw the map around DoDI 3115\.14/i }),
+    ).toHaveAttribute('href', '/?focus=dodi-3115-14')
+  })
+
   it('says above the table that a pair is waiting, and links down to it', async () => {
     listDocuments.mockResolvedValue(documents)
     listDuplicates.mockResolvedValue(pair)

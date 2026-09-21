@@ -1,4 +1,5 @@
 import pytest
+from support import STAMP
 
 from policy_grapher.chunking import PREAMBLE, Chunk, chunk_pages
 from policy_grapher.chunks import UnknownVersionError, drop_chunks, write_chunks
@@ -32,7 +33,7 @@ def test_chunks_attach_to_their_version(clean_graph, database):
     chunks = chunk_pages(["1.1. A.\nAlpha.\n"], version_id="v")
 
     with clean_graph.session(database=database) as session:
-        written = session.execute_write(write_chunks, version_id="v", chunks=chunks)
+        written = session.execute_write(write_chunks, version_id="v", chunks=chunks, pipeline_stamp=STAMP)
 
     assert written == len(chunks)
     records, _, _ = clean_graph.execute_query(
@@ -51,8 +52,8 @@ def test_writing_the_same_chunks_twice_creates_nothing_new(clean_graph, database
     chunks = chunk_pages(["1.1. A.\nAlpha.\n"], version_id="v")
 
     with clean_graph.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v", chunks=chunks)
-        session.execute_write(write_chunks, version_id="v", chunks=chunks)
+        session.execute_write(write_chunks, version_id="v", chunks=chunks, pipeline_stamp=STAMP)
+        session.execute_write(write_chunks, version_id="v", chunks=chunks, pipeline_stamp=STAMP)
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (c:Chunk) RETURN count(c) AS total", database_=database
@@ -78,8 +79,8 @@ def test_rewriting_a_chunk_id_replaces_what_it_holds(clean_graph, database):
     after = Chunk(chunk_id="c1", text="New passage.", page=4, section_path=["1", "1.2"], ordinal=7)
 
     with clean_graph.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v", chunks=[before])
-        session.execute_write(write_chunks, version_id="v", chunks=[after])
+        session.execute_write(write_chunks, version_id="v", chunks=[before], pipeline_stamp=STAMP)
+        session.execute_write(write_chunks, version_id="v", chunks=[after], pipeline_stamp=STAMP)
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (c:Chunk {chunk_id: 'c1'}) "
@@ -102,7 +103,7 @@ def test_dropping_chunks_leaves_the_version_intact(clean_graph, database):
     chunks = chunk_pages(["1.1. A.\nAlpha.\n"], version_id="v")
 
     with clean_graph.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v", chunks=chunks)
+        session.execute_write(write_chunks, version_id="v", chunks=chunks, pipeline_stamp=STAMP)
         dropped = session.execute_write(drop_chunks, version_id="v")
 
     assert dropped == len(chunks)
@@ -119,7 +120,7 @@ def test_the_fulltext_index_finds_a_designator(clean_graph, database):
     _seed_version(clean_graph, database)
     chunks = chunk_pages(["1.1. A.\nSee DoDI 5000.88 for detail.\n"], version_id="v")
     with clean_graph.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v", chunks=chunks)
+        session.execute_write(write_chunks, version_id="v", chunks=chunks, pipeline_stamp=STAMP)
 
     records, _, _ = clean_graph.execute_query(
         'CALL db.index.fulltext.queryNodes("chunk_text", $q) '
@@ -147,7 +148,7 @@ def test_drop_then_write_reproduces_an_identical_graph(clean_graph, database):
     assert len(chunks) >= 2, "need more than one chunk for this to mean anything"
 
     with clean_graph.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v", chunks=chunks)
+        session.execute_write(write_chunks, version_id="v", chunks=chunks, pipeline_stamp=STAMP)
 
         first_ids, _, _ = clean_graph.execute_query(
             "MATCH (c:Chunk) RETURN collect(c.chunk_id) AS ids", database_=database
@@ -163,7 +164,7 @@ def test_drop_then_write_reproduces_an_identical_graph(clean_graph, database):
         )
         assert mid_count[0]["total"] == 0
 
-        session.execute_write(write_chunks, version_id="v", chunks=chunks)
+        session.execute_write(write_chunks, version_id="v", chunks=chunks, pipeline_stamp=STAMP)
 
     second_ids, _, _ = clean_graph.execute_query(
         "MATCH (c:Chunk) RETURN collect(c.chunk_id) AS ids", database_=database
@@ -194,8 +195,8 @@ def test_drop_chunks_is_scoped_to_its_own_version(clean_graph, database):
     chunks_v2 = chunk_pages(["1.1. A.\nBravo.\n1.2. B.\nCharlie.\n"], version_id="v2")
 
     with clean_graph.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v1", chunks=chunks_v1)
-        session.execute_write(write_chunks, version_id="v2", chunks=chunks_v2)
+        session.execute_write(write_chunks, version_id="v1", chunks=chunks_v1, pipeline_stamp=STAMP)
+        session.execute_write(write_chunks, version_id="v2", chunks=chunks_v2, pipeline_stamp=STAMP)
 
         dropped = session.execute_write(drop_chunks, version_id="v1")
 
@@ -229,7 +230,7 @@ def test_write_chunks_returns_zero_for_an_empty_list(clean_graph, database):
     _seed_version(clean_graph, database)
 
     with clean_graph.session(database=database) as session:
-        written = session.execute_write(write_chunks, version_id="v", chunks=[])
+        written = session.execute_write(write_chunks, version_id="v", chunks=[], pipeline_stamp=STAMP)
 
     assert written == 0
     records, _, _ = clean_graph.execute_query(
@@ -260,7 +261,7 @@ def test_chunk_text_is_stored_verbatim(clean_graph, database):
     )
 
     with clean_graph.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v", chunks=[chunk])
+        session.execute_write(write_chunks, version_id="v", chunks=[chunk], pipeline_stamp=STAMP)
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (c:Chunk {chunk_id: $chunk_id}) RETURN c.text AS text",
@@ -281,7 +282,7 @@ def test_ordinal_round_trips(clean_graph, database):
     assert len(chunks) >= 2, "need more than one chunk for this to mean anything"
 
     with clean_graph.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v", chunks=chunks)
+        session.execute_write(write_chunks, version_id="v", chunks=chunks, pipeline_stamp=STAMP)
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (c:Chunk) RETURN c.chunk_id AS chunk_id, c.ordinal AS ordinal",
@@ -307,7 +308,7 @@ def test_write_chunks_raises_for_an_unknown_version(clean_graph, database):
         clean_graph.session(database=database) as session,
         pytest.raises(UnknownVersionError, match="ghost"),
     ):
-        session.execute_write(write_chunks, version_id="ghost", chunks=chunks)
+        session.execute_write(write_chunks, version_id="ghost", chunks=chunks, pipeline_stamp=STAMP)
 
     records, _, _ = clean_graph.execute_query(
         "MATCH (c:Chunk) RETURN count(c) AS total", database_=database
@@ -329,7 +330,7 @@ def test_write_chunks_return_value_reflects_what_was_actually_written(clean_grap
     second = Chunk(chunk_id=shared_id, text="A", page=1, section_path=["1.1"], ordinal=1)
 
     with clean_graph.session(database=database) as session:
-        written = session.execute_write(write_chunks, version_id="v", chunks=[first, second])
+        written = session.execute_write(write_chunks, version_id="v", chunks=[first, second], pipeline_stamp=STAMP)
 
     assert written == 1, "two inputs sharing a chunk_id merge onto one node"
 
@@ -455,6 +456,18 @@ def test_a_chunker_change_replaces_rather_than_duplicates_chunks(client_with_aut
 
     monkeypatch.setattr(ingest_module, "chunk_pages", fake_chunk_pages)
 
+    # A changed chunker is now also a changed pipeline stamp, because the stamp
+    # digests the chunker's own source (ADR-042) — so an edition chunked by the
+    # old one is not current under the new one and is rewritten rather than
+    # skipped. A monkeypatched `chunk_pages` changes the output without changing
+    # that source, so the stamp is moved here too; otherwise this test would be
+    # asserting drop-then-write against an ingest that correctly declined to
+    # run at all.
+    stamps = iter(("before-the-chunker-changed", "after-the-chunker-changed"))
+    monkeypatch.setattr(
+        ingest_module, "pipeline_stamp", lambda: next(stamps, "after-the-chunker-changed")
+    )
+
     first = client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
     slug = first.json()["document"]["slug"]
     client_with_auth.post("/ingest", json={"filename": "500001p.pdf"})
@@ -498,7 +511,7 @@ def test_chunks_route_orders_by_ordinal(client_with_auth, clean_graph, database)
     )
 
     with clean_graph.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v", chunks=shuffled)
+        session.execute_write(write_chunks, version_id="v", chunks=shuffled, pipeline_stamp=STAMP)
 
     body = client_with_auth.get("/documents/d/chunks").json()
     ordinals = [c["ordinal"] for c in body]
@@ -527,8 +540,8 @@ def test_chunks_route_defaults_to_the_newest_version_and_can_be_pinned(
     old_chunks = chunk_pages(["1.1. Old.\nOld body.\n"], version_id="v-old")
     new_chunks = chunk_pages(["1.1. New.\nNew body.\n"], version_id="v-new")
     with clean_graph.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="v-old", chunks=old_chunks)
-        session.execute_write(write_chunks, version_id="v-new", chunks=new_chunks)
+        session.execute_write(write_chunks, version_id="v-old", chunks=old_chunks, pipeline_stamp=STAMP)
+        session.execute_write(write_chunks, version_id="v-new", chunks=new_chunks, pipeline_stamp=STAMP)
 
     default = client_with_auth.get("/documents/s/chunks").json()
     assert {c["chunk_id"] for c in default} == {c.chunk_id for c in new_chunks}
@@ -541,3 +554,54 @@ def test_chunks_route_defaults_to_the_newest_version_and_can_be_pinned(
 def test_chunks_route_rejects_an_unauthenticated_caller(client_with_graph):
     response = client_with_graph.get("/documents/some-slug/chunks")
     assert response.status_code == 401
+
+
+@pytest.mark.integration
+def test_write_chunks_stamps_the_edition_with_the_pipeline_that_produced_them(
+    clean_graph, database
+):
+    """The stamp is written by the same statement that writes the chunks.
+
+    Asserted here by reading the property back, rather than only through the
+    ingest tests that consume it: those would still pass if the stamp were
+    written somewhere else entirely, and what makes the skip safe is that every
+    path which stores chunks records the pipeline behind them.
+    """
+    _seed_version(clean_graph, database)
+    chunks = chunk_pages(["1.1. A.\nAlpha.\n"], version_id="v")
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            write_chunks, version_id="v", chunks=chunks, pipeline_stamp="stamp-of-record"
+        )
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (v:DocumentVersion {version_id: 'v'}) RETURN v.pipeline_stamp AS stamp",
+        database_=database,
+    )
+    assert records[0]["stamp"] == "stamp-of-record"
+
+
+@pytest.mark.integration
+def test_a_write_of_no_chunks_leaves_no_stamp_behind(clean_graph, database):
+    """A stamp describes the chunks stored under it, so it cannot outlive them.
+
+    A rebuild whose re-chunking yields nothing drops the old chunks and writes
+    none. If the previous stamp stayed, the next ingest would read that edition
+    as current and decline to rebuild it, leaving a document permanently without
+    text and nothing saying so. An absent stamp is a mismatch, which rewrites.
+    """
+    _seed_version(clean_graph, database)
+    chunks = chunk_pages(["1.1. A.\nAlpha.\n"], version_id="v")
+    with clean_graph.session(database=database) as session:
+        session.execute_write(
+            write_chunks, version_id="v", chunks=chunks, pipeline_stamp=STAMP
+        )
+        session.execute_write(
+            write_chunks, version_id="v", chunks=[], pipeline_stamp=STAMP
+        )
+
+    records, _, _ = clean_graph.execute_query(
+        "MATCH (v:DocumentVersion {version_id: 'v'}) RETURN v.pipeline_stamp AS stamp",
+        database_=database,
+    )
+    assert records[0]["stamp"] is None

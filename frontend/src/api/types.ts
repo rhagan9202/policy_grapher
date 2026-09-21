@@ -1,7 +1,26 @@
+// R6's ordinal, lowest to highest: cited by another document only, present in
+// the manifest, text ingested, obligations built, links reviewed. A union
+// rather than `number` so a tier the backend does not produce is a type error
+// here rather than an unpainted node at runtime.
+export type FidelityTier = 1 | 2 | 3 | 4 | 5
+
+// The other axis, and not a sixth tier. `null` below the third tier, where the
+// tier is already the statement that nothing has been read.
+export type AssessmentState =
+  | 'not_assessed'
+  | 'assessed_cites_nothing'
+  | 'assessed_names_unresolved'
+  | 'assessed_all_resolved'
+
 export interface GraphNode {
   id: string
   label: string
   is_external: boolean
+  fidelity_tier: FidelityTier
+  assessment_state: AssessmentState | null
+  // The entries the parser could not attribute. `null` wherever nothing was
+  // read — an empty array would say every name resolved.
+  unresolved_names: string[] | null
 }
 
 export interface GraphEdge {
@@ -15,6 +34,15 @@ export interface GraphOut {
   total_nodes: number
   returned_nodes: number
   truncated: boolean
+  // Which ordering decided what was dropped, in words. `null` when nothing was
+  // dropped, so a surface cannot read absence as completeness.
+  truncation_basis: string | null
+  // How many corpus documents have never had their references read, and so may
+  // cite more than the graph shows — their outgoing edges came from a manifest
+  // row naming them, not from reading the document. An empty inbound half is
+  // qualified by this rather than presented as a finding. It does not mean the
+  // counted documents cite nothing.
+  unread_corpus_documents: number
 }
 
 // `POST /ingest` returns one of two shapes and says which in `source`. The type
@@ -31,6 +59,12 @@ export interface ManifestIngestResult {
 
 export interface DocumentIngestResult {
   source: 'document'
+  /** What the ingest did to the edition's text. `unchanged` means the source
+   *  bytes and the pipeline that chunks them both matched what the edition
+   *  already carried, so its chunks, obligations, reviewed links and build
+   *  record were left standing (ADR-042). It is not a write that happened to
+   *  produce nothing. */
+  outcome: 'written' | 'unchanged'
   format: string
   document: { slug: string; name: string }
   nodes_created: number
@@ -42,7 +76,9 @@ export interface DocumentIngestResult {
    *  created" is both true and unreadable. The edition and its chunk count are
    *  what the reader needs in order to do the next thing. */
   version_id: string
-  chunks_written: number
+  /** `null` when nothing was written, never 0 — a zero would claim a write that
+   *  produced nothing, which is a different event from one that did not run. */
+  chunks_written: number | null
 }
 
 export type IngestResult = ManifestIngestResult | DocumentIngestResult

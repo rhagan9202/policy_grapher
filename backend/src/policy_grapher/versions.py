@@ -106,6 +106,39 @@ def merge_version(
     return resolved
 
 
+EDITION_PIPELINE = """
+MATCH (v:DocumentVersion {version_id: $version_id})
+RETURN v.pipeline_stamp AS pipeline_stamp
+"""
+
+
+def edition_is_current(
+    tx: ManagedTransaction, *, version_id: str, pipeline_stamp: str
+) -> bool:
+    """Whether re-running the pipeline over this edition would change anything.
+
+    ADR-042 makes currency a two-part condition — the same source bytes *and*
+    the same bytes-to-chunks pipeline. Only the second part is decided here,
+    because the first is already settled by the time anyone can ask: every
+    `:DocumentVersion` is created by `merge_version` above, which records the
+    checksum on create and raises `VersionConflictError` when a later ingest
+    presents a different one for the same edition. An edition that disagrees
+    about its bytes never reaches this function; it is refused outright, which
+    is a louder answer than a skip and the one R14 asks for.
+
+    So what is left to ask is whether the machinery has changed, and the
+    checksum cannot answer that: it covers what went in, not what turned it
+    into chunks — including a text-extraction dependency floored with no upper
+    bound.
+
+    An absent stamp is a mismatch, and so is an edition this query does not
+    find. Editions written before the stamp existed are rewritten exactly as
+    they are today: the safe direction for an unknown is the old behaviour.
+    """
+    record = tx.run(EDITION_PIPELINE, {"version_id": version_id}).single()
+    return record is not None and record["pipeline_stamp"] == pipeline_stamp
+
+
 REBUILD_SUPERSESSION = """
 MATCH (d:Document {slug: $document_slug})-[:HAS_VERSION]->(v:DocumentVersion)
 WITH v ORDER BY coalesce(v.effective_date, '') ASC, v.ingested_at ASC

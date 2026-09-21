@@ -18,9 +18,9 @@ import Triage from './Triage'
 
 // EmptyState links to the Ingest screen, so any view that can render it
 // needs router context.
-const showTriage = () =>
+const showTriage = (entry = '/triage') =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
       <Triage />
     </MemoryRouter>,
   )
@@ -35,6 +35,18 @@ const documents: DocumentOut[] = [
     version_count: 2,
   },
 ]
+
+/** In the corpus, cited by something, never ingested — 470 of the live corpus
+ *  look like this. The picker filters it out (it has no edition to compare),
+ *  which is exactly why arriving at it by address needs its own sentence. */
+const citedOnly: DocumentOut = {
+  slug: 'dodd-1322-18',
+  name: 'DoDD 1322.18',
+  is_external: false,
+  references: [],
+  referenced_by: [],
+  version_count: 0,
+}
 
 const versions: DocumentVersionOut[] = [
   {
@@ -429,5 +441,102 @@ describe('Triage when the corpus has no editions', () => {
       /no document has an ingested edition/i,
     )
     expect(screen.queryByLabelText(/document/i)).not.toBeInTheDocument()
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// U8. Triage as the drill-down from a document on the map.
+//
+// Re-parented, not replaced: the map links here with the document named, and
+// this screen's own honesty guarantees — `unlinked_changes`, the excluded
+// oldest edition — keep working exactly as they did.
+// ---------------------------------------------------------------------------
+
+describe('Triage, entered from a document on the map', () => {
+  it('arrives with the document the map named already chosen', async () => {
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    showTriage('/triage?document=dodi-5000-88')
+
+    await waitFor(() => expect(listVersions).toHaveBeenCalledWith('dodi-5000-88'))
+    expect(await screen.findByRole('combobox', { name: /document/i })).toHaveValue(
+      'dodi-5000-88',
+    )
+  })
+
+  it('runs no diff on arrival, however the document got here', async () => {
+    // KTD7, and the reason the edition is deliberately not pre-filled: GET
+    // /triage diffs inside a write transaction, so an edition chosen by the
+    // URL would write derived nodes for anyone who followed a link. Choosing
+    // the edition stays the reader's gesture.
+    // The address carries an edition as well as a document — the parameter a
+    // future hand might reasonably decide to honour. Without one present there
+    // is nothing for the code to read, so the guard would pass on a URL that
+    // never tested it.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue(versions)
+    showTriage(
+      '/triage?document=dodi-5000-88&version=dodi-5000-88@2020-11-18'
+      + '&versionId=dodi-5000-88@2020-11-18&edition=dodi-5000-88@2020-11-18'
+      + '&to_version_id=dodi-5000-88@2020-11-18',
+    )
+
+    await waitFor(() => expect(listVersions).toHaveBeenCalledWith('dodi-5000-88'))
+    expect(getTriage).not.toHaveBeenCalled()
+    expect(screen.getByRole('combobox', { name: /edition/i })).toHaveValue('')
+  })
+
+  it('does not call a document editionless while its editions are still loading', async () => {
+    // "Not answered yet" and "answered, and there are none" are the same empty
+    // array, and only one of them is a finding. Held apart by a null until the
+    // request lands — the same distinction ADR-015 draws one level up, where an
+    // empty Triage table must not read as an all-clear.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockImplementation(() => new Promise(() => {}))
+    showTriage('/triage?document=dodi-5000-88')
+
+    await waitFor(() => expect(listVersions).toHaveBeenCalledWith('dodi-5000-88'))
+    expect(
+      screen.queryByText(/no edition of this document has been ingested/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('names the document the address sent it, when that document has no edition', async () => {
+    // The state the backend really produces for a cited-only document: present
+    // in the corpus, filtered out of the picker because it has no edition. An
+    // earlier version of this test set version_count: 2 on the same document
+    // whose editions came back empty — a pair of numbers the graph cannot
+    // produce together, certifying the branch from a state that cannot happen.
+    listDocuments.mockResolvedValue([...documents, citedOnly])
+    listVersions.mockResolvedValue([])
+    showTriage('/triage?document=dodd-1322-18')
+
+    const said = await screen.findByText(
+      (_, el) =>
+        el?.tagName === 'STRONG' &&
+        /no edition of dodd-1322-18 has been ingested/i.test(el.textContent ?? ''),
+    )
+    expect(said).toBeInTheDocument()
+  })
+
+  it('does not diagnose a document the corpus has never heard of', async () => {
+    // `GET /documents/{slug}/versions` does not check the slug exists — it
+    // answers 200 and an empty list for a name nothing answers to, the same
+    // shape a real editionless document gives. Saying "no edition has been
+    // ingested" about an address that names nothing is a confident answer
+    // about something that is not there.
+    listDocuments.mockResolvedValue(documents)
+    listVersions.mockResolvedValue([])
+    showTriage('/triage?document=not-a-real-document')
+
+    const said = await screen.findByText(
+      (_, el) =>
+        el?.tagName === 'STRONG' &&
+        /nothing in the corpus answers to not-a-real-document/i.test(el.textContent ?? ''),
+    )
+    expect(said).toBeInTheDocument()
+    // And never the sentence that would assert the document exists.
+    expect(screen.queryByText(/has been ingested/i)).not.toBeInTheDocument()
   })
 })

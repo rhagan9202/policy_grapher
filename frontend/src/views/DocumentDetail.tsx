@@ -522,6 +522,14 @@ export default function DocumentDetail() {
       <p>
         <code>{document.slug}</code>
       </p>
+      {/* The map is reachable only by a URL that names a document, so without a
+          link from somewhere that already has one, the home view can only ever
+          be landed on empty. The reference list below answers "what does this
+          cite"; this answers "what surrounds it", which is the question the map
+          exists for. */}
+      <p>
+        <Link to={`/?focus=${document.slug}`}>Draw the map around this document</Link>
+      </p>
 
       <h2 id="references-heading">References</h2>
       {document.references.length === 0 ? (

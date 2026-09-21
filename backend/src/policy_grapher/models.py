@@ -38,10 +38,23 @@ class DocumentRef(BaseModel):
 
 class DocumentIngestResult(BaseModel):
     source: Literal["document"] = "document"
+    # What the ingest did to the edition's text, as its own fact rather than as
+    # something a reader infers from a count. An ingest that found the edition
+    # already current leaves its chunks, obligations, reviewed links and build
+    # record exactly as they were; ADR-042 requires that be said, and says it
+    # must not be reported as a successful write whose counts happen to be zero.
+    # Required, with no default, for the reason `CitationOut.grounded` below
+    # gives: the only default it could carry is the confident one, and a
+    # construction path that forgot to set it would report a skipped rewrite as
+    # a successful write — the false all-clear ADR-042 exists to prevent.
+    outcome: Literal["written", "unchanged"]
     format: str
     document: DocumentRef
     nodes_created: int
     relationships_created: int
+    # Read on every ingest, the unchanged one included: the document write, its
+    # reference edges and this record sit outside the skip, so a document whose
+    # references could not be read once is not frozen in that state.
     references_attributed: int
     references_unattributed: list[str] = Field(default_factory=list)
     self_references_skipped: int
@@ -49,7 +62,9 @@ class DocumentIngestResult(BaseModel):
     # created" is both true and unreadable. The edition and its chunk count are
     # what the reader needs in order to do the next thing.
     version_id: str
-    chunks_written: int
+    # None when nothing was written, never 0: a zero would claim a write that
+    # produced nothing, which is a different event from one that did not run.
+    chunks_written: int | None
 
 
 class ResetResult(BaseModel):
@@ -61,6 +76,25 @@ class GraphNode(BaseModel):
     id: str
     label: str
     is_external: bool
+    # R6's ordinal: how much the system actually knows about this document,
+    # from a name it has only ever seen cited up to one whose links a person
+    # has reviewed. Derived per request from four signals the graph already
+    # holds rather than stored, because a stored tier is a second source of
+    # truth that drifts on every rebuild (KTD1).
+    fidelity_tier: int
+    # The other axis, deliberately not folded into the tier above. A document
+    # at the top of the ladder whose references section was never located is a
+    # real state, and it must not render as one that genuinely cites nothing.
+    # Null below the third tier: there the tier is already the statement that
+    # nothing has been read, so a second mark repeating it would be painted on
+    # almost every node in the corpus while distinguishing none of them.
+    assessment_state: str | None = None
+    # The entries the parser could not attribute, rather than a count of them:
+    # an unresolved public law is a different thing from an unresolved DoD
+    # issuance the corpus should be holding, and only the names carry that
+    # (R7). Null rather than empty wherever nothing was read — empty would
+    # assert that every name resolved.
+    unresolved_names: list[str] | None = None
 
 
 class GraphEdge(BaseModel):
@@ -74,6 +108,22 @@ class GraphOut(BaseModel):
     total_nodes: int
     returned_nodes: int
     truncated: bool
+    # Which ordering decided what was dropped, said in words rather than left for
+    # the reader to infer. `truncated` alone tells a surface that something is
+    # missing; it cannot tell anyone *what*, and a neighbourhood showing part of
+    # itself must not render like a document with no further references. Null
+    # when nothing was dropped — absent and "nothing was cut" are the same thing
+    # here, which is not true of the fields that describe a parse.
+    truncation_basis: str | None = None
+    # How many corpus documents have never had their references read, and so may
+    # cite more than the graph shows — their outgoing edges came from a manifest
+    # row naming them, not from reading the document. Without this an empty
+    # inbound half reads as "nothing depends on this document", which is a
+    # finding the data does not support (AE9): it is partly a fact about what the
+    # system has not done yet. Corpus-wide, because that is the scope of the
+    # limitation. It does not say the counted documents cite nothing; most of
+    # them cite plenty.
+    unread_corpus_documents: int = 0
 
 
 type JSONScalar = str | int | float | bool

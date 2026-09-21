@@ -78,6 +78,12 @@ export interface GraphOptions {
   includeExternal?: boolean
   expand?: string
   limit?: number
+  /** One document's dependency neighbourhood. Mutually exclusive with
+   *  `includeExternal` and `expand` — the API answers 422 rather than quietly
+   *  dropping one, so never send `focus` alongside either. */
+  focus?: string
+  /** How many degrees out from `focus` to walk. The API bounds this at 3. */
+  depth?: number
 }
 
 export function getGraph(options: GraphOptions = {}): Promise<GraphOut> {
@@ -85,6 +91,8 @@ export function getGraph(options: GraphOptions = {}): Promise<GraphOut> {
   if (options.includeExternal) params.set('include_external', 'true')
   if (options.expand) params.set('expand', options.expand)
   if (options.limit !== undefined) params.set('limit', String(options.limit))
+  if (options.focus) params.set('focus', options.focus)
+  if (options.depth !== undefined) params.set('depth', String(options.depth))
 
   const query = params.toString()
   return request<GraphOut>(`/graph${query ? `?${query}` : ''}`)

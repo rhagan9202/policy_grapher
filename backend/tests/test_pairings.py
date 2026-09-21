@@ -18,6 +18,7 @@ import threading
 from collections import Counter
 
 import pytest
+from support import STAMP
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
@@ -147,7 +148,7 @@ def _seed(driver, database, *, doc_slug, version_id, entries, effective_date=Non
             chunk = chunk_pages(
                 [f"{section}. TITLE.\nBody text.\n"], version_id=version_id
             )[-1]
-            session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+            session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
             session.execute_write(
                 write_obligations,
                 version_id=version_id,

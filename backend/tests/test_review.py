@@ -1,6 +1,7 @@
 """The review queue: what a human sees, and what their verdict is recorded as."""
 
 import pytest
+from support import STAMP
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
@@ -29,7 +30,7 @@ def _seed_version(driver, database, *, version_id, name, statement):
         ["CHAPTER 2\n2.4. DUTIES.\nBody text.\n"], version_id=version_id
     )[-1]
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
         session.execute_write(
             write_obligations,
             version_id=version_id,
@@ -222,7 +223,7 @@ def test_an_obligation_anchored_to_two_chunks_appears_once(client_with_auth):
         confidence=0.9,
     )
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id="org", chunks=split)
+        session.execute_write(write_chunks, version_id="org", chunks=split, pipeline_stamp=STAMP)
         # The same statement read out of two overlapping chunks: one obligation,
         # two ANCHORED_IN edges.
         for chunk in split[:2]:
@@ -484,7 +485,7 @@ def _seed_edition_of(driver, database, *, slug, version_id, statement):
         ["CHAPTER 2\n2.4. DUTIES.\nBody text.\n"], version_id=version_id
     )[-1]
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
         session.execute_write(
             write_obligations,
             version_id=version_id,

@@ -43,6 +43,7 @@ from policy_grapher.links.decisions import (
 from policy_grapher.links.pairing import PAIRING_SCHEMA, count_stranded_pairings
 from policy_grapher.links.propose import propose_links
 from policy_grapher.obligations import drop_obligations, write_obligations
+from policy_grapher.pipeline import pipeline_stamp
 from policy_grapher.sources import pdf
 
 READ_SOURCE = """
@@ -95,6 +96,7 @@ def _write_rebuild(
     *,
     version_id: str,
     chunks: list,
+    pipeline_stamp: str,
     extracted: list[tuple[str, list[str], list]],
     candidate_version_ids: list[str],
     proposer: str,
@@ -118,7 +120,18 @@ def _write_rebuild(
     obligations_dropped = drop_obligations(tx, version_id=version_id)
     chunks_dropped = drop_chunks(tx, version_id=version_id)
 
-    chunks_written = write_chunks(tx, version_id=version_id, chunks=chunks)
+    # Stamped with the pipeline that produced them, exactly as ingest does: a
+    # rebuild re-chunks the edition too, and an edition re-chunked here would
+    # otherwise read as stale to the next unchanged re-add — losing the derived
+    # work this rebuild just spent an hour producing (ADR-042).
+    #
+    # The value is the caller's, captured before extraction rather than read
+    # here. Extraction is the slow phase and this callback can be retried, so
+    # reading it now would let a stage's source change in between and stamp
+    # chunks produced by one pipeline as the work of another.
+    chunks_written = write_chunks(
+        tx, version_id=version_id, chunks=chunks, pipeline_stamp=pipeline_stamp
+    )
     obligations_written = 0
     for chunk_id, section_path, obligations in extracted:
         obligations_written += write_obligations(
@@ -263,6 +276,10 @@ def rebuild_derived(
     write transaction afterwards reports nothing.
     """
     path = _source_path(driver, database, version_id)
+    # Taken before the source is read, so the stamp names the pipeline that
+    # actually produced these chunks even if the installed one changes during
+    # the extraction that follows.
+    stamp = pipeline_stamp()
     document = pdf.extract_document(path)
     chunks = chunk_pages(document.pages, version_id=version_id)
 
@@ -348,6 +365,7 @@ def rebuild_derived(
             _write_rebuild,
             version_id=version_id,
             chunks=chunks,
+            pipeline_stamp=stamp,
             extracted=extracted,
             candidate_version_ids=list(candidate_version_ids or []),
             proposer=proposer,

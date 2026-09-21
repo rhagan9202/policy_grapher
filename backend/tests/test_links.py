@@ -1,4 +1,5 @@
 import pytest
+from support import STAMP
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
@@ -195,7 +196,7 @@ def _seed_version(driver, database, *, version_id, statements):
         for s in statements
     ]
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
         session.execute_write(
             write_obligations,
             version_id=version_id,
@@ -806,7 +807,7 @@ def _seed_second_edition(driver, database, *, of, version_id, statements):
         for s in statements
     ]
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
         session.execute_write(
             write_obligations,
             version_id=version_id,
@@ -1204,7 +1205,7 @@ def _seed_two_editions(driver, database):
         )
         chunk = chunk_pages(["1.1. DUTIES.\nBody.\n"], version_id=version_id)[-1]
         with driver.session(database=database) as session:
-            session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+            session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
             session.execute_write(
                 write_obligations,
                 version_id=version_id,

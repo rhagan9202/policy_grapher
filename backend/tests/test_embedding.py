@@ -1,7 +1,7 @@
 """The embedding port, and the guard on the failure that does not look like one."""
 
 import pytest
-from support import LOCAL_MODEL, FakeEmbedder, local_or_skip
+from support import LOCAL_MODEL, STAMP, FakeEmbedder, local_or_skip
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
@@ -68,7 +68,7 @@ def _seed_chunks(driver, database, *, version_id="v", text="The Director shall n
     )
     chunks = chunk_pages([f"1.1. A.\n{text}\n"], version_id=version_id)
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id=version_id, chunks=chunks)
+        session.execute_write(write_chunks, version_id=version_id, chunks=chunks, pipeline_stamp=STAMP)
     return chunks
 
 

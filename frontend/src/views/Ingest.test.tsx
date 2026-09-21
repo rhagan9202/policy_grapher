@@ -1,7 +1,7 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryRouter } from 'react-router-dom'
+import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
 const ingest = vi.fn()
 const listSources = vi.fn()
@@ -22,6 +22,40 @@ function showIngest() {
       <Ingest />
     </MemoryRouter>,
   )
+}
+
+/** Stands in for the map, so a test can see where the reader was sent and what
+ *  was carried there without mounting the real graph and its fetches. */
+function MapStub() {
+  const location = useLocation()
+  const carried = location.state as { ingest?: Record<string, unknown> } | null
+  return (
+    <div data-testid="map">
+      <span data-testid="map-query">{location.search}</span>
+      <span data-testid="map-state">{JSON.stringify(carried?.ingest ?? null)}</span>
+    </div>
+  )
+}
+
+/** The ingest screen with somewhere to land, and a way out while it works —
+ *  the real navigation stays available during an ingest, so a test needs one
+ *  too. */
+function showIngestWithMap() {
+  return render(
+    <MemoryRouter initialEntries={['/ingest']}>
+      <Link to="/documents">Documents</Link>
+      <Routes>
+        <Route path="/ingest" element={<Ingest />} />
+        <Route path="/" element={<MapStub />} />
+        <Route path="/documents" element={<div data-testid="documents" />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+async function chooseAndIngest(file = '500001p_2020.pdf') {
+  await userEvent.selectOptions(await screen.findByLabelText(/file to ingest/i), file)
+  await userEvent.click(screen.getByRole('button', { name: /ingest/i }))
 }
 
 afterEach(() => {
@@ -82,77 +116,6 @@ describe('Ingest', () => {
     const result = await screen.findByRole('status')
     expect(result).toHaveTextContent(/438/)
     expect(result).toHaveTextContent(/672/)
-  })
-
-  it('reports the document a PDF ingest produced, not just counts', async () => {
-    // The two results are different shapes. A view that renders only the manifest
-    // fields would show a PDF ingest as a row of blanks.
-    ingest.mockResolvedValue({
-      source: 'document',
-      format: 'modern',
-      document: { slug: 'dodd-5000-01', name: 'DoDD 5000.01' },
-      nodes_created: 1,
-      relationships_created: 2,
-      references_attributed: 16,
-      references_unattributed: ['Summary of the 2018 National Defense Strategy'],
-      self_references_skipped: 0,
-      version_id: 'dodd-5000-01@2020-09-09',
-      chunks_written: 34,
-    })
-    showIngest()
-
-    await userEvent.selectOptions(await screen.findByLabelText(/file to ingest/i), '500001p_2020.pdf')
-    await userEvent.click(screen.getByRole('button', { name: /ingest/i }))
-
-    const result = await screen.findByRole('status')
-    expect(result).toHaveTextContent(/DoDD 5000\.01/)
-    expect(result).toHaveTextContent(/16/)
-  })
-
-  it('names the references it could not attribute, rather than only counting them', async () => {
-    // An unattributed reference is a citation the graph does not hold. A count alone
-    // tells the reader something is missing and not what.
-    ingest.mockResolvedValue({
-      source: 'document',
-      format: 'modern',
-      document: { slug: 'dodd-5000-01', name: 'DoDD 5000.01' },
-      nodes_created: 1,
-      relationships_created: 2,
-      references_attributed: 16,
-      references_unattributed: ['Summary of the 2018 National Defense Strategy'],
-      self_references_skipped: 0,
-      version_id: 'dodd-5000-01@2020-09-09',
-      chunks_written: 34,
-    })
-    showIngest()
-
-    await userEvent.selectOptions(await screen.findByLabelText(/file to ingest/i), '500001p_2020.pdf')
-    await userEvent.click(screen.getByRole('button', { name: /ingest/i }))
-
-    expect(await screen.findByText(/Summary of the 2018 National Defense Strategy/)).toBeInTheDocument()
-  })
-
-  it('names the edition it recorded and how much text it read', async () => {
-    const documentResult = {
-      source: 'document',
-      format: 'modern',
-      document: { slug: 'dodd-5000-01', name: 'DoDD 5000.01' },
-      nodes_created: 1,
-      relationships_created: 2,
-      references_attributed: 16,
-      references_unattributed: [],
-      self_references_skipped: 0,
-      version_id: 'dodd-5000-01@2020-09-09',
-      chunks_written: 34,
-    }
-    ingest.mockResolvedValue(documentResult)
-    showIngest()
-    await userEvent.selectOptions(await screen.findByLabelText(/file to ingest/i), '500001p_2020.pdf')
-    await userEvent.click(screen.getByRole('button', { name: /^ingest$/i }))
-
-    const status = await screen.findByRole('status')
-    expect(status).toHaveTextContent(/dodd-5000-01@2020-09-09/)
-    expect(status).toHaveTextContent(/34 chunks/i)
   })
 
   it('surfaces the duplicates a manifest ingest suspected', async () => {
@@ -238,7 +201,8 @@ describe('Ingest — choosing a source', () => {
   it('ingests the file that was chosen', async () => {
     listSources.mockResolvedValue(SOURCES)
     ingest.mockResolvedValue({
-      source: 'document', format: 'modern', document: { slug: 'd', name: 'DoDD 5000.01' },
+      source: 'document', outcome: 'written', format: 'modern',
+      document: { slug: 'd', name: 'DoDD 5000.01' },
       nodes_created: 1, relationships_created: 2, references_attributed: 16,
       references_unattributed: [], self_references_skipped: 0,
       version_id: 'dodd-5000-01@2020-09-09', chunks_written: 34,
@@ -327,5 +291,177 @@ describe('Ingest when a manifest flags duplicates', () => {
     const reported = await screen.findByRole('status')
     const link = within(reported).getByRole('link', { name: /documents/i })
     expect(link).toHaveAttribute('href', '/documents')
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// U6. Adding a document and seeing it are one action.
+//
+// The gap this closes is the plan's own acceptance test: the write happened on
+// this screen and the reader had to go and find the result somewhere else.
+// ---------------------------------------------------------------------------
+
+const WRITTEN = {
+  source: 'document' as const,
+  outcome: 'written' as const,
+  format: 'modern',
+  document: { slug: 'dodd-5000-01', name: 'DoDD 5000.01' },
+  nodes_created: 1,
+  relationships_created: 2,
+  references_attributed: 16,
+  references_unattributed: [] as string[],
+  self_references_skipped: 0,
+  version_id: 'dodd-5000-01@2020-09-09',
+  chunks_written: 34 as number | null,
+}
+
+// The five tests that asserted a document ingest's result on this screen moved
+// to GraphExplorer.test.tsx, under "arriving from an ingest". A document ingest
+// no longer reports here: it sends the reader to that document's map and the
+// account of the write travels with them, so that is where naming the edition,
+// distinguishing an unchanged re-add from a write, and listing the references
+// that could not be attributed are now asserted.
+
+describe('Ingest, landing on the map', () => {
+  beforeEach(() => {
+    listSources.mockResolvedValue(SOURCES)
+  })
+
+  it('leaves the reader on the map with the new document focused', async () => {
+    // AE1, the ten-second test. Adding a document and reading what it depends
+    // on were two screens and a search apart; the response already names the
+    // document, so nothing has to be looked up to close that.
+    ingest.mockResolvedValue(WRITTEN)
+    showIngestWithMap()
+    await chooseAndIngest()
+
+    const map = await screen.findByTestId('map')
+    expect(map).toBeInTheDocument()
+    expect(screen.getByTestId('map-query')).toHaveTextContent('focus=dodd-5000-01')
+  })
+
+  it('lands on the map for an unchanged re-add, and says nothing was done', async () => {
+    // AE5. The destination is the same — this document is what the reader
+    // asked to see — but the account of the write is different and has to
+    // survive the trip, or "already present" is said to nobody.
+    ingest.mockResolvedValue({
+      ...WRITTEN, outcome: 'unchanged', chunks_written: null,
+      nodes_created: 0, relationships_created: 0,
+    })
+    showIngestWithMap()
+    await chooseAndIngest()
+
+    await screen.findByTestId('map')
+    expect(screen.getByTestId('map-query')).toHaveTextContent('focus=dodd-5000-01')
+    const carried = JSON.parse(screen.getByTestId('map-state').textContent ?? 'null')
+    // Every field the map declares, exactly — no subset. A payload missing one
+    // renders an empty edition or a silent notice at the other end, and the
+    // only thing joining the two files is a type.
+    expect(carried).toEqual({
+      outcome: 'unchanged',
+      slug: 'dodd-5000-01',
+      name: 'DoDD 5000.01',
+      versionId: 'dodd-5000-01@2020-09-09',
+      unresolved: [],
+    })
+    // No write counts travel with it: there was no write to count.
+    expect(carried).not.toHaveProperty('chunksWritten')
+  })
+
+  it('carries the names the parse could not attribute to the map', async () => {
+    // They are also stored on the node (U1/U3) and drawn there, so this is the
+    // immediate account rather than the only one — but a reader who has just
+    // added a document should not have to go looking for what went unread.
+    ingest.mockResolvedValue({
+      ...WRITTEN,
+      references_unattributed: ['Public Law 116-92', 'An entry nobody could parse'],
+    })
+    showIngestWithMap()
+    await chooseAndIngest()
+
+    // Wait for the landing, rather than assuming the navigation has already
+    // flushed: it is a state update behind an awaited promise, so a loaded
+    // machine gets here first. This test passed locally and failed in CI.
+    await screen.findByTestId('map')
+    const carried = JSON.parse(screen.getByTestId('map-state').textContent ?? 'null')
+    expect(carried.unresolved).toEqual([
+      'Public Law 116-92',
+      'An entry nobody could parse',
+    ])
+  })
+
+  it('stays put and names the conflict when two files claim one edition', async () => {
+    // AE8. A refusal is not a destination: the reader's view is left alone and
+    // the cause is named where they are.
+    ingest.mockRejectedValue(
+      new Error(
+        "version 'dodd-5000-01@2020-09-09' is already recorded with checksum 'abc', "
+        + 'but this ingest presents checksum \'def\' for the same effective date '
+        + '— two different files claim the same edition',
+      ),
+    )
+    showIngestWithMap()
+    await chooseAndIngest()
+
+    expect(screen.queryByTestId('map')).not.toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /two different files claim the same edition/i,
+    )
+  })
+
+  it('stays put and names the cause when the file is not an issuance', async () => {
+    // AE3. The same rule for a different refusal: no node, no navigation, and
+    // a message that says which of the two things went wrong.
+    ingest.mockRejectedValue(
+      new Error("'notes.pdf' has no recognisable issuance header"),
+    )
+    showIngestWithMap()
+    await chooseAndIngest()
+
+    expect(screen.queryByTestId('map')).not.toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /no recognisable issuance header/i,
+    )
+  })
+
+  it('does not haul back a reader who left while the ingest was running', async () => {
+    // An ingest resolves in the foreground but not instantly, and the reader
+    // can leave for another screen while it does. `useNavigate` is bound to the
+    // router rather than to the screen, so the continuation still fires after
+    // the screen is gone — and a navigation nobody asked for, landing on a
+    // document they chose to walk away from, is worse than never hearing the
+    // outcome of a write they abandoned.
+    let finishIngest: ((value: unknown) => void) | undefined
+    ingest.mockImplementation(
+      () => new Promise((resolve) => { finishIngest = resolve }),
+    )
+    showIngestWithMap()
+    await chooseAndIngest()
+
+    await userEvent.click(screen.getByRole('link', { name: /documents/i }))
+    expect(screen.getByTestId('documents')).toBeInTheDocument()
+
+    await act(async () => { finishIngest?.(WRITTEN) })
+
+    expect(screen.queryByTestId('map')).not.toBeInTheDocument()
+    expect(screen.getByTestId('documents')).toBeInTheDocument()
+  })
+
+  it('keeps a manifest ingest on this screen, having no one document to show', async () => {
+    // A manifest is many documents at once, so there is no slug to focus and
+    // nowhere to send the reader. Reported here, as it always was.
+    ingest.mockResolvedValue({
+      source: 'manifest',
+      nodes_created: 438,
+      relationships_created: 1210,
+      self_references_skipped: 0,
+      suspected_duplicates: [],
+    })
+    showIngestWithMap()
+    await chooseAndIngest('dod_policy_references_08122026.csv')
+
+    expect(screen.queryByTestId('map')).not.toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent(/438/)
   })
 })

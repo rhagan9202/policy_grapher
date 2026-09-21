@@ -3,6 +3,7 @@
 import re
 
 import pytest
+from support import STAMP
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.chunks import write_chunks
@@ -45,7 +46,7 @@ def _seed(
     )
     chunk = chunk_pages([f"{section}\n{text}\n"], version_id=version_id)[-1]
     with driver.session(database=database) as session:
-        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk])
+        session.execute_write(write_chunks, version_id=version_id, chunks=[chunk], pipeline_stamp=STAMP)
         if statement is not None:
             session.execute_write(
                 write_obligations,
