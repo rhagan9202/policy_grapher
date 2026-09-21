@@ -599,10 +599,17 @@ export default function GraphExplorer() {
     let cancelled = false
     const read = async () => {
       let editions: DocumentVersionOut[]
+      let newest: DocumentVersionOut | undefined
       try {
         // Two reads, not one: the obligations route takes an explicit edition
         // (STORY-081), so which edition is the newest has to be answered first.
         editions = await listVersions(selectedSlug)
+        if (cancelled) return
+        // Inside the guard, not after it. Anything this read hands back that is
+        // not a list of editions fails here, and failing here is reported; an
+        // earlier arrangement left this line outside and a malformed answer
+        // threw past every branch, leaving the panel reading for ever.
+        newest = editions.at(-1)
       } catch (cause: unknown) {
         if (cancelled) return
         // Nothing is known, and `editions: null` says so. Reporting `[]` here
@@ -617,8 +624,6 @@ export default function GraphExplorer() {
         })
         return
       }
-      if (cancelled) return
-      const newest = editions.at(-1)
       if (!newest) {
         // Nothing was ever ingested, so there is no edition to ask about and
         // no request to make. Asking anyway would answer for an edition that

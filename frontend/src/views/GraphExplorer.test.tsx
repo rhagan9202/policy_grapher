@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   DocumentVersionOut,
   GraphNode,
@@ -272,6 +272,16 @@ type Painter = (node: unknown, ctx: unknown, globalScale: number) => void
 function lastProps() {
   return graphProps[graphProps.length - 1]
 }
+
+beforeEach(() => {
+  // Selecting a node reads its editions and then that edition's obligations.
+  // Without a default these resolve `undefined` for every test that clicks a
+  // node for some other reason, which is not a state the backend can produce.
+  listVersions.mockResolvedValue([])
+  listObligations.mockResolvedValue({
+    obligations: [], total: 0, returned: 0, truncated: false,
+  })
+})
 
 afterEach(() => {
   graphProps.length = 0
@@ -2398,6 +2408,22 @@ describe('GraphExplorer — clause detail on the selected node', () => {
     )
     expect(within(detail).queryByText(/has been ingested/i)).not.toBeInTheDocument()
     expect(within(detail).queryByRole('link', { name: /triage/i })).not.toBeInTheDocument()
+  })
+
+  it('reports an unreadable editions answer rather than reading for ever', async () => {
+    // The panel's only exits are a rendered state or a reported failure. An
+    // answer that is not a list of editions used to throw past both, from a
+    // line that sat outside the guard, and left the panel reading for ever
+    // with nothing on screen to say why. CI found it; the suite had not.
+    getGraph.mockResolvedValue(focusedView)
+    listVersions.mockResolvedValue(undefined as unknown as DocumentVersionOut[])
+    showFocused('/?focus=dodi-3115-14')
+    const detail = await selectFromList('DoDI 3115.14')
+
+    expect(await within(detail).findByRole('alert')).toHaveTextContent(
+      /could not read its editions/i,
+    )
+    expect(within(detail).queryByText(/reading what it holds/i)).not.toBeInTheDocument()
   })
 
   it('keeps the drill-down when only the obligations read fails', async () => {
