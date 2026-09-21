@@ -352,6 +352,7 @@ describe('Ingest, landing on the map', () => {
     showIngestWithMap()
     await chooseAndIngest()
 
+    await screen.findByTestId('map')
     expect(screen.getByTestId('map-query')).toHaveTextContent('focus=dodd-5000-01')
     const carried = JSON.parse(screen.getByTestId('map-state').textContent ?? 'null')
     // Every field the map declares, exactly — no subset. A payload missing one
@@ -379,6 +380,10 @@ describe('Ingest, landing on the map', () => {
     showIngestWithMap()
     await chooseAndIngest()
 
+    // Wait for the landing, rather than assuming the navigation has already
+    // flushed: it is a state update behind an awaited promise, so a loaded
+    // machine gets here first. This test passed locally and failed in CI.
+    await screen.findByTestId('map')
     const carried = JSON.parse(screen.getByTestId('map-state').textContent ?? 'null')
     expect(carried.unresolved).toEqual([
       'Public Law 116-92',
