@@ -256,3 +256,52 @@ Automated suites, run after the fix and recorded by exit code rather than by a p
 Caveats a reader should carry forward: scenario 17 has no fixture and is covered only by unit test;
 scenario 21 was not driven against the live corpus by choice; and the two deferred paper cuts above
 are product questions rather than defects.
+
+---
+
+## Follow-up: the node-obligations panel after extraction — 2026-09-22
+
+Scope note: this section is **not** part of the PR #2 matrix above, whose verdict stands as written.
+It records a later browser pass over one component, after the extraction that closed this report's
+own deferred maintainability finding. Added here rather than in a second report because it is the
+same feature and a reader chasing the panel should find both in one place.
+
+**What changed.** `refactor: the node-obligations panel becomes its own component` (`2f5316d`).
+`GraphExplorer.tsx` went from 1467 to 1193 lines; the panel became `NodeObligationsPanel.tsx`, 296
+lines. The slug-keyed hold that stopped one document's answer rendering under another's name was
+replaced by `key={activeSelection.id}` on the child, so changing the selection remounts the panel and
+the property holds structurally rather than by a comparison the code must remember to make. The
+refactor's claim is that no behaviour changed, and 106 tests passing with the test file untouched is
+most of that claim — but only most of it.
+
+**Why a browser was still worth it.** The tests `await` a settled state, so they cannot see a stale
+frame even if one existed. The remount is precisely a change in what happens *between* states. That
+gap is the reason for this pass.
+
+| # | What was driven | Status |
+|---|-----------------|--------|
+| F1 | A document with obligations: count, first three clauses, drill-down | Pass |
+| F2 | A node the corpus holds only as a cited name | Pass |
+| F3 | A one-edition document: nothing to compare, and no drill-down offered | Pass |
+| F4 | An edition with no build record: a zero that is a fact about us | Pass |
+| F5 | The instant after switching selection — no trace of the previous document | Pass |
+| F6 | Five selections at 120ms, back and forth: panel matches its own heading | Pass |
+
+Driven against the live corpus. Console clean throughout, and **zero `/api/triage` requests** across
+the whole pass, so KTD7 still holds after the move.
+
+F5 and F6 are the two this section exists for. F5 reads the panel with no settle time at all,
+immediately after selecting a different node and before any fetch could resolve: it showed the new
+document's heading and nothing of the old one's. F6 stresses the same path — overlapping in-flight
+reads across five rapid selections — and the panel ends matching its own heading with the right
+count. Together they are the browser-side evidence for what the `key` replaced.
+
+F4 is worth recording for a different reason. `dodm-8180-01` carries no build record, so it renders
+"No obligations recorded for edition `dodm-8180-01@2023-08-04`. No build has run for it, so nothing
+has been extracted yet." That is the ADR-015 distinction the U8 review found — a zero that is a fact
+about us rather than a finding about the document — and until this pass it existed only in tests. The
+live corpus now exercises it.
+
+**Nothing was fixed, because nothing was found.** The suites were green by exit code before and after
+(`npm test` exit 0, 405 passed). No new paper cuts; the three recorded above are unchanged and still
+deferred.
