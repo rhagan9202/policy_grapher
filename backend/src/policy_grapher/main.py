@@ -5,7 +5,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from policy_grapher.config import Settings, get_settings
-from policy_grapher.db import apply_schema, create_driver, is_graph_empty
+from policy_grapher.db import (
+    apply_schema,
+    create_driver,
+    is_graph_empty,
+    verify_credentials,
+)
 from policy_grapher.embedding import build_embedder
 from policy_grapher.extraction import build_extractor
 from policy_grapher.ingest import ingest_file
@@ -62,7 +67,7 @@ def maybe_autoingest(driver, settings: Settings) -> IngestResult | None:
 async def lifespan(app: FastAPI):
     settings: Settings = get_settings()
     driver = create_driver(settings)
-    driver.verify_connectivity()
+    verify_credentials(driver)
     apply_schema(driver, settings.neo4j_database)
     # After apply_schema on purpose: the migration MERGEs on
     # :PairingDecision.key and needs pairing_decision_key_unique in place

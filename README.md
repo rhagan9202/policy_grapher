@@ -54,6 +54,33 @@ to call the API directly. It refuses to overwrite an existing `.env`; delete the
 you want new secrets. Nothing in the repository grants access to anything
 ([ADR-010](docs/specs/adr/ADR-010-secrets-leave-the-repository.md)).
 
+> **`.env` and the `neo4j-data` volume are a matched pair. Replace one and you must replace
+> the other.**
+>
+> Neo4j reads `NEO4J_AUTH` **only while initialising an empty data directory.** Once the volume
+> holds `/data/dbms/auth.ini`, the stored password wins and `NEO4J_AUTH` is ignored on every
+> later start — silently, with nothing in Neo4j's log saying it was disregarded. So deleting
+> `.env` and re-running `init-env.sh` beside a surviving volume produces a stack that **cannot
+> authenticate**, and every check points the wrong way: `docker compose config` renders the new
+> password, `.env` holds it, and the `neo4j` container reports **healthy** because its
+> healthcheck is HTTP-only by design. The only thing that disagrees is the backend, with
+> `Neo.ClientError.Security.Unauthorized`.
+>
+> `init-env.sh` now refuses to write a `.env` when a matching `<project>_neo4j-data` volume
+> exists, and the backend turns that error into the explanation rather than the error code. If
+> you meet it anyway, confirm it by comparing when each was written:
+>
+> ```bash
+> docker run --rm -v "$(basename $PWD)_neo4j-data:/data" alpine \
+>     stat -c '%y  %n' /data/dbms/auth.ini
+> stat -c '%y  %n' .env
+> ```
+>
+> An `auth.ini` older than `.env` is this failure. The fix is `docker compose down -v`, which
+> **deletes the graph** — reviewed verdicts included, and those are the one thing nothing
+> regenerates. Export first if the graph holds anything. The stored password is hashed and
+> cannot be read back out, so matching it by hand means finding the `.env` that created it.
+
 > **If you already have an `.env` from before this change, read this first.** `init-env.sh`
 > writes whatever `.env.example` held on the day it ran, and every default described here
 > applies only to lines your `.env` does not have. An `.env` written before the models moved
