@@ -21,6 +21,13 @@ ingestion half of that plan (U1, U2, U7, U8) is untouched.
 > shape is now chosen by a setting (§3.1), the output cap is the adapter's own (§3.6), and the
 > reasoning effort joins the cache variant (§3.3). Every reasoning-model claim here comes from
 > learn.microsoft.com/azure/ai-foundry/openai/how-to/reasoning, as updated 2026-09-21.
+>
+> **Amended after the final branch review.** A served-model mismatch now ends the run instead of
+> costing its chunk (§3.3, §3.4), because a retargeted deployment answers every chunk that way. A
+> refusal carries Azure's own `error.code` and `error.message` (§3.4). Every malformed answer
+> shape costs its chunk (§3.4). The endpoint check refuses a path, query, fragment or userinfo
+> (§3.5). The model is not sent `ExtractionPayload`'s docstring (§3.2). "`pytest` does not spend"
+> holds only while the Azure settings are in `.env` and not exported in the shell (§3.6, §7).
 
 ## 1. Goal
 
@@ -146,8 +153,12 @@ Reuses `extractor_decoding` (`config.py:60`):
 `STRICT_SCHEMA` is derived once at import from `ExtractionPayload.model_json_schema()`:
 
 - Every object gets `additionalProperties: false`, and a `required` list of all its properties.
-  The generated schema already lists all of them; the derivation asserts that rather than
-  assuming it.
+  The generated schema already lists all of them. The derivation sets the list from `properties`
+  rather than trusting it, because strict mode requires every property listed; a nullable field
+  stays nullable through its `anyOf`.
+- `ExtractionPayload`'s top-level `description` (its docstring, a note to maintainers) is dropped
+  so it is not sent on every billed call. `Modality`'s description stays, because it says what the
+  enum's values mean.
 - These keywords are removed wherever they appear: **`minLength`, `maxLength`, `minimum`,
   `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `pattern`, `format`**. They are Azure
   structured outputs' documented unsupported type-specific keywords, and `ExtractedObligation`
@@ -172,8 +183,11 @@ which enforces the full model.
   - The output cap is not in the variant: a cap changes whether an answer completes, not what a
     completed answer says, and a truncated answer is never cached (§3.4).
 - Each response's `model` field is compared exactly to `azure_openai_model`. On a mismatch the
-  chunk raises `ValueError` naming both values, so an alias retargeted behind a stable deployment
-  name cannot have its answers cached under the old model's id.
+  adapter raises `ServedModelMismatch` (a `RuntimeError`, not a `ValueError`) naming both values,
+  so an alias retargeted behind a stable deployment name cannot have its answers cached under the
+  old model's id. It **ends the run** rather than costing the chunk: a retargeted deployment
+  answers every chunk with the other model, so as a `ValueError` it would bill a whole edition
+  and discard every answer. It is a configuration error, like a wrong key.
   - The comparison runs only on a cache miss. That is enough: the raise comes before the cache
     `put` (`cache.py:178-183`), so nothing wrong is written.
   - Azure returns the dated form, so exact comparison is right.
@@ -195,13 +209,21 @@ of the previous derived layer (ADR-039). It would also be misclassified by
 - A 429 waits `retry-after-ms / 1000` if that header is present and parseable, else
   `Retry-After` seconds, else `backoff_seconds`. The wait is **capped at 60 seconds**, so one
   header cannot sleep through the job timeout.
-- On the last attempt the response is returned, and `raise_for_status()` raises
-  `httpx.HTTPStatusError`. For a 429 that exception's message is Azure's, which names the
-  throttle. It is not a `ValueError`, so it ends the run, as an exhausted 5xx does in
-  `local.py`.
-- Any other non-2xx (400, 401, 404, …) goes through `raise_for_status()` and ends the run: a
-  wrong key, deployment or api-version fails on the first chunk, not after 204 of them. The one
-  exception is the content-filter 400 below.
+- On the last attempt the response is returned, and the adapter raises
+  `httpx.HTTPStatusError`. It is not a `ValueError`, so it ends the run, as an exhausted 5xx does
+  in `local.py`.
+- Any other non-2xx (400, 401, 404, …) raises the same way and ends the run: a wrong key,
+  deployment or api-version fails on the first chunk, not after 204 of them. The one exception is
+  the content-filter 400 below.
+- The exception's message is `Azure OpenAI {status} {error.code}: {error.message}`, the message
+  cut to 300 characters, read from the body's `error` object. httpx's own text names only the
+  status and URL, which cannot tell an effort/model mismatch, a refused schema keyword and a
+  missing deployment apart. A body with no `error` object falls back to httpx's text. It stays an
+  `HTTPStatusError` because `rebuild.py` and the canary replay classify on that type.
+
+**Configuration (ends the run):**
+
+- A `model` mismatch (§3.3) raises `ServedModelMismatch`, before anything is cached.
 
 **Model output (costs the chunk, raises `ValueError` naming the cause):**
 
@@ -218,7 +240,11 @@ of the previous derived layer (ADR-039). It would also be misclassified by
   reader to the wrong fix.
 - Content that is not JSON raises `ValueError("model output was not JSON: ...")`, truncated to
   200 characters, as `local.py` does.
-- A `model` mismatch (§3.3).
+- Any other malformed shape raises `ValueError` naming it, never the `AttributeError` or
+  `TypeError` that `rebuild.py:334` would let end the run: a body, choice or message that is not
+  an object, content that is not a string, content that parses to something other than an
+  object, or an `obligations` that is not a list (a missing one is read as none). The content
+  checks live in `schema.payload_items`, shared with `local.py`.
 
 ### 3.5 Kept guards (cheap, not accreditation)
 
@@ -228,6 +254,9 @@ At construction, each of these raises a `ValueError` naming the problem:
 - The endpoint host must be `azure.us` or end in `.azure.us`. The check compares whole DNS labels
   of the parsed hostname, so `notazure.us` and `azure.us.example.com` are refused. The project
   owner directed this so that a mistyped or commercial (`*.azure.com`) endpoint fails at startup.
+- The endpoint is the base URL alone: a path other than `/`, a query, a fragment or userinfo is
+  refused, naming what to remove (a path would double the `/openai/` route the adapter adds). A
+  port is allowed. The message does not echo the endpoint, since userinfo can hold a password.
 - The key, deployment, api-version and model must each be non-empty.
 
 And throughout:
@@ -279,7 +308,11 @@ before the `raise ValueError` at line 72.
     gpt-5.6-luna with `AZURE_OPENAI_REASONING_EFFORT=low`;
   - that `AZURE_OPENAI_MODEL` must be the dated version Azure returns;
   - that a 204-chunk edition is 204 metered calls, while the floors tests skip for an unmeasured
-    adapter, so `uv run pytest` does not spend.
+    adapter, so `uv run pytest` does not spend **as long as the Azure settings are in `.env`**.
+    Tests that build `Settings(_env_file=None)` still read the process environment, so
+    `EXTRACTOR_ADAPTER=azure` exported in the shell reaches the integration rebuild tests and they
+    bill. The settings go in `.env` for both host-run and compose, which reads `.env` for its
+    `${VAR}` interpolation.
 
 ## 4. Tests
 
@@ -316,7 +349,10 @@ The new tests go in `backend/tests/test_extraction_adapters.py`, all against a s
    - `finish_reason: "content_filter"`;
    - a non-null `refusal`;
    - `content: null`;
-   - a `model` mismatch.
+   - each malformed shape of §3.4: a body, choice or message that is not an object, content that
+     is not a string, a payload that is not an object, and `obligations: null`.
+7a. A `model` mismatch raises `ServedModelMismatch`, which is not a `ValueError`, so a rebuild
+    ends on the first chunk.
 8. For a 429 with `retry-after-ms` and then success, the sleep honours the header. `Retry-After`
    alone is honoured too, and a 3600-second header is capped at 60.
 9. Three 429s raise `httpx.HTTPStatusError`, not `ValueError`, so a rebuild ends. A 401 raises
@@ -415,7 +451,9 @@ The live API key cannot be used on this development machine. The work is complet
 §4 suite is green offline. The claim that it works against Azure is verified by the project owner
 on a secure machine, using these steps, which go in the PR description:
 
-1. Set these in `.env`, host-run, or in the shell for compose: `EXTRACTOR_ADAPTER=azure`,
+1. Set these in `.env`, for both host-run and compose (compose reads `.env` to interpolate
+   `${VAR}`), not in the shell, where they would also reach the test suite's `Settings(_env_file=None)`
+   and make the integration rebuild tests bill: `EXTRACTOR_ADAPTER=azure`,
    `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT`,
    `AZURE_OPENAI_API_VERSION` and `AZURE_OPENAI_MODEL`, plus `AZURE_OPENAI_REASONING_EFFORT` for
    gpt-5.1 and gpt-5.6-luna.
