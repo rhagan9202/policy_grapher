@@ -16,9 +16,11 @@ score says nothing about how much of the document was reached.
 """
 
 import re
+import sys
 from pathlib import Path
 
 import pytest
+from test_obligation_ratchet import FLOORS
 
 from policy_grapher.chunking import chunk_pages
 from policy_grapher.config import Settings
@@ -119,11 +121,15 @@ def test_enough_of_the_responsibilities_section_is_read(filename):
     """
     settings = Settings()
     extractor = build_extractor(settings)
-    if settings.extractor_adapter == "null":
+    # The ratchet's rule (test_obligation_ratchet.py:321-330), for the same reason:
+    # an adapter nobody has measured is not held to a floor, and is not called.
+    # `null` is never in FLOORS, so this still covers it — and it covers a managed
+    # adapter (ADR-043) that would otherwise be billed for every chunk on every run.
+    if extractor.adapter_id not in FLOORS:
         pytest.skip(
-            "THE COVERAGE FLOOR DID NOT RUN: the null adapter extracts nothing, so "
-            "this would measure zero against any floor. A green suite does not mean "
-            "coverage held — it means nothing checked."
+            f"THE COVERAGE FLOOR DID NOT RUN: {extractor.adapter_id!r} has no recorded "
+            f"floors. A green suite does not mean coverage held — it means nothing "
+            f"checked."
         )
 
     expected = EXPECTED_ROLE_ITEMS[filename]
@@ -155,3 +161,23 @@ def test_enough_of_the_responsibilities_section_is_read(filename):
         f"that yielded nothing: {dark or 'none'}. Fix the extractor — do not lower "
         f"the floor."
     )
+
+
+def test_an_unmeasured_adapter_is_neither_gated_nor_spent_on(monkeypatch):
+    """Spec §2. The coverage floor used to skip only for `null`, so a `.env` naming
+    any other adapter sent every responsibilities chunk to it on every run, and
+    held a model nobody had measured to the 0.80 floor. It now follows the
+    ratchet's rule: no recorded floors, no gate and no calls."""
+
+    class Unmeasured:
+        adapter_id = "unmeasured:test"
+        cache_variant = ""
+
+        def extract(self, *args, **kwargs):
+            raise AssertionError("an unmeasured adapter was called")
+
+    monkeypatch.setattr(
+        sys.modules[__name__], "build_extractor", lambda settings: Unmeasured()
+    )
+    with pytest.raises(pytest.skip.Exception, match="has no recorded floors"):
+        test_enough_of_the_responsibilities_section_is_read(min(EXPECTED_ROLE_ITEMS))
