@@ -9,7 +9,8 @@ floors.
 **Metered.** Every chunk is one billed call, and a 204-chunk edition is 204
 calls. The floors tests skip for an adapter with no recorded floors, so
 `uv run pytest` on a machine whose `.env` names this adapter spends nothing; a
-rebuild does. There is no spend cap here on purpose: a limit inside the
+rebuild does. Only `.env`: exported in the shell, the settings reach the
+integration rebuild tests' `Settings(_env_file=None)`, and those bill. There is no spend cap here on purpose: a limit inside the
 extractor would stop an edition halfway, which is worse than a bill. The
 account's own budget controls are the place for one.
 
@@ -30,6 +31,8 @@ from policy_grapher.extraction.prompt import EXTRACTION_PROMPT
 from policy_grapher.extraction.schema import (
     ExtractedObligation,
     ExtractionPayload,
+    MalformedAnswer,
+    payload_items,
     validate_items,
 )
 
@@ -78,12 +81,25 @@ def _strict(node, *, is_map: bool = False):
     }
     if out.get("type") == "object" and "properties" in out:
         out["additionalProperties"] = False
+        # Strict mode requires every property listed, so the list is set from
+        # `properties` rather than trusted; a nullable field stays nullable
+        # through its `anyOf`, not by being left out of `required`.
         out["required"] = list(out["properties"])
     return out
 
 
+def _derive_schema() -> dict:
+    schema = ExtractionPayload.model_json_schema()
+    # The envelope's docstring is a note to maintainers about local.py and
+    # parsing, not an instruction to the model, and strict mode would send it on
+    # every billed call. Modality's description stays: it says what the enum's
+    # values mean.
+    schema.pop("description", None)
+    return _strict(schema)
+
+
 # Once at import, as local.py does with its schema: a pure function of the models.
-STRICT_SCHEMA = _strict(ExtractionPayload.model_json_schema())
+STRICT_SCHEMA = _derive_schema()
 
 
 def schema_digest(schema: dict) -> str:
@@ -92,6 +108,21 @@ def schema_digest(schema: dict) -> str:
 
 def _check_endpoint(endpoint: str) -> str:
     parts = urlsplit(endpoint)
+    # The adapter appends `/openai/deployments/...` itself, so a base URL that
+    # already has a path would double it. None of these parts is echoed back:
+    # userinfo can hold a password.
+    for present, what in (
+        (parts.path not in ("", "/"), "a path"),
+        (parts.query, "a query string"),
+        (parts.fragment, "a fragment"),
+        (parts.username is not None or parts.password is not None, "user info"),
+    ):
+        if present:
+            raise ValueError(
+                f"AZURE_OPENAI_ENDPOINT has {what}; remove it. The endpoint is the "
+                f"resource's base URL alone, https://<resource>.openai.azure.us, "
+                f"and the adapter adds the /openai/deployments/... route itself."
+            )
     if parts.scheme != "https":
         raise ValueError(
             f"AZURE_OPENAI_ENDPOINT must use https, not {parts.scheme or 'no scheme'!r}: "
@@ -109,11 +140,47 @@ def _check_endpoint(endpoint: str) -> str:
     return endpoint.rstrip("/")
 
 
-def _error_code(response: httpx.Response) -> str | None:
+class ServedModelMismatch(RuntimeError):
+    """The deployment answered with a model other than AZURE_OPENAI_MODEL.
+
+    Not a `ValueError`, deliberately: rebuild.py catches that as a cost to one
+    chunk, and a retargeted deployment answers *every* chunk this way, so a
+    ValueError would bill a whole edition and discard all of it. This is a
+    configuration error and ends the run on the first chunk.
+    """
+
+
+def _azure_error(response: httpx.Response) -> dict:
+    """Azure's `error` object from a refusal's body, or `{}` when there is none."""
     try:
-        return (response.json().get("error") or {}).get("code")
-    except (ValueError, AttributeError):
-        return None
+        body = response.json()
+    except ValueError:
+        return {}
+    error = body.get("error") if isinstance(body, dict) else None
+    return error if isinstance(error, dict) else {}
+
+
+def _raise_for_status(response: httpx.Response) -> None:
+    """httpx's raise_for_status, carrying Azure's own code and message.
+
+    httpx's text names the status and URL only, which cannot tell an
+    effort/model mismatch, a refused schema keyword and a missing deployment
+    apart. Still an `HTTPStatusError`, because rebuild.py and the canary replay
+    classify on that type.
+    """
+    if response.is_success:
+        return
+    error = _azure_error(response)
+    if not error:
+        response.raise_for_status()
+        return
+    code = error.get("code") or "-"
+    message = str(error.get("message") or "")[:300]
+    raise httpx.HTTPStatusError(
+        f"Azure OpenAI {response.status_code} {code}: {message}",
+        request=response.request,
+        response=response,
+    )
 
 
 class AzureOpenAIExtractor:
@@ -204,7 +271,7 @@ class AzureOpenAIExtractor:
         # Chosen by the setting, never by the model's name (spec §3.1). Reasoning
         # models reject temperature and max_tokens; gpt-4o predates the other two.
         # A setting that does not match its model is a 400 on the first chunk,
-        # which ends the run with Azure's own words.
+        # which ends the run with Azure's own code and message (_raise_for_status).
         if self._reasoning_effort:
             body["max_completion_tokens"] = self._max_output_tokens
             body["reasoning_effort"] = self._reasoning_effort
@@ -233,7 +300,7 @@ class AzureOpenAIExtractor:
                 self._sleep(self._backoff_seconds)
                 continue
             # On the last attempt the response is returned as-is, and extract's
-            # raise_for_status ends the run with it — an HTTPStatusError, not a
+            # _raise_for_status ends the run with it — an HTTPStatusError, not a
             # ValueError, so a rebuild stops rather than committing an edition
             # with throttled chunks silently missing (ADR-039).
             if response.status_code not in self.RETRYABLE_STATUS or last:
@@ -270,17 +337,25 @@ class AzureOpenAIExtractor:
         # The content filter answers 400, but about this passage rather than about
         # the request: it costs the chunk (ADR-023), where any other 4xx — a wrong
         # key, deployment or parameter — would fail every chunk and ends the run.
-        if response.status_code == 400 and _error_code(response) == "content_filter":
+        if response.status_code == 400 and _azure_error(response).get("code") == "content_filter":
             raise ValueError("Azure OpenAI's content filter refused this chunk (400 content_filter)")
-        response.raise_for_status()
+        _raise_for_status(response)
         try:
             answer = response.json()
         except json.JSONDecodeError as exc:
             raise ValueError("Azure OpenAI returned a body that was not JSON") from exc
+        # Every malformed shape below is a ValueError, the one exception
+        # rebuild.py reads as a cost to the chunk; an AttributeError from a
+        # list where an object belongs would end the run instead.
+        if not isinstance(answer, dict):
+            raise MalformedAnswer(
+                f"Azure OpenAI returned a body that was not an object but "
+                f"{type(answer).__name__}"
+            )
 
         served = answer.get("model")
         if served != self._model:
-            raise ValueError(
+            raise ServedModelMismatch(
                 f"Azure served {served!r}, but AZURE_OPENAI_MODEL is {self._model!r}. The "
                 f"deployment now serves a different model than the one this adapter's id — "
                 f"and so the extraction cache — names; update AZURE_OPENAI_MODEL."
@@ -290,25 +365,30 @@ class AzureOpenAIExtractor:
         if not choices:
             raise ValueError("Azure OpenAI returned a response with no choices")
         choice = choices[0]
+        if not isinstance(choice, dict):
+            raise MalformedAnswer(f"Azure OpenAI returned a choice that was not an object: {choice!r:.200}")
         message = choice.get("message") or {}
+        if not isinstance(message, dict):
+            raise MalformedAnswer(
+                f"Azure OpenAI returned a message that was not an object: {message!r:.200}"
+            )
         finish = choice.get("finish_reason")
         if finish == "content_filter":
             raise ValueError("Azure OpenAI's content filter stopped the answer to this chunk")
         if finish == "length":
             raise ValueError(self._truncation_reason(answer))
         if message.get("refusal"):
-            raise ValueError(f"the model refused this chunk: {message['refusal'][:200]!r}")
+            raise ValueError(f"the model refused this chunk: {str(message['refusal'])[:200]!r}")
         raw = message.get("content")
         if raw is None:
             raise ValueError("the model returned no content and no refusal for this chunk")
-
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"model output was not JSON: {raw[:200]!r}") from exc
+        if not isinstance(raw, str):
+            raise MalformedAnswer(
+                f"the model's content was not text but {type(raw).__name__}"
+            )
 
         return validate_items(
-            payload.get("obligations", []),
+            payload_items(raw),
             section_title=section_title,
             chunk_text=chunk_text,
             on_drop=on_drop,

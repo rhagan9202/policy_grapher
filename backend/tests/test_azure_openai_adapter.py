@@ -15,8 +15,10 @@ from policy_grapher.extraction.azure_openai import (
     STRICT_SCHEMA,
     UNSUPPORTED_KEYWORDS,
     AzureOpenAIExtractor,
+    ServedModelMismatch,
 )
 from policy_grapher.extraction.prompt import EXTRACTION_PROMPT
+from policy_grapher.extraction.schema import ExtractionPayload
 
 KEY = "k-3f9a-not-a-real-key"
 MODEL = "gpt-4o-2024-11-20"
@@ -56,8 +58,43 @@ def test_an_endpoint_outside_azure_government_over_https_is_refused(endpoint, na
         _adapter(endpoint=endpoint)
 
 
-def test_an_azure_government_host_is_accepted():
-    _adapter(endpoint="https://policy-grapher.openai.azure.us/")
+@pytest.mark.parametrize(
+    "endpoint,named",
+    [
+        ("https://x.openai.azure.us/openai", "path"),
+        ("https://x.openai.azure.us/openai/", "path"),
+        ("https://x.openai.azure.us?q=1", "query"),
+        ("https://x.openai.azure.us/?q=1", "query"),
+        ("https://x.openai.azure.us#f", "fragment"),
+        ("https://user:pw@x.openai.azure.us", "user"),
+        ("https://user@x.openai.azure.us", "user"),
+    ],
+)
+def test_an_endpoint_with_more_than_a_host_is_refused_by_what_to_remove(endpoint, named):
+    """The adapter appends `/openai/deployments/...` itself, so a path doubles it,
+    and a query, fragment or userinfo has no place in a base URL."""
+    with pytest.raises(ValueError, match=named):
+        _adapter(endpoint=endpoint)
+
+
+def test_a_refused_endpoint_does_not_echo_its_password():
+    with pytest.raises(ValueError) as caught:
+        _adapter(endpoint="https://user:s3cr3t-pw@x.openai.azure.us")
+    assert "s3cr3t-pw" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://policy-grapher.openai.azure.us/",
+        "https://policy-grapher.openai.azure.us",
+        "https://policy-grapher.openai.azure.us:443",
+    ],
+)
+def test_an_azure_government_host_is_accepted(endpoint):
+    adapter, seen = _captured(endpoint=endpoint)
+    adapter.extract(PASSAGE, section_path=["1"])
+    assert seen[0].url.path == "/openai/deployments/extract/chat/completions"
 
 
 @pytest.mark.parametrize(
@@ -151,6 +188,19 @@ def test_every_object_in_the_strict_schema_is_closed_and_fully_required():
 
 def test_the_strict_schema_carries_no_keyword_azure_refuses():
     assert set(_keywords(STRICT_SCHEMA)).isdisjoint(UNSUPPORTED_KEYWORDS)
+
+
+def test_the_strict_schema_does_not_send_the_developer_docstring():
+    """ExtractionPayload's docstring is a note to maintainers about local.py and
+    parsing; sent on every billed call it would be prompt text nobody reviewed."""
+    assert "description" not in STRICT_SCHEMA
+    assert ExtractionPayload.model_json_schema().get("description"), (
+        "the source schema has no top-level description; this test guards nothing"
+    )
+
+
+def test_the_strict_schema_keeps_the_modality_description():
+    assert STRICT_SCHEMA["$defs"]["Modality"].get("description")
 
 
 def test_stripping_keywords_leaves_a_property_that_shares_a_keyword_name():
@@ -285,7 +335,6 @@ def test_an_invalid_item_is_dropped_and_reported_while_its_sibling_survives():
         (_answering(None, refusal="I can't help with that."), "refused"),
         (_answering(None), "no content"),
         (_answering("not json"), "not JSON"),
-        (_answering({"obligations": []}, model="gpt-4o-2024-08-06"), "gpt-4o-2024-08-06"),
         (
             lambda request: httpx.Response(
                 400,
@@ -299,6 +348,27 @@ def test_an_invalid_item_is_dropped_and_reported_while_its_sibling_survives():
             "no choices",
         ),
         (lambda request: httpx.Response(200, content=b"<html>"), "not JSON"),
+        (lambda request: httpx.Response(200, json=[_completion("{}")]), "not an object"),
+        (
+            lambda request: httpx.Response(200, json={"model": MODEL, "choices": ["x"]}),
+            "choice",
+        ),
+        (
+            lambda request: httpx.Response(
+                200, json={"model": MODEL, "choices": [{"message": "x"}]}
+            ),
+            "message",
+        ),
+        (
+            lambda request: httpx.Response(
+                200,
+                json={"model": MODEL, "choices": [{"message": {"content": {"obligations": []}}}]},
+            ),
+            "content",
+        ),
+        (_answering([GOOD]), "not an object"),
+        (_answering({"obligations": None}), "obligations"),
+        (_answering({"obligations": {"x": GOOD}}), "obligations"),
     ],
     ids=[
         "length",
@@ -306,17 +376,34 @@ def test_an_invalid_item_is_dropped_and_reported_while_its_sibling_survives():
         "refusal",
         "null-content",
         "not-json",
-        "model-drift",
         "filter-400",
         "no-choices-missing",
         "no-choices-empty",
         "not-json-200",
+        "body-is-a-list",
+        "choice-not-object",
+        "message-not-object",
+        "content-not-string",
+        "payload-is-a-list",
+        "obligations-null",
+        "obligations-object",
     ],
 )
 def test_a_failed_answer_costs_its_chunk_and_names_why(handler, cause):
     """ValueError is what rebuild.py:334 catches: the chunk is rejected, the run goes on."""
     with pytest.raises(ValueError, match=cause):
         _adapter(handler).extract(PASSAGE, section_path=["1"])
+
+
+def test_a_retargeted_deployment_ends_the_run_rather_than_costing_every_chunk():
+    """Spec §3.4: a deployment answering with a different model answers every
+    chunk that way. As a ValueError it would bill and discard all 204 chunks;
+    it is a configuration error and stops on the first."""
+    handler = _answering({"obligations": [GOOD]}, model="gpt-4o-2024-08-06")
+    with pytest.raises(ServedModelMismatch, match="gpt-4o-2024-08-06") as caught:
+        _adapter(handler).extract(PASSAGE, section_path=["1"])
+    assert not isinstance(caught.value, ValueError)
+    assert "AZURE_OPENAI_MODEL" in str(caught.value)
 
 
 def test_a_truncation_says_how_much_went_to_reasoning():
@@ -336,11 +423,80 @@ def test_a_client_error_other_than_the_filter_ends_the_run():
         _adapter(handler).extract(PASSAGE, section_path=["1"])
 
 
+@pytest.mark.parametrize(
+    "status,error,shown",
+    [
+        (
+            400,
+            {
+                "code": "unsupported_parameter",
+                "message": "Unsupported parameter: 'temperature' is not supported with this model.",
+            },
+            ["400", "unsupported_parameter", "temperature"],
+        ),
+        (
+            404,
+            {
+                "code": "DeploymentNotFound",
+                "message": "The API deployment for this resource does not exist.",
+            },
+            ["404", "DeploymentNotFound", "does not exist"],
+        ),
+    ],
+    ids=["effort-mismatch", "no-deployment"],
+)
+def test_a_refused_request_ends_the_run_in_azures_own_words(status, error, shown):
+    """The manual live check has to tell an effort/model mismatch, a refused
+    schema keyword and a missing deployment apart; httpx's own text names none."""
+
+    def handler(request):
+        return httpx.Response(status, json={"error": error})
+
+    with pytest.raises(httpx.HTTPStatusError) as caught:
+        _adapter(handler).extract(PASSAGE, section_path=["1"])
+    for word in shown:
+        assert word in str(caught.value)
+    assert caught.value.response.status_code == status
+
+
+def test_a_long_azure_message_is_cut_short():
+    def handler(request):
+        return httpx.Response(400, json={"error": {"code": "x", "message": "m" * 5000}})
+
+    with pytest.raises(httpx.HTTPStatusError) as caught:
+        _adapter(handler).extract(PASSAGE, section_path=["1"])
+    assert "m" * 300 in str(caught.value)
+    assert "m" * 301 not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(502, content=b"<html>Bad Gateway</html>"),
+        httpx.Response(400, json={"detail": "no error object"}),
+        httpx.Response(400, json=["a", "list"]),
+        httpx.Response(400, json={"error": "a string"}),
+    ],
+    ids=["html", "no-error-key", "list-body", "error-not-object"],
+)
+def test_a_refusal_without_azures_error_object_still_ends_the_run(response):
+    status = response.status_code
+
+    def handler(request):
+        return response
+
+    with pytest.raises(httpx.HTTPStatusError, match=str(status)):
+        _adapter(handler).extract(PASSAGE, section_path=["1"])
+
+
 def test_no_failure_message_carries_the_key_or_the_passage():
     for handler in (
         _answering(None, refusal="no"),
         _answering({"obligations": []}, model="other"),
         lambda request: httpx.Response(401, json={}),
+        lambda request: httpx.Response(
+            400, json={"error": {"code": "invalid_request_error", "message": "bad request"}}
+        ),
     ):
         with pytest.raises(Exception) as caught:
             _adapter(handler).extract(PASSAGE, section_path=["1"])
