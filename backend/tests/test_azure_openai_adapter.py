@@ -292,8 +292,25 @@ def test_an_invalid_item_is_dropped_and_reported_while_its_sibling_survives():
             ),
             "content filter",
         ),
+        (lambda request: httpx.Response(200, json={"model": MODEL}), "no choices"),
+        (
+            lambda request: httpx.Response(200, json={"model": MODEL, "choices": []}),
+            "no choices",
+        ),
+        (lambda request: httpx.Response(200, content=b"<html>"), "not JSON"),
     ],
-    ids=["length", "filter-finish", "refusal", "null-content", "not-json", "model-drift", "filter-400"],
+    ids=[
+        "length",
+        "filter-finish",
+        "refusal",
+        "null-content",
+        "not-json",
+        "model-drift",
+        "filter-400",
+        "no-choices-missing",
+        "no-choices-empty",
+        "not-json-200",
+    ],
 )
 def test_a_failed_answer_costs_its_chunk_and_names_why(handler, cause):
     """ValueError is what rebuild.py:334 catches: the chunk is rejected, the run goes on."""

@@ -232,7 +232,10 @@ class AzureOpenAIExtractor:
         if response.status_code == 400 and _error_code(response) == "content_filter":
             raise ValueError("Azure OpenAI's content filter refused this chunk (400 content_filter)")
         response.raise_for_status()
-        answer = response.json()
+        try:
+            answer = response.json()
+        except json.JSONDecodeError as exc:
+            raise ValueError("Azure OpenAI returned a body that was not JSON") from exc
 
         served = answer.get("model")
         if served != self._model:
@@ -242,7 +245,10 @@ class AzureOpenAIExtractor:
                 f"and so the extraction cache — names; update AZURE_OPENAI_MODEL."
             )
 
-        choice = answer["choices"][0]
+        choices = answer.get("choices") or []
+        if not choices:
+            raise ValueError("Azure OpenAI returned a response with no choices")
+        choice = choices[0]
         message = choice.get("message") or {}
         finish = choice.get("finish_reason")
         if finish == "content_filter":
