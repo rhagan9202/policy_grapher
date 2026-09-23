@@ -9,7 +9,8 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from policy_grapher.extraction import azure_openai
+from policy_grapher.config import Settings
+from policy_grapher.extraction import azure_openai, build_extractor
 from policy_grapher.extraction.azure_openai import (
     STRICT_SCHEMA,
     UNSUPPORTED_KEYWORDS,
@@ -417,3 +418,52 @@ def test_a_dropped_connection_is_retried_and_then_ends_the_run():
     with pytest.raises(httpx.TransportError):
         _adapter(handler).extract(PASSAGE, section_path=["1"])
     assert len(calls) == 3
+
+
+# --- wiring --------------------------------------------------------------------------
+
+
+def _settings(**overrides) -> Settings:
+    values = {
+        "_env_file": None,
+        "extractor_adapter": "azure",
+        "azure_openai_endpoint": ENDPOINT,
+        "azure_openai_api_key": KEY,
+        "azure_openai_deployment": "extract",
+        "azure_openai_api_version": "2025-04-01-preview",
+        "azure_openai_model": MODEL,
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+def test_build_extractor_returns_the_azure_adapter_when_configured():
+    extractor = build_extractor(_settings(azure_openai_reasoning_effort="low"))
+    assert isinstance(extractor, AzureOpenAIExtractor)
+    assert extractor.adapter_id == f"azure:{MODEL}"
+    assert extractor.cache_variant.endswith("~low")
+
+
+def test_build_extractor_passes_the_azure_output_cap_not_the_local_one():
+    seen: list[httpx.Request] = []
+    extractor = build_extractor(_settings(azure_openai_max_output_tokens=5000))
+    extractor._client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda r: seen.append(r)
+            or httpx.Response(200, json=_completion(json.dumps({"obligations": []})))
+        ),
+        headers={"api-key": KEY},
+    )
+    extractor.extract(PASSAGE, section_path=["1"])
+    assert json.loads(seen[0].content)["max_tokens"] == 5000
+
+
+def test_a_misconfigured_azure_adapter_fails_at_startup():
+    with pytest.raises(ValueError, match="AZURE_OPENAI_MODEL"):
+        build_extractor(_settings(azure_openai_model=""))
+
+
+def test_the_null_default_reads_no_azure_setting():
+    """A broken Azure block in .env must not matter to anyone not using it."""
+    settings = _settings(extractor_adapter="null", azure_openai_endpoint="http://nowhere")
+    assert build_extractor(settings).adapter_id == "null"

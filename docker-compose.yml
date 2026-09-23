@@ -95,6 +95,16 @@ services:
       # Per model call. 600s because CPU inference is slow — a chunk measured at
       # ~7 tokens/second exceeded the old hardcoded 120s and killed the run (STORY-058).
       EXTRACTOR_TIMEOUT_SECONDS: ${EXTRACTOR_TIMEOUT_SECONDS:-600}
+      # Azure OpenAI on Azure Government (ADR-043). Read only when
+      # EXTRACTOR_ADAPTER=azure. Listed one by one because this container has no
+      # .env: a variable not named here never arrives.
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-}
+      AZURE_OPENAI_MODEL: ${AZURE_OPENAI_MODEL:-}
+      AZURE_OPENAI_REASONING_EFFORT: ${AZURE_OPENAI_REASONING_EFFORT:-}
+      AZURE_OPENAI_MAX_OUTPUT_TOKENS: ${AZURE_OPENAI_MAX_OUTPUT_TOKENS:-16384}
       REBUILD_JOB_TIMEOUT_SECONDS: ${REBUILD_JOB_TIMEOUT_SECONDS:-28800}
       # `local`, not `null`, for the same reason as EXTRACTOR_ADAPTER above:
       # this is what reaches Ask's semantic leg (ADR-016) from a plain `up`. A
@@ -200,6 +210,16 @@ services:
       # Per model call. 600s because CPU inference is slow — a chunk measured at
       # ~7 tokens/second exceeded the old hardcoded 120s and killed the run (STORY-058).
       EXTRACTOR_TIMEOUT_SECONDS: ${EXTRACTOR_TIMEOUT_SECONDS:-600}
+      # Azure OpenAI on Azure Government (ADR-043). Read only when
+      # EXTRACTOR_ADAPTER=azure. Listed one by one because this container has no
+      # .env: a variable not named here never arrives.
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-}
+      AZURE_OPENAI_MODEL: ${AZURE_OPENAI_MODEL:-}
+      AZURE_OPENAI_REASONING_EFFORT: ${AZURE_OPENAI_REASONING_EFFORT:-}
+      AZURE_OPENAI_MAX_OUTPUT_TOKENS: ${AZURE_OPENAI_MAX_OUTPUT_TOKENS:-16384}
       REBUILD_JOB_TIMEOUT_SECONDS: ${REBUILD_JOB_TIMEOUT_SECONDS:-28800}
       # `local`, not `null`, for the same reason as EXTRACTOR_ADAPTER above: this
       # is the leg that embeds for Ask's semantic search (ADR-016), and it needs

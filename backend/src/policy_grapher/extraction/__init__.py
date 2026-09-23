@@ -69,4 +69,19 @@ def build_extractor(settings: Settings) -> ObligationExtractor:
             max_output_tokens=settings.extractor_max_output_tokens,
             decoding=settings.extractor_decoding,
         )
+    if settings.extractor_adapter == "azure":
+        # Imported here, like the others, so a null or local run never loads it.
+        from policy_grapher.extraction.azure_openai import AzureOpenAIExtractor
+
+        return AzureOpenAIExtractor(
+            endpoint=settings.azure_openai_endpoint,
+            api_key=settings.azure_openai_api_key,
+            deployment=settings.azure_openai_deployment,
+            api_version=settings.azure_openai_api_version,
+            model=settings.azure_openai_model,
+            reasoning_effort=settings.azure_openai_reasoning_effort,
+            max_output_tokens=settings.azure_openai_max_output_tokens,
+            decoding=settings.extractor_decoding,
+            timeout_seconds=settings.extractor_timeout_seconds,
+        )
     raise ValueError(f"unknown extractor adapter: {settings.extractor_adapter!r}")

@@ -114,3 +114,26 @@ def test_the_timeouts_a_real_rebuild_depends_on_can_be_overridden():
     for key in ("EXTRACTOR_TIMEOUT_SECONDS", "REBUILD_JOB_TIMEOUT_SECONDS"):
         assert f"${{{key}" in compose, f"{key} cannot be overridden in compose"
         assert f"\n{key}=" in env_example, f"{key} is undocumented in .env.example"
+
+
+AZURE_VARIABLES = (
+    "AZURE_OPENAI_ENDPOINT",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_OPENAI_DEPLOYMENT",
+    "AZURE_OPENAI_API_VERSION",
+    "AZURE_OPENAI_MODEL",
+    "AZURE_OPENAI_REASONING_EFFORT",
+    "AZURE_OPENAI_MAX_OUTPUT_TOKENS",
+)
+
+
+@pytest.mark.parametrize("key", AZURE_VARIABLES)
+def test_both_extracting_services_can_be_pointed_at_azure(key):
+    """The container has no .env (config.py:6-9) and compose lists each variable
+    by name, so one missing here never arrives — and EXTRACTOR_ADAPTER=azure then
+    fails at boot (main.py:118) on an empty setting. Backend builds the extractor
+    at startup; the worker is the one that extracts."""
+    compose = COMPOSE.read_text()
+    assert compose.count(f"      {key}: ${{{key}:-") == 2, (
+        f"{key} must be passed through to both backend and worker in docker-compose.yml"
+    )
