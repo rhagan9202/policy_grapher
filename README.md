@@ -75,9 +75,16 @@ Ingest screen. From there:
 
 1. **Ingest** — `dod_policy_references_08122026.csv` builds the 438-document reference graph;
    `500001p_2020.pdf` adds one issuance with its text. Both ship in `data/samples/`, and the
-   field takes a filename because the backend reads from its own container.
-2. **Graph** and **Documents** — browse what you loaded. A document's name opens its detail
-   page: its text, by edition, and the control that builds its derived layer.
+   field takes a filename because the backend reads from its own container. A successful
+   *document* ingest sends you straight to that document's map; a *manifest* (the CSV) has no
+   single document to land on, so it reports where you are.
+2. **Documents**, then **Graph**. The map draws **one document and what it depends on**, named
+   by `?focus=<slug>` — it does not draw the corpus, so arriving at `/` with nothing focused
+   says "No document is focused" and points you at Documents. That is the expected first sight
+   after ingesting the CSV, not an empty render: 438 documents are loaded, and the map is
+   waiting to be told which one you mean. Every row in Documents links to its own map, and a
+   document's name opens its detail page — its text, by edition, and the control that builds
+   its derived layer.
 3. **Triage**, **Review** and **Ask** stay empty until a derived layer exists — see [Filling
    Triage and Review](#filling-triage-and-review) below.
 
