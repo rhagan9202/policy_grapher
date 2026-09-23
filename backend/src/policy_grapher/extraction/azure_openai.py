@@ -213,8 +213,49 @@ class AzureOpenAIExtractor:
             body["max_tokens"] = self._max_output_tokens
         return body
 
+    # As in local.py: only transport-level failures are retried, and a schema
+    # rejection never is. 429 joins the 5xx set here because a managed endpoint
+    # throttles as a matter of course, and rebuild.py:334 catches only ValueError,
+    # so an unretried 429 would end a whole rebuild on the first busy second.
+    RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+    ATTEMPTS = 3
+
     def _post(self, body: dict) -> httpx.Response:
-        return self._client.post(self._url, params={"api-version": self._api_version}, json=body)
+        for attempt in range(1, self.ATTEMPTS + 1):
+            last = attempt == self.ATTEMPTS
+            try:
+                response = self._client.post(
+                    self._url, params={"api-version": self._api_version}, json=body
+                )
+            except httpx.TransportError:
+                if last:
+                    raise
+                self._sleep(self._backoff_seconds)
+                continue
+            # On the last attempt the response is returned as-is, and extract's
+            # raise_for_status ends the run with it — an HTTPStatusError, not a
+            # ValueError, so a rebuild stops rather than committing an edition
+            # with throttled chunks silently missing (ADR-039).
+            if response.status_code not in self.RETRYABLE_STATUS or last:
+                return response
+            self._sleep(self._wait_for(response))
+        raise AssertionError("unreachable: the loop returns or raises on its last pass")
+
+    def _wait_for(self, response: httpx.Response) -> float:
+        """Azure's own hint, in milliseconds if given, else seconds, capped."""
+        for header, per_second in (("retry-after-ms", 1000.0), ("retry-after", 1.0)):
+            raw = response.headers.get(header)
+            if raw is None:
+                continue
+            try:
+                seconds = float(raw) / per_second
+            except ValueError:
+                # Retry-After may be an HTTP date; not worth parsing for a wait
+                # this adapter caps at a minute anyway.
+                continue
+            if seconds >= 0:
+                return min(seconds, MAX_RETRY_WAIT_SECONDS)
+        return self._backoff_seconds
 
     def extract(
         self,

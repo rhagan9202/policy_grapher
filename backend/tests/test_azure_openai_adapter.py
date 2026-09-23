@@ -345,3 +345,75 @@ def test_no_failure_message_carries_the_key_or_the_passage():
             _adapter(handler).extract(PASSAGE, section_path=["1"])
         assert KEY not in str(caught.value)
         assert "shall notify the Comptroller" not in str(caught.value)
+
+
+# --- retries -----------------------------------------------------------------------
+
+
+def _sequence(*responses):
+    queue = list(responses)
+    calls: list[int] = []
+
+    def handler(request):
+        calls.append(1)
+        return queue.pop(0)
+
+    return handler, calls
+
+
+def _ok():
+    return httpx.Response(200, json=_completion(json.dumps({"obligations": [GOOD]})))
+
+
+@pytest.mark.parametrize(
+    "headers,waited",
+    [
+        ({"retry-after-ms": "1500", "retry-after": "9"}, 1.5),
+        ({"retry-after": "7"}, 7.0),
+        ({"retry-after": "3600"}, azure_openai.MAX_RETRY_WAIT_SECONDS),
+        ({"retry-after": "Wed, 21 Oct 2026 07:28:00 GMT"}, 0.25),
+        ({}, 0.25),
+    ],
+    ids=["ms-wins", "seconds", "capped", "http-date-falls-back", "no-header"],
+)
+def test_a_throttled_call_waits_as_told_and_then_succeeds(headers, waited):
+    handler, calls = _sequence(httpx.Response(429, headers=headers), _ok())
+    slept: list[float] = []
+    adapter = _adapter(handler, backoff_seconds=0.25, sleep=slept.append)
+    assert len(adapter.extract(PASSAGE, section_path=["1"])) == 1
+    assert slept == [waited]
+    assert len(calls) == 2
+
+
+def test_a_transient_server_error_is_retried():
+    handler, calls = _sequence(httpx.Response(503), _ok())
+    assert len(_adapter(handler).extract(PASSAGE, section_path=["1"])) == 1
+    assert len(calls) == 2
+
+
+def test_exhausted_throttling_ends_the_run_rather_than_costing_the_chunk():
+    """Spec §3.4: a ValueError here would let rebuild.py:334 carry on, and a
+    partly throttled rebuild would commit an edition with chunks silently missing."""
+    handler, calls = _sequence(*[httpx.Response(429) for _ in range(3)])
+    with pytest.raises(httpx.HTTPStatusError, match="429"):
+        _adapter(handler).extract(PASSAGE, section_path=["1"])
+    assert len(calls) == 3
+
+
+def test_an_authentication_failure_is_not_retried():
+    handler, calls = _sequence(httpx.Response(401), _ok())
+    with pytest.raises(httpx.HTTPStatusError):
+        _adapter(handler).extract(PASSAGE, section_path=["1"])
+    assert len(calls) == 1
+
+
+def test_a_dropped_connection_is_retried_and_then_ends_the_run():
+    calls: list[int] = []
+
+    def handler(request):
+        calls.append(1)
+        raise httpx.ConnectError("reset", request=request)
+
+    with pytest.raises(httpx.TransportError):
+        _adapter(handler).extract(PASSAGE, section_path=["1"])
+    assert len(calls) == 3
