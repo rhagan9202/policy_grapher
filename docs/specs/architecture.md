@@ -571,12 +571,12 @@ turns a surprise outage into a planned piece of work.
   rebuild runs is a speculative requirement nothing has asked for yet, and standing up a second
   source of truth (e.g. mirroring run state into Postgres) to serve a need that may never
   materialise is a worse trade than accepting that only the current run's state is queryable.
-- **Extraction quality is not gated by CI.** The same skip applies to `azure` (ADR-043), and to
-  `test_enough_of_the_responsibilities_section_is_read`, so a machine configured for a metered
-  adapter spends nothing on a test run. `test_the_configured_extractor_clears_its_floors`
+- **Extraction quality is not gated by CI.** `test_the_configured_extractor_clears_its_floors`
   is the gate on the product's core value, and it does not run on a push. `extractor_adapter`
   defaults to `null`, `FLOORS` has no `null` entry, so the test takes its first skip branch —
-  loudly, with `-rs` printing the reason, but a skip nobody reads is how a check dies. A
+  loudly, with `-rs` printing the reason, but a skip nobody reads is how a check dies. The same
+  skip applies to `azure` (ADR-043), and to `test_enough_of_the_responsibilities_section_is_read`,
+  so a machine configured for a metered adapter spends nothing on a test run. A
   per-push gate against `llama3.2:3b` was built on 2026-08-31 and removed the same day: at a
   measured recall of 0.250 against the shipped `llama3.1:8b`, a prompt change that helped 3b
   and wrecked 8b would have passed it green, which is the regression class the gate exists to
