@@ -163,6 +163,7 @@ def test_enough_of_the_responsibilities_section_is_read(filename):
     )
 
 
+# Deliberately not `integration`: it proves the guard without services.
 def test_an_unmeasured_adapter_is_neither_gated_nor_spent_on(monkeypatch):
     """Spec §2. The coverage floor used to skip only for `null`, so a `.env` naming
     any other adapter sent every responsibilities chunk to it on every run, and

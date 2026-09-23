@@ -576,7 +576,10 @@ turns a surprise outage into a planned piece of work.
   defaults to `null`, `FLOORS` has no `null` entry, so the test takes its first skip branch —
   loudly, with `-rs` printing the reason, but a skip nobody reads is how a check dies. The same
   skip applies to `azure` (ADR-043), and to `test_enough_of_the_responsibilities_section_is_read`,
-  so a machine configured for a metered adapter spends nothing on a test run. A
+  so a machine whose `.env` configures a metered adapter spends nothing on a test run. That
+  holds for `.env` only: tests that build `Settings(_env_file=None)` still read the process
+  environment, so `EXTRACTOR_ADAPTER=azure` exported in the shell reaches the integration rebuild
+  tests, and they bill. The Azure settings belong in `.env`, for compose as well as host-run. A
   per-push gate against `llama3.2:3b` was built on 2026-08-31 and removed the same day: at a
   measured recall of 0.250 against the shipped `llama3.1:8b`, a prompt change that helped 3b
   and wrecked 8b would have passed it green, which is the regression class the gate exists to
