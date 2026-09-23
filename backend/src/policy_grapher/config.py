@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/src/policy_grapher/config.py -> parents[3] is the repository root.
@@ -49,7 +50,7 @@ class Settings(BaseSettings):
     # points at an Ollama-compatible HTTP endpoint. `extractor_model` is part of
     # the cache key via the adapter id — changing it must not reuse cached
     # results from a different model.
-    extractor_adapter: str = "null"          # "null" | "local"
+    extractor_adapter: str = "null"          # "null" | "local" | "azure"
     # Llama 3.1 (Meta, US). Model provenance is a procurement constraint here, not
     # a preference — see ADR-020. Capable non-US models such as Qwen and DeepSeek
     # are ineligible regardless of how they score.
@@ -78,6 +79,29 @@ class Settings(BaseSettings):
     # bounds a runaway to about 380 seconds — inside the timeout above rather than
     # three times past it. A cap of 1024 would have truncated a real answer.
     extractor_max_output_tokens: int = 2048
+
+    # Azure OpenAI on Azure Government (ADR-043, closed development only). Read only
+    # when extractor_adapter is "azure"; every default is empty so nothing else
+    # notices them. The endpoint must be https on *.azure.us, checked at startup.
+    azure_openai_endpoint: str = ""
+    azure_openai_api_key: SecretStr = SecretStr("")
+    azure_openai_deployment: str = ""
+    azure_openai_api_version: str = ""
+    # The dated version the deployment returns in `model` (e.g. gpt-4o-2024-11-20),
+    # not the deployment name. It is the adapter id and so the cache key, and every
+    # response is checked against it: an alias retargeted behind a stable name would
+    # otherwise have its answers cached under the old model.
+    azure_openai_model: str = ""
+    # Empty for gpt-4o (temperature 0, max_tokens). Set — none/low/medium/high —
+    # for a reasoning model such as gpt-5.1 or gpt-5.6-luna, which rejects both of
+    # those and takes max_completion_tokens and reasoning_effort instead. Passed
+    # through unvalidated: Azure is the authority on what each model accepts.
+    azure_openai_reasoning_effort: str = ""
+    # Not extractor_max_output_tokens: that 2048 was measured for llama3.1:8b, and
+    # a reasoning model's hidden reasoning spends the same budget before the answer
+    # starts. 16384 is a ceiling, not a measurement — revise it from the reasoning
+    # tokens the live check records (spec §7).
+    azure_openai_max_output_tokens: int = 16384
 
     # Embedding (DI-2 phase 6). "null" produces no vectors and needs no model —
     # the default, so a fresh clone and CI pass without a download. "local" runs
