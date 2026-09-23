@@ -26,7 +26,12 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import SecretStr
 
-from policy_grapher.extraction.schema import ExtractionPayload
+from policy_grapher.extraction.prompt import EXTRACTION_PROMPT
+from policy_grapher.extraction.schema import (
+    ExtractedObligation,
+    ExtractionPayload,
+    validate_items,
+)
 
 DEFAULT_TIMEOUT_SECONDS = 600.0
 DEFAULT_BACKOFF_SECONDS = 2.0
@@ -104,6 +109,13 @@ def _check_endpoint(endpoint: str) -> str:
     return endpoint.rstrip("/")
 
 
+def _error_code(response: httpx.Response) -> str | None:
+    try:
+        return (response.json().get("error") or {}).get("code")
+    except (ValueError, AttributeError):
+        return None
+
+
 class AzureOpenAIExtractor:
     def __init__(
         self,
@@ -169,3 +181,106 @@ class AzureOpenAIExtractor:
     def cache_variant(self) -> str:
         effort = self._reasoning_effort or "-"
         return f"{self._decoding}@{self._api_version}#{self._schema_digest}~{effort}"
+
+    def _body(self, chunk_text: str, section_path: list[str]) -> dict:
+        body: dict = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": EXTRACTION_PROMPT.format(
+                        section_path="/".join(section_path), chunk_text=chunk_text
+                    ),
+                }
+            ],
+            "response_format": (
+                {
+                    "type": "json_schema",
+                    "json_schema": {"name": "obligations", "strict": True, "schema": self._schema},
+                }
+                if self._decoding == "schema"
+                else {"type": "json_object"}
+            ),
+        }
+        # Chosen by the setting, never by the model's name (spec §3.1). Reasoning
+        # models reject temperature and max_tokens; gpt-4o predates the other two.
+        # A setting that does not match its model is a 400 on the first chunk,
+        # which ends the run with Azure's own words.
+        if self._reasoning_effort:
+            body["max_completion_tokens"] = self._max_output_tokens
+            body["reasoning_effort"] = self._reasoning_effort
+        else:
+            body["temperature"] = 0
+            body["max_tokens"] = self._max_output_tokens
+        return body
+
+    def _post(self, body: dict) -> httpx.Response:
+        return self._client.post(self._url, params={"api-version": self._api_version}, json=body)
+
+    def extract(
+        self,
+        chunk_text: str,
+        *,
+        section_path: list[str],
+        section_title: str | None = None,
+        on_drop: Callable[[str], None] | None = None,
+    ) -> list[ExtractedObligation]:
+        response = self._post(self._body(chunk_text, section_path))
+
+        # The content filter answers 400, but about this passage rather than about
+        # the request: it costs the chunk (ADR-023), where any other 4xx — a wrong
+        # key, deployment or parameter — would fail every chunk and ends the run.
+        if response.status_code == 400 and _error_code(response) == "content_filter":
+            raise ValueError("Azure OpenAI's content filter refused this chunk (400 content_filter)")
+        response.raise_for_status()
+        answer = response.json()
+
+        served = answer.get("model")
+        if served != self._model:
+            raise ValueError(
+                f"Azure served {served!r}, but AZURE_OPENAI_MODEL is {self._model!r}. The "
+                f"deployment now serves a different model than the one this adapter's id — "
+                f"and so the extraction cache — names; update AZURE_OPENAI_MODEL."
+            )
+
+        choice = answer["choices"][0]
+        message = choice.get("message") or {}
+        finish = choice.get("finish_reason")
+        if finish == "content_filter":
+            raise ValueError("Azure OpenAI's content filter stopped the answer to this chunk")
+        if finish == "length":
+            raise ValueError(self._truncation_reason(answer))
+        if message.get("refusal"):
+            raise ValueError(f"the model refused this chunk: {message['refusal'][:200]!r}")
+        raw = message.get("content")
+        if raw is None:
+            raise ValueError("the model returned no content and no refusal for this chunk")
+
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"model output was not JSON: {raw[:200]!r}") from exc
+
+        return validate_items(
+            payload.get("obligations", []),
+            section_title=section_title,
+            chunk_text=chunk_text,
+            on_drop=on_drop,
+        )
+
+    def _truncation_reason(self, answer: dict) -> str:
+        reason = (
+            f"the model hit its output cap (AZURE_OPENAI_MAX_OUTPUT_TOKENS="
+            f"{self._max_output_tokens}) and its answer was truncated. This chunk is "
+            f"rejected rather than partly read."
+        )
+        details = (answer.get("usage") or {}).get("completion_tokens_details") or {}
+        reasoning = details.get("reasoning_tokens")
+        if reasoning:
+            # For a reasoning model the usual truncation is thinking that spent the
+            # budget before any answer began; "cut off" would send a reader to the
+            # wrong fix.
+            reason += (
+                f" The model spent {reasoning} of {self._max_output_tokens} tokens "
+                f"reasoning; raise the cap or lower AZURE_OPENAI_REASONING_EFFORT."
+            )
+        return reason
