@@ -14,6 +14,13 @@ status: ready-for-implementation-in-part
 > is a property of the adapter rather than of a provider — see Outstanding Questions, where all five
 > other questions were settled this session and only the provider stays open.
 
+> **Superseded in part, 2026-09-23.** While
+> [ADR-043](../specs/adr/ADR-043-closed-development-relaxes-managed-inference-gates.md) is in force,
+> U5 and U6 are replaced by `docs/superpowers/specs/2026-09-23-azure-openai-extraction-adapter-design.md`
+> (the provider is Azure Government OpenAI), and U3 and U4 are suspended, since either one as written
+> fails the suite for that adapter. All four return as written when ADR-043 ends. U1, U2, U7 and U8
+> are unaffected.
+
 ## Goal Capsule
 
 **Objective.** An analyst can put a policy document into the corpus in a second published format

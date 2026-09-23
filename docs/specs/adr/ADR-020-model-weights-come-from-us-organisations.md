@@ -1,6 +1,6 @@
 # ADR-020: Model weights come from US organisations
 
-**Status:** Accepted · **Date:** 2026-08-21 · **Deciders:** Project owner
+**Status:** Accepted, amended by [ADR-043](ADR-043-closed-development-relaxes-managed-inference-gates.md) · **Date:** 2026-08-21 · **Deciders:** Project owner
 
 *Frozen once accepted. To change this decision, write a new ADR and mark this one superseded.*
 

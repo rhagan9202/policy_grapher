@@ -479,7 +479,12 @@ the default `EXTRACTOR_ADAPTER=local` and `EMBEDDER_ADAPTER=local` need both
 ratchet runs on the *host* and reaches the model at `Settings.extractor_base_url`; in-network
 callers use `http://ollama:11434`. Model weights are constrained to US-published models
 ([ADR-020](adr/ADR-020-model-weights-come-from-us-organisations.md)), enforced by a test rather
-than a comment. A stack with neither service, and both adapters back to `null`, is reached
+than a comment. A third extractor, `azure`, sends chunks to an Azure Government OpenAI deployment
+(gpt-4o, gpt-5.1 or gpt-5.6-luna) with an API key; during closed development it runs without an
+accreditation record, outside the US-origin set and without floors
+([ADR-043](adr/ADR-043-closed-development-relaxes-managed-inference-gates.md)), and every one of
+its settings is passed to backend and worker because the container has no `.env`. A stack with
+neither service, and both adapters back to `null`, is reached
 through `docker-compose.lean.yml`, applied as a second `-f` argument — the path CI builds and
 tests against.
 
@@ -566,7 +571,9 @@ turns a surprise outage into a planned piece of work.
   rebuild runs is a speculative requirement nothing has asked for yet, and standing up a second
   source of truth (e.g. mirroring run state into Postgres) to serve a need that may never
   materialise is a worse trade than accepting that only the current run's state is queryable.
-- **Extraction quality is not gated by CI.** `test_the_configured_extractor_clears_its_floors`
+- **Extraction quality is not gated by CI.** The same skip applies to `azure` (ADR-043), and to
+  `test_enough_of_the_responsibilities_section_is_read`, so a machine configured for a metered
+  adapter spends nothing on a test run. `test_the_configured_extractor_clears_its_floors`
   is the gate on the product's core value, and it does not run on a push. `extractor_adapter`
   defaults to `null`, `FLOORS` has no `null` entry, so the test takes its first skip branch —
   loudly, with `-rs` printing the reason, but a skip nobody reads is how a check dies. A

@@ -120,6 +120,12 @@ model server and its one-shot puller, `ollama` and `ollama-pull`. `EXTRACTOR_ADA
 `EMBEDDER_ADAPTER` both default to `local`, so a rebuild produces real obligations and
 embeddings, not just chunks, without any further setup.
 
+To extract through an Azure Government OpenAI deployment instead of the local model, set
+`EXTRACTOR_ADAPTER=azure` and the `AZURE_OPENAI_*` block in `.env.example` (endpoint, key,
+deployment, api-version, model version, and a reasoning effort for gpt-5.1 or gpt-5.6-luna).
+Every chunk is a billed call. This is permitted during closed development only
+([ADR-043](docs/specs/adr/ADR-043-closed-development-relaxes-managed-inference-gates.md)).
+
 ### Stopping it
 
 ```bash
