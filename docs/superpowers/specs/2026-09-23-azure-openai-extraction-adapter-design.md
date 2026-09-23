@@ -1,6 +1,6 @@
 # An Azure OpenAI extraction adapter, for closed development
 
-**Status:** Design (rev. 2) · **Date:** 2026-09-23 ·
+**Status:** Design (rev. 3) · **Date:** 2026-09-23 ·
 **Suspends, while ADR-043 is in force:** U3, U4, U5 and U6 of
 `docs/plans/2026-09-22-1130-feat-two-adapters-ingestion-and-managed-extraction-plan.md`. The
 ingestion half of that plan (U1, U2, U7, U8) is untouched.
@@ -14,18 +14,26 @@ ingestion half of that plan (U1, U2, U7, U8) is untouched.
 > environment explicitly and has no `env_file` (§3.6). It also found material errors: an
 > exhausted throttle was being turned into lost obligations (§3.4), refusals would crash, and
 > the strict-schema keywords were left unnamed (§3.2). Those are corrected here too.
+>
+> **Rev. 3** follows from the project owner naming the deployments actually available: gpt-4o,
+> gpt-5.1 and gpt-5.6-luna. Two of the three are reasoning models, which reject both
+> `temperature` and `max_tokens`, the two parameters rev. 2 sent on every request. The request
+> shape is now chosen by a setting (§3.1), the output cap is the adapter's own (§3.6), and the
+> reasoning effort joins the cache variant (§3.3). Every reasoning-model claim here comes from
+> learn.microsoft.com/azure/ai-foundry/openai/how-to/reasoning, as updated 2026-09-21.
 
 ## 1. Goal
 
 An operator with an Azure Government OpenAI deployment and its API key sets
-`EXTRACTOR_ADAPTER=azure` plus five `AZURE_OPENAI_*` values and gets obligations extracted
+`EXTRACTOR_ADAPTER=azure` plus the `AZURE_OPENAI_*` values (§3.6) and gets obligations extracted
 through it, with no model on the operator's machine and no code change, both host-run and under
 compose. A fresh clone and CI still run with no key (`null` default).
 
 This settles the one question the two-adapter plan left open (which provider) with the project
 owner's answer from this session: **Azure OpenAI, authenticated by API key, on Azure Government
 (`*.azure.us`)**. Plain `api.openai.com` is not a target; "OpenAI" in the request meant the GPT
-models Azure serves. The supported model families are **gpt-4o and gpt-4.1** (§3.1).
+models Azure serves. The deployments available to the project are **gpt-4o, gpt-5.1 and
+gpt-5.6-luna**, and all three are supported (§3.1).
 
 ## 2. What closed development changes, and how it is recorded
 
@@ -85,23 +93,47 @@ Plain `httpx`, as `local.py` uses; no `openai` SDK dependency.
 
 - `POST {endpoint}/openai/deployments/{deployment}/chat/completions?api-version={api_version}`
 - Header `api-key: <key>`.
-- Body:
+- Body, common to both shapes below:
   - `messages`: one `user` message holding the formatted `EXTRACTION_PROMPT`, with the same
     `section_path` join as `local.py`.
-  - `temperature: 0`.
-  - `max_tokens: extractor_max_output_tokens`.
   - `response_format` per §3.2.
 - `transport: httpx.BaseTransport | None` and `backoff_seconds` are constructor parameters, as in
   `LocalExtractor.__init__`, so every test runs offline and without real sleeps. Timeout is
   `extractor_timeout_seconds`.
 
-**Model families.** gpt-4o and gpt-4.1 accept `max_tokens` and `temperature: 0`.
+**Two request shapes, chosen by `azure_openai_reasoning_effort`, not by model name.**
 
-Reasoning models are out of scope. The o-series and gpt-5 deployments reject both parameters
-(learn.microsoft.com/azure/ai-foundry/openai/how-to/reasoning). They are not refused at
-construction, since that would be a model gate of the kind §2 declines. Pointed at one, the first
-call gets a 400 naming the parameter, and `raise_for_status` ends the run with Azure's message.
-That is loud and names the cause. `.env.example` states the supported families.
+| Setting | For | Sends | Omits |
+| --- | --- | --- | --- |
+| empty | gpt-4o | `temperature: 0`, `max_tokens: azure_openai_max_output_tokens` | `reasoning_effort` |
+| set (`none`, `low`, `medium`, `high`, …) | gpt-5.1, gpt-5.6-luna | `max_completion_tokens: azure_openai_max_output_tokens`, `reasoning_effort` | `temperature` |
+
+Why a setting rather than recognising the model:
+
+- Reasoning models reject `temperature`, `top_p` and `max_tokens`, and accept only
+  `max_completion_tokens` on Chat Completions.
+- Which *effort* values a model accepts varies by model: `minimal` is refused from gpt-5.1 on,
+  and `max` is Responses-API-only.
+- A name table in the adapter would be wrong for the next deployment and silently choose for the
+  operator.
+
+The effort value is passed through unvalidated, so Azure is the authority on what a model accepts.
+A mismatch between the setting and the model reaches Azure on the **first** chunk as a 400 naming
+the parameter: an empty setting pointed at gpt-5.1 sends `temperature`, and a set one pointed at
+gpt-4o sends `reasoning_effort`. §3.4 makes that 400 end the run at once, with Azure's message,
+rather than after 204 chunks.
+
+**Determinism.** gpt-4o runs at temperature 0. The reasoning models cannot be pinned, so repeated
+uncached runs over the same chunk may differ. The extraction cache makes re-running an edition
+stable. Measuring floors for a reasoning model later (the returning U6) will need repeated runs,
+and that is recorded here so it is not rediscovered.
+
+**Endpoint form.** The docs now lead with the v1 route (`/openai/v1/chat/completions`, deployment
+named as `model` in the body, no `api-version`). This adapter keeps the deployment path with
+`api-version`: the long-standing form, where the v1 route's availability on Azure Government
+could not be confirmed from this machine. If the live check (§7)
+finds a model reachable only on v1, switching is a URL-and-body change inside `_post_with_retries`,
+recorded as a bug against this adapter.
 
 ### 3.2 Decoding
 
@@ -131,10 +163,14 @@ which enforces the full model.
   version** as Azure returns it (e.g. `gpt-4o-2024-08-06`), not the deployment name. It has to
   come from configuration because the cache key (`extraction/cache.py:45-56`) is built before
   any call.
-- `cache_variant = f"{decoding}@{api_version}#{schema_digest}"`. `schema_digest` is the first 12
-  hex characters of the SHA-256 of `STRICT_SCHEMA`, serialised with sorted keys, or `"-"` in
-  `json` mode. A change to the derivation therefore stops replaying answers produced under the
-  old schema.
+- `cache_variant = f"{decoding}@{api_version}#{schema_digest}~{effort}"`.
+  - `schema_digest` is the first 12 hex characters of the SHA-256 of `STRICT_SCHEMA`, serialised
+    with sorted keys, or `"-"` in `json` mode. A change to the derivation therefore stops
+    replaying answers produced under the old schema.
+  - `effort` is `azure_openai_reasoning_effort`, or `"-"` when empty. An answer produced at `low`
+    is never replayed as a `high` one.
+  - The output cap is not in the variant: a cap changes whether an answer completes, not what a
+    completed answer says, and a truncated answer is never cached (§3.4).
 - Each response's `model` field is compared exactly to `azure_openai_model`. On a mismatch the
   chunk raises `ValueError` naming both values, so an alias retargeted behind a stable deployment
   name cannot have its answers cached under the old model's id.
@@ -174,8 +210,12 @@ of the previous derived layer (ADR-039). It would also be misclassified by
 - A refusal: `choices[0].message.refusal` is non-null, or `message.content` is null. Strict
   `json_schema` can return a refusal with `content: null`, and `json.loads(None)` would raise a
   `TypeError` that `rebuild.py:334` does not catch.
-- Truncation (`finish_reason == "length"`) raises the same message `local.py` raises for
-  `done_reason == "length"`.
+- Truncation (`finish_reason == "length"`) raises a message in the same form as `local.py`'s for
+  `done_reason == "length"`, naming `AZURE_OPENAI_MAX_OUTPUT_TOKENS` as the cap. When the response
+  carries `usage.completion_tokens_details.reasoning_tokens`, the message says how many of the
+  capped tokens went to reasoning. For a reasoning model the usual truncation is reasoning
+  consuming the budget before any answer is written, and "the answer was cut off" would send a
+  reader to the wrong fix.
 - Content that is not JSON raises `ValueError("model output was not JSON: ...")`, truncated to
   200 characters, as `local.py` does.
 - A `model` mismatch (§3.3).
@@ -208,6 +248,14 @@ And throughout:
   `azure_openai_endpoint: str = ""`, `azure_openai_api_key: SecretStr = SecretStr("")`,
   `azure_openai_deployment: str = ""`, `azure_openai_api_version: str = ""` and
   `azure_openai_model: str = ""`.
+- `azure_openai_reasoning_effort: str = ""`: empty for gpt-4o, set for reasoning models (§3.1).
+- `azure_openai_max_output_tokens: int = 16384`. This is the adapter's own cap, not
+  `extractor_max_output_tokens`. That 2048 was measured for llama3.1:8b as about four times the
+  largest real answer (554 tokens, `config.py:69-80`). A reasoning model's reasoning tokens count
+  against the same cap, so 2048 could be spent before the answer starts. 16384 is gpt-4o's maximum
+  output and leaves room for reasoning at `low` and `medium`. It is a ceiling, not a measurement:
+  what reasoning actually costs per chunk is found in the live check (§7) and the default revised
+  from that, as `extractor_max_output_tokens` was.
 
 `backend/src/policy_grapher/extraction/__init__.py`: `build_extractor` gains an `"azure"` branch
 before the `raise ValueError` at line 72.
@@ -217,8 +265,9 @@ before the `raise ValueError` at line 72.
 - The `backend` (around `:61-101`) and `worker` (around `:175-210`) services list their
   environment explicitly, and the container has no `.env` (`config.py:6-9`). Without changes,
   `EXTRACTOR_ADAPTER=azure` crashes the backend at boot (`main.py:118`) on an empty endpoint.
-- Both services gain the five variables as `${AZURE_OPENAI_*:-}`, empty by default.
-- `test_config_composition.py` is extended so that both services pass all five through.
+- Both services gain the seven `AZURE_OPENAI_*` variables of this section, as `${VAR:-}`, empty by
+  default, except `AZURE_OPENAI_MAX_OUTPUT_TOKENS`, which defaults to `16384`.
+- `test_config_composition.py` is extended so that both services pass all seven through.
 
 `.env.example`:
 
@@ -226,7 +275,8 @@ before the `raise ValueError` at line 72.
   **empty value**. It is not an `init-env.sh` placeholder: that script would copy one verbatim
   and send it as a credential.
 - A note beside it covering three things:
-  - the supported model families;
+  - one worked example per available deployment: gpt-4o with the effort empty, and gpt-5.1 and
+    gpt-5.6-luna with `AZURE_OPENAI_REASONING_EFFORT=low`;
   - that `AZURE_OPENAI_MODEL` must be the dated version Azure returns;
   - that a 204-chunk edition is 204 metered calls, while the floors tests skip for an unmeasured
     adapter, so `uv run pytest` does not spend.
@@ -247,17 +297,21 @@ The new tests go in `backend/tests/test_extraction_adapters.py`, all against a s
    - the documented URL;
    - the `api-key` header;
    - the `api-version` query;
-   - `temperature: 0`;
-   - `max_tokens`;
    - the right `response_format` for each decoding mode.
+3a. With the effort empty, the body has `temperature: 0` and `max_tokens`, and no
+    `reasoning_effort` or `max_completion_tokens`. With the effort set, it has
+    `max_completion_tokens` and `reasoning_effort` equal to the setting, and no `temperature` or
+    `max_tokens`. Both caps equal `azure_openai_max_output_tokens`.
 4. `STRICT_SCHEMA` has `additionalProperties: false` and a full `required` list on every object,
    and **none of the §3.2 stripped keywords anywhere**.
 5. `cache_variant` changes when `STRICT_SCHEMA` changes (tested by patching the digest input),
-   when the api-version changes, and when the decoding mode changes.
+   when the api-version changes, when the decoding mode changes, and when the reasoning effort
+   changes.
 6. Valid items come back as `ExtractedObligation`. An invalid item is dropped, and `on_drop` is
    called once with its reason while its valid siblings survive.
 7. Each of these raises `ValueError` naming the cause:
-   - `finish_reason: "length"`;
+   - `finish_reason: "length"`, with the message naming the reasoning-token count when `usage`
+     carries one;
    - a content-filter 400;
    - `finish_reason: "content_filter"`;
    - a non-null `refusal`;
@@ -274,7 +328,7 @@ Also:
 
 12. `test_responsibilities_coverage.py`: with a stub adapter whose `adapter_id` has no `FLOORS`
     entry, the coverage test skips without calling `extract`.
-13. `test_config_composition.py`: backend and worker both pass the five `AZURE_OPENAI_*`
+13. `test_config_composition.py`: backend and worker both pass the seven `AZURE_OPENAI_*`
     variables.
 
 Per standing practice, a new test that passes on its first run is checked by mutating the exact
@@ -285,12 +339,13 @@ Verification on this machine:
 
 - `cd backend && uv run pytest` is green.
 - A fresh clone with no `.env` still starts and passes.
-- `docker compose config` shows the five variables on both services.
+- `docker compose config` shows the seven variables on both services.
 
 ## 5. What is not built
 
 - No `openai` SDK, and no Entra ID or managed-identity auth: key only.
-- No reasoning-model support (§3.1).
+- No Responses API and no v1 route (§3.1); Chat Completions on the deployment path only.
+- No validation of the effort value against the model (§3.1); Azure is the authority.
 - No embedding adapter on Azure. ADR-016's port is untouched, and `embedder_adapter` stays
   `null | local`.
 - No `/ask` or other generation path. Extraction only.
@@ -350,7 +405,7 @@ AGENTS.md:116 and CONVENTIONS require that a change to behaviour updates the rel
 
 - **`docs/specs/architecture.md`:** the adapter lists (around :476 and :570) gain `azure`,
   citing ADR-043.
-- **`README.md`:** the adapter list gains `azure` and its five variables.
+- **`README.md`:** the adapter list gains `azure` and its variables.
 - **The two-adapter plan:** a note under its Readiness block that U3–U6 are suspended while
   ADR-043 is in force, pointing here.
 
@@ -362,12 +417,18 @@ on a secure machine, using these steps, which go in the PR description:
 
 1. Set these in `.env`, host-run, or in the shell for compose: `EXTRACTOR_ADAPTER=azure`,
    `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_DEPLOYMENT`,
-   `AZURE_OPENAI_API_VERSION` and `AZURE_OPENAI_MODEL`.
+   `AZURE_OPENAI_API_VERSION` and `AZURE_OPENAI_MODEL`, plus `AZURE_OPENAI_REASONING_EFFORT` for
+   gpt-5.1 and gpt-5.6-luna.
 2. Run a one-chunk smoke test: a `uv run python -c` that builds the extractor via
    `build_extractor(Settings())` and extracts one gold fixture. This confirms:
    - auth and the URL shape;
    - that strict-schema acceptance works with the stripped keywords;
-   - that the returned `model` matches `AZURE_OPENAI_MODEL`.
+   - that the returned `model` matches `AZURE_OPENAI_MODEL`, and records each deployment's exact
+     dated string;
+   - that each of gpt-4o, gpt-5.1 and gpt-5.6-luna is reachable on the deployment path with its
+     request shape (§3.1);
+   - `usage.completion_tokens_details.reasoning_tokens` per chunk at the chosen effort, which is
+     the measurement that revises the 16384 default (§3.6).
 3. Rebuild one small edition through the UI or API, and confirm obligations appear on its
    document page.
 
