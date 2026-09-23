@@ -15,7 +15,7 @@ from policy_grapher.extraction.prompt import EXTRACTION_PROMPT
 from policy_grapher.extraction.schema import (
     ExtractedObligation,
     ExtractionPayload,
-    validate_extracted,
+    validate_items,
 )
 
 # Only the fallback for a caller that does not pass one; `build_extractor` always
@@ -171,40 +171,9 @@ class LocalExtractor:
         except json.JSONDecodeError as exc:
             raise ValueError(f"model output was not JSON: {raw[:200]!r}") from exc
 
-        # ADR-030. Each item is validated on its own, and one that fails costs
-        # itself rather than everything that shared its chunk. Measured 2026-08-26:
-        # eight chunks in thirty-seven were lost whole, every one of them to a
-        # single `modality: null` on a sentence stating scope and naming no duty.
-        #
-        # The strictness is unchanged — `Modality` is still closed and an invalid
-        # item is still not written. What changed is the blast radius.
-        items = payload.get("obligations", [])
-        found: list[ExtractedObligation] = []
-        reasons: list[str] = []
-        for item in items:
-            try:
-                found.append(
-                    validate_extracted(
-                        item,
-                        section_title=section_title,
-                        chunk_text=chunk_text,
-                    )
-                )
-            # `ValueError`, not `ValidationError`: ADR-033's section guard is not
-            # a field rule and raises plainly, and `ValidationError` subclasses
-            # `ValueError`, so this catches both without the loop needing to know
-            # which rule refused the item.
-            except ValueError as exc:
-                reason = f"model output did not match the obligation schema: {exc}"
-                reasons.append(reason)
-                if on_drop is not None:
-                    on_drop(reason)
-
-        # Nothing validated out of something the model did return: that is a
-        # wholly broken answer, not a passage without duties, and ADR-030 keeps it
-        # a rejected chunk. An empty `obligations` list is the ordinary case and
-        # reaches here with no reasons, so it stays an empty answer.
-        if reasons and not found:
-            raise ValueError(reasons[0])
-
-        return found
+        return validate_items(
+            payload.get("obligations", []),
+            section_title=section_title,
+            chunk_text=chunk_text,
+            on_drop=on_drop,
+        )

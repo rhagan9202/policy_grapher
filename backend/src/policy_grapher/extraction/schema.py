@@ -7,6 +7,7 @@ and the contract has to hold identically on both or the port is not a port.
 
 import hashlib
 import re
+from collections.abc import Callable
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -327,3 +328,46 @@ class ExtractionPayload(BaseModel):
     """
 
     obligations: list[ExtractedObligation]
+
+
+def validate_items(
+    items: list,
+    *,
+    section_title: str | None,
+    chunk_text: str,
+    on_drop: Callable[[str], None] | None,
+) -> list[ExtractedObligation]:
+    """ADR-030's loop, shared by every adapter that parses a model's answer.
+
+    Each item is validated on its own, and one that fails costs itself rather
+    than everything that shared its chunk. Measured 2026-08-26: eight chunks in
+    thirty-seven were lost whole, every one of them to a single `modality: null`
+    on a sentence stating scope and naming no duty. The strictness is unchanged —
+    `Modality` is still closed and an invalid item is still not written. What
+    changed is the blast radius.
+
+    Here rather than in one adapter because two adapters parse answers, and a
+    rule living in only one of them is a rule the other silently lacks.
+    """
+    found: list[ExtractedObligation] = []
+    reasons: list[str] = []
+    for item in items:
+        try:
+            found.append(
+                validate_extracted(item, section_title=section_title, chunk_text=chunk_text)
+            )
+        # `ValueError`, not `ValidationError`: ADR-033's section guard is not a
+        # field rule and raises plainly, and `ValidationError` subclasses
+        # `ValueError`, so this catches both without knowing which rule refused.
+        except ValueError as exc:
+            reason = f"model output did not match the obligation schema: {exc}"
+            reasons.append(reason)
+            if on_drop is not None:
+                on_drop(reason)
+
+    # Nothing validated out of something the model did return: that is a wholly
+    # broken answer, not a passage without duties, and ADR-030 keeps it a
+    # rejected chunk. An empty list is the ordinary case and stays an answer.
+    if reasons and not found:
+        raise ValueError(reasons[0])
+    return found

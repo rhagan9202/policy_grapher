@@ -8,6 +8,7 @@ from policy_grapher.extraction.schema import (
     is_responsibilities_section,
     obligation_id,
     validate_extracted,
+    validate_items,
 )
 
 
@@ -590,3 +591,34 @@ def test_an_assigned_actor_is_exempt_because_it_comes_from_the_heading():
         },
         section_title="RESPONSIBILITIES",
     )
+
+
+_GOOD = {
+    "statement": "The Director shall notify the Comptroller.",
+    "modality": "SHALL",
+    "actor": "The Director",
+    "deadline": None,
+    "conditions": None,
+    "confidence": 0.9,
+}
+_BAD = {**_GOOD, "modality": None}
+_CHUNK = "The Director shall notify the Comptroller.\n"
+
+
+def test_validate_items_drops_the_bad_item_and_keeps_its_sibling():
+    dropped: list[str] = []
+    found = validate_items(
+        [_GOOD, _BAD], section_title=None, chunk_text=_CHUNK, on_drop=dropped.append
+    )
+    assert [o.statement for o in found] == [_GOOD["statement"]]
+    assert len(dropped) == 1
+    assert dropped[0].startswith("model output did not match the obligation schema")
+
+
+def test_validate_items_rejects_a_chunk_where_nothing_validated():
+    with pytest.raises(ValueError, match="did not match the obligation schema"):
+        validate_items([_BAD], section_title=None, chunk_text=_CHUNK, on_drop=None)
+
+
+def test_validate_items_treats_an_empty_list_as_an_answer():
+    assert validate_items([], section_title=None, chunk_text=_CHUNK, on_drop=None) == []
