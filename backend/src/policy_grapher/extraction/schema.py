@@ -6,6 +6,7 @@ and the contract has to hold identically on both or the port is not a port.
 """
 
 import hashlib
+import json
 import re
 from collections.abc import Callable
 from enum import StrEnum
@@ -328,6 +329,42 @@ class ExtractionPayload(BaseModel):
     """
 
     obligations: list[ExtractedObligation]
+
+
+class MalformedAnswer(ValueError):
+    """A model answer of the wrong shape: a list where an object belongs, and so on.
+
+    A `ValueError` rather than the `TypeError` a type check would usually raise,
+    on purpose: `ValueError` is the one exception rebuild.py catches as a cost to
+    the chunk (ADR-023), and a malformed answer is a failure of model output, not
+    of the run.
+    """
+
+
+def payload_items(raw: str) -> list:
+    """The `obligations` list out of a model's answer text, or a ValueError.
+
+    Every shape that is not `{"obligations": [...]}` is refused here as a
+    `ValueError` (`MalformedAnswer`), because that is the one exception rebuild.py catches as a cost
+    to the chunk: a `TypeError` from a list where an object belongs would end a
+    whole rebuild over one chunk's malformed answer. A missing `obligations` is
+    read as none, which is what a model saying nothing looks like.
+    """
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"model output was not JSON: {raw[:200]!r}") from exc
+    if not isinstance(payload, dict):
+        raise MalformedAnswer(
+            f"model output was not an object but {type(payload).__name__}: {raw[:200]!r}"
+        )
+    items = payload.get("obligations", [])
+    if not isinstance(items, list):
+        raise MalformedAnswer(
+            f"model output's obligations was not a list but {type(items).__name__}: "
+            f"{raw[:200]!r}"
+        )
+    return items
 
 
 def validate_items(

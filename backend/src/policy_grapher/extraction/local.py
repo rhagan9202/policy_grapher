@@ -5,7 +5,6 @@ but it is an optimisation: every response is validated against our own schema
 regardless, because that is what keeps behaviour identical across adapters.
 """
 
-import json
 import time
 from collections.abc import Callable
 
@@ -15,6 +14,8 @@ from policy_grapher.extraction.prompt import EXTRACTION_PROMPT
 from policy_grapher.extraction.schema import (
     ExtractedObligation,
     ExtractionPayload,
+    MalformedAnswer,
+    payload_items,
     validate_items,
 )
 
@@ -151,6 +152,10 @@ class LocalExtractor:
         response = self._post_with_retries(chunk_text, section_path)
         response.raise_for_status()
         body = response.json()
+        if not isinstance(body, dict) or not isinstance(body.get("response"), str):
+            raise MalformedAnswer(
+                f"the model server's answer had no response text: {str(body)[:200]!r}"
+            )
         raw = body["response"]
 
         # Truncation makes the JSON invalid, so this chunk would be rejected
@@ -166,13 +171,8 @@ class LocalExtractor:
                 f"that never stops needs the cap."
             )
 
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"model output was not JSON: {raw[:200]!r}") from exc
-
         return validate_items(
-            payload.get("obligations", []),
+            payload_items(raw),
             section_title=section_title,
             chunk_text=chunk_text,
             on_drop=on_drop,

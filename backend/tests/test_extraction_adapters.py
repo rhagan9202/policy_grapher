@@ -390,6 +390,37 @@ def test_an_empty_answer_is_still_not_a_rejection():
     assert extractor.extract(PASSAGE, section_path=["1.1"]) == []
 
 
+@pytest.mark.parametrize(
+    "payload,named",
+    [
+        ({"obligations": None}, "obligations"),
+        ({"obligations": "none"}, "obligations"),
+        ([VALID], "not an object"),
+    ],
+    ids=["obligations-null", "obligations-string", "payload-is-a-list"],
+)
+def test_a_wrongly_shaped_answer_costs_its_chunk_not_the_run(payload, named):
+    """rebuild.py catches ValueError only; a TypeError or AttributeError from a
+    malformed answer would end a whole rebuild on one chunk's bad output."""
+    with pytest.raises(ValueError, match=named):
+        _local(payload).extract(PASSAGE, section_path=["1.1"])
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"done": True}, {"response": None}, {"response": {"obligations": []}}, ["x"]],
+    ids=["missing", "null", "object", "body-is-a-list"],
+)
+def test_a_server_answer_without_response_text_costs_its_chunk(body):
+    extractor = LocalExtractor(
+        base_url="http://model",
+        model="test-model",
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=body)),
+    )
+    with pytest.raises(ValueError, match="no response text"):
+        extractor.extract(PASSAGE, section_path=["1.1"])
+
+
 def test_every_adapter_accepts_the_drop_reporter():
     """The port changed, so the adapters that never drop anything still have to
     honour the signature — otherwise the caller has to know which is which."""
